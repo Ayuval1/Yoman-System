@@ -32,6 +32,8 @@
 ## 📁 קבצים שנגעתי בהם
 **נוצרו:** `api/intake.js`, `api/cron-plan.js`, `db/schema.sql`, `vercel.json`, `package.json`, `package-lock.json`, `.gitignore`, `docs/22-handoff-note-2026-10-05-step1.md`.
 
-**שונו:** `docs/02-build-plan.md` (שורת שלב 1 והערת השלד), `docs/05-open-questions.md` (שורת "שלב 1 — הנחות"). מחוץ לריפו: קובץ הזיכרון `project_yoman_system.md`.
+**שונו:** `docs/02-build-plan.md` (שורת שלב 1 והערת השלד), `docs/05-open-questions.md` (שורת "שלב 1 — הנחות"), `docs/01-system-overview.md` (שתי שורות החלטה: Neon וסודות; שורה ב"מה נפסל"), `docs/04-working-method.md` (שני כללי עבודה וסעיף "עבודה עם הדפדפן של יובל"), `.claude/skills/yoman-builder/reference/open-items.md` ו-`precedence.md` (חיבור הריפו נסגר). מחוץ לריפו: קובץ הזיכרון `project_yoman_system.md`.
+
+**לא שונה בכוונה:** `docs/00-project-instructions.md` (`CLAUDE.md` גובר), ולכן אין צורך להעתיק הוראות פרויקט מחדש.
 
 **נקראו בלבד:** `CLAUDE.md`, `docs/06-db-schema.md`, `docs/14`, `docs/15`, `docs/17`, `docs/20`, `docs/03-app-channel-rules.md`, וקבצי הסקיל `yoman-builder`.
