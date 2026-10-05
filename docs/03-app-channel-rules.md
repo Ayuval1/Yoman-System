@@ -275,7 +275,7 @@ app_badge = הודעות שלא נקראו + פריטים שיובל לא ענה
 | האם יש פעולת "הוסף 1" | **לא.** `setAppBadge(n)` קובע ערך מוחלט ודורס את הקודם |
 | האם המספר עולה לבד כשמגיעה התראה | **לא.** אין עלייה אוטומטית — השולח מחשב ושולח |
 | מה `app_badge` בדחיפה ההצהרתית עושה | נושא את המספר שהשרת חישב; אפל מתארת אותו כ"unread counts" |
-| איפוס | `clearAppBadge()` מהאפליקציה, או שליחת 0 |
+| איפוס | `clearAppBadge()` מהאפליקציה. ⚠️ "שליחת 0" מהשרת אינה מאפסת: זו דחיפה שקטה, ואפל אינה תומכת בה (`10`, ממצא 1) |
 | תנאי | המספר מוצג רק אם אושרו התראות — מתקיים אצלנו |
 
 מקורות: [WebKit — Meet Declarative Web Push](https://webkit.org/blog/16535/meet-declarative-web-push/) · [WebKit — Badging for Home Screen Web Apps](https://webkit.org/blog/14112/badging-for-home-screen-web-apps/) · [MDN — Display a badge on the app icon](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/How_to/Display_badge_on_app_icon) · [WWDC25 — Declarative Web Push](https://developer.apple.com/videos/play/wwdc2025/235/)

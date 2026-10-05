@@ -487,7 +487,7 @@ body {
 <meta charset="utf-8">
 <!-- viewport-fit=cover — בלעדיו התוכן נחתך מתחת לסרגל הבית של האייפון -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>היומן</title>
+<title>מערכת יומן</title>
 
 <!-- ============================================================
      האייקון — התג היחיד ש-iOS קורא בפועל.
@@ -504,7 +504,7 @@ body {
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="היומן">
+<meta name="apple-mobile-web-app-title" content="מערכת יומן">
 <meta name="theme-color" content="#0A7A36">
 
 <link rel="stylesheet" href="/tokens.css">
@@ -624,8 +624,8 @@ document.getElementById('composer').addEventListener('submit', e => {
 
 ```json
 {
-  "name": "היומן",
-  "short_name": "היומן",
+  "name": "מערכת יומן",
+  "short_name": "מערכת יומן",
   "description": "מערכת הניהול האישית — יומן, משימות והתחייבויות",
   "lang": "he",
   "dir": "rtl",
@@ -699,7 +699,7 @@ self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch { data = {}; }
 
-  const title = data.title || 'היומן';
+  const title = data.title || 'מערכת יומן';
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',
@@ -809,7 +809,7 @@ DATABASE_URL=
 ## `README.md`
 
 ````markdown
-# היומן — מערכת הניהול האישית
+# מערכת יומן — מערכת הניהול האישית
 
 אפליקציית ווב (PWA) על האייפון. קלט, פלט, אישורים ושאלות — הכול שם.
 
