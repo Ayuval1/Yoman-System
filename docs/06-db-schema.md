@@ -227,7 +227,7 @@
 | 2. `file_id` | **לא נוסף** — כפי שסומן |
 | 3. `channel` | `app` · `shortcut` · `calendar` · `system` · `file` |
 
-**נפסלו:** base64 במסד (Neon — 0.5GB לכל המערכת; כשמתמלא *"inserts, updates, deletes"* נכשלים — תמונות יכולות לעצור את היומן) · שמירה באפליקציה (הקיצור שולח לשרת, והאפליקציה אינה מאחסנת) · Google Drive (בחירת יובל) · Cloudflare R2 (דורש כרטיס אשראי) · Supabase (מושהה אחרי שבוע בלי שימוש).
+**נפסלו:** base64 במסד (Neon — 1GB לפרויקט מ-2.10.2026, קודם 0.5GB; מקור: https://neon.com/docs/changelog/2026-10-02; כשמתמלא *"inserts, updates, deletes"* נכשלים — תמונות יכולות לעצור את היומן) · שמירה באפליקציה (הקיצור שולח לשרת, והאפליקציה אינה מאחסנת) · Google Drive (בחירת יובל) · Cloudflare R2 (דורש כרטיס אשראי) · Supabase (מושהה אחרי שבוע בלי שימוש).
 
 **אילוץ מחייב — נשמר:** עלות אפס. Vercel Blob ב-Hobby: *"you will not pay for any additional usage"*; מעבר לתקרה — נחסם ל-30 יום. [מקור](https://vercel.com/docs/vercel-blob/usage-and-pricing)
 
