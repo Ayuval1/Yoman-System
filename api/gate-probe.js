@@ -21,6 +21,19 @@ const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const PASS_THRESHOLD = 0.9; // מוצע, לא אושר (15)
 
+// מגבלות מסלול חינמי של Gemini 3.8 Flash אצל יובל (AI Studio): 5 בקשות לדקה, 20 ביום.
+// חישוב ההשהיה: 60 שניות / 5 בקשות = 12 שניות בין קריאות, ועוד שנייה מרווח = 13 שניות.
+// קבוצה של 10 משפטים = 9 השהיות * 13 = 117 שניות (ההשהיה לא לפני הראשונה).
+const CALL_GAP_MS = 13000;
+const MAX_BATCH = 10; // 20 ביום: שתי קבוצות של 10 בשני ימים נפרדים.
+
+// הנחה, לא אומת: ש-Fluid Compute פעיל בפרויקט. לפי vercel.com/docs/functions/configuring-functions/duration
+// (עודכן 24.8.2026) ב-Hobby עם Fluid Compute ברירת המחדל והמקסימום הם 300 שניות.
+// הנחה, לא אומת: שהפורמט export const config = { maxDuration } נקרא גם כשה-handler הוא "export default { fetch }".
+export const config = { maxDuration: 300 };
+
+const realSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const ALLOWED_ACTIONS = ['create_reminder', 'create_event', 'query_schedule', 'ask_clarification'];
 const ALLOWED_WHEN = ['today', 'today_afternoon', 'today_evening', 'tomorrow', 'tomorrow_morning', 'in_2_hours', 'this_week', 'next_week', null];
 
@@ -118,6 +131,7 @@ export async function handle(request, {
   apiKey = process.env.GEMINI_API_KEY,
   fetchFn = fetch,
   sentences,
+  sleep = realSleep, // ניתן להזרקה כדי שבדיקות לא ימתינו באמת
 }) {
   if (request.method !== 'GET') {
     return reply(405, 'Method Not Allowed');
@@ -129,19 +143,40 @@ export async function handle(request, {
   if (!secretsMatch(request.headers.get('authorization'), `Bearer ${secret}`)) {
     return reply(401, 'Unauthorized');
   }
+  // פרמטרים: from (ברירת מחדל 0) ו-count (ברירת מחדל 10, מקסימום 10). ערך לא תקין - 400, בלי קריאה ל-Gemini.
+  const params = new URL(request.url).searchParams;
+  const fromRaw = params.get('from') ?? '0';
+  const countRaw = params.get('count') ?? String(MAX_BATCH);
+  if (!/^[0-9]{1,6}$/.test(fromRaw) || !/^[0-9]{1,6}$/.test(countRaw)) {
+    return reply(400, 'from ו-count חייבים להיות מספרים שלמים לא שליליים.');
+  }
+  const from = Number(fromRaw);
+  const count = Number(countRaw);
+  if (count < 1 || count > MAX_BATCH) {
+    return reply(400, `count חייב להיות בין 1 ל-${MAX_BATCH}.`);
+  }
   // בלי מפתח - לא קוראים ל-API.
   if (!apiKey) {
     console.error('GEMINI_API_KEY לא מוגדר בשרת');
     return reply(500, 'GEMINI_API_KEY לא מוגדר בשרת. מוסיפים אותו ב-Vercel (Sensitive) ופורסים מחדש.');
   }
 
-  const items = sentences ?? loadSentences();
+  const allItems = sentences ?? loadSentences();
+  if (from >= allItems.length) {
+    return reply(400, `from חורג: יש ${allItems.length} משפטים (from מ-0 עד ${allItems.length - 1}).`);
+  }
+  const items = allItems.slice(from, from + count);
   const failedIds = [];
+  const notRunIds = []; // לא רצו כי נעצרנו: לא נספרים ככישלון איכות.
   let passed = 0;
+  let ran = 0;
   let abortedAt = null;
   const problems = []; // אבחון: id + status + הודעה קצרה לכל משפט שנכשל (בלי תוכן משפט).
 
   for (const item of items) {
+    // השהיה בין קריאות (לא לפני הראשונה), כדי לא לחרוג מ-5 בקשות לדקה.
+    if (ran > 0) await sleep(CALL_GAP_MS);
+    ran += 1;
     const startedAt = Date.now();
     let result;
     try {
@@ -174,18 +209,18 @@ export async function handle(request, {
       problems.push(`${item.id} [${result.status ?? 'net'}] ${safeMessage(reason, apiKey, item.text)}`);
     }
 
-    // 429 או רשת: עוצרים. המשפטים שנותרו לא רצו ונספרים ככישלון.
-    if (result.status === 429 || result.status === null) {
+    // 429, רשת או כל 5xx (למשל 503): עוצרים כדי לא לבזבז מכסה. המשפטים שנותרו מסומנים not-run.
+    if (result.status === 429 || result.status === null || result.status >= 500) {
       abortedAt = item.id;
       const index = items.indexOf(item);
-      for (const rest of items.slice(index + 1)) failedIds.push(rest.id);
+      for (const rest of items.slice(index + 1)) notRunIds.push(rest.id);
       break;
     }
   }
 
-  const total = items.length;
-  const ok = abortedAt === null && passed / total >= PASS_THRESHOLD;
-  const detail = `${passed}/${total}; failed: ${failedIds.join(',') || 'none'}${abortedAt ? `; aborted_at=${abortedAt}` : ''}; model=${GEMINI_MODEL}`;
+  const ok = abortedAt === null && ran > 0 && passed / ran >= PASS_THRESHOLD;
+  const range = `${items[0].id}-${items[items.length - 1].id}`;
+  const detail = `range=${range}; ${passed}/${items.length} ran=${ran}; failed: ${failedIds.join(',') || 'none'}${notRunIds.length ? `; not-run: ${notRunIds.join(',')}` : ''}${abortedAt ? `; aborted_at=${abortedAt}` : ''}; model=${GEMINI_MODEL}`;
   // אורך כולל מוגבל: הסיכום + פירוט הבעיות (id, סטטוס, הודעה קצרה) עד 1500 תווים.
   const fullDetail = (problems.length ? `${detail} | ${problems.join(' ; ')}` : detail).slice(0, 1500);
   try {
