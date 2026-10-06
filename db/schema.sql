@@ -132,3 +132,17 @@ CREATE TABLE IF NOT EXISTS probe_log (
   detail text,
   at     timestamptz NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- push_sends — dedupe בשליחת דחיפה (build-rules 28, step_retrying): אותו dedupe_key לאותו מנוי לא נשלח פעמיים.
+-- הנחה, לא אומת: הצעה לשלב 4, לא אושרה. בכוונה בלי delivered_at / ack_at: הם תלויים בהכרעת ack / שירות-עובד (ממצא 2 ב-docs/14), נדחה.
+-- מיושם ב-Neon ידנית על ידי יובל (Vercel <- Storage <- Query), לא אוטומטית.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS push_sends (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  subscription_id uuid        REFERENCES push_subscriptions(id),
+  dedupe_key      text,
+  sent_at         timestamptz NOT NULL DEFAULT now(),
+  status_code     integer,
+  UNIQUE (subscription_id, dedupe_key)
+);
