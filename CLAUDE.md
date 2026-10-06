@@ -41,7 +41,7 @@
 6. `docs/02-rules/03-permissions-rules.md` — ההרשאות. המיפוי סגור ואין לפתוח אותו מחדש.
 7. `docs/02-rules/03-brain-module-rules.md` — מה שנטען לכל קריאה ל-Claude בזמן ריצה. נוגע לכל בלוק שמפעיל מודל.
 8. `docs/02-rules/03-sources-rules.md` — סמכות ואמינות מקורות: מי גובר בסתירה.
-9. `docs/02-rules/03-<תחום>-rules.md` של התחום שבו אתה עובד — חוקים תפעוליים.
+9. `docs/02-rules/03-<תחום>-rules.md` של התחום שבו אתה עובד — חוקים תפעוליים. **וגם `docs/03-working-method/24-working-with-yuval.md` — איך להדריך את יובל ומה תוקן אצלו שוב ושוב.**
 10. `docs/05-chapter7/14-chapter7-stress-round.md`, `docs/05-chapter7/15-gate-success-criteria.md`, `docs/06-handoff-notes/16-handoff-note-2026-10-04.md` — מצב פרק 7.
 
 אל תשאל את יובל על משהו שכבר כתוב באחד מהם.
