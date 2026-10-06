@@ -1,0 +1,25 @@
+{
+  "_note": "טיוטה ליובל לתקן. 20 משפטים לבדיקת השער (docs/05-chapter7/15). בלי שמות, טלפונים וכתובות. expected.action: create_reminder / create_event / query_schedule / ask_clarification. expected.when: today_evening / tomorrow / tomorrow_morning / in_2_hours / this_week / null (בלי מועד).",
+  "sentences": [
+    { "id": "s01", "text": "תזכיר לי מחר בבוקר לארוז תיק לאימון ריצה", "expected": { "action": "create_reminder", "when": "tomorrow_morning" } },
+    { "id": "s02", "text": "יש לי אימון קצב ביום חמישי בארבע וחצי", "expected": { "action": "create_event", "when": "this_week" } },
+    { "id": "s03", "text": "מה יש לי מחר בלוז?", "expected": { "action": "query_schedule", "when": "tomorrow" } },
+    { "id": "s04", "text": "תזכיר לי בעוד שעתיים לשתות ולאכול משהו לפני האימון", "expected": { "action": "create_reminder", "when": "in_2_hours" } },
+    { "id": "s05", "text": "מבחן במתמטיקה ביום שלישי, תכניס ליומן", "expected": { "action": "create_event", "when": "this_week" } },
+    { "id": "s06", "text": "מתי יש לי אימון השבוע?", "expected": { "action": "query_schedule", "when": "this_week" } },
+    { "id": "s07", "text": "תזכיר לי הערב להכין את התיק לבית ספר", "expected": { "action": "create_reminder", "when": "today_evening" } },
+    { "id": "s08", "text": "יש פגישת הורים בבית ספר מחר ב-18:00", "expected": { "action": "create_event", "when": "tomorrow" } },
+    { "id": "s09", "text": "אני פנוי היום אחר הצהריים?", "expected": { "action": "query_schedule", "when": null } },
+    { "id": "s10", "text": "להגיש את העבודה בהיסטוריה", "expected": { "action": "ask_clarification", "when": null } },
+    { "id": "s11", "text": "תזכיר לי לעשות שיעורי בית בחשבון הערב", "expected": { "action": "create_reminder", "when": "today_evening" } },
+    { "id": "s12", "text": "תקבע לי ריצה ארוכה בשבת בבוקר", "expected": { "action": "create_event", "when": "this_week" } },
+    { "id": "s13", "text": "מה יש לי היום אחרי בית ספר?", "expected": { "action": "query_schedule", "when": null } },
+    { "id": "s14", "text": "אני צריך לזכור את זה", "expected": { "action": "ask_clarification", "when": null } },
+    { "id": "s15", "text": "תזכיר לי מחר לקחת נעליים לאימון", "expected": { "action": "create_reminder", "when": "tomorrow" } },
+    { "id": "s16", "text": "יש תחרות ריצה של 5 קילומטר בשבוע הבא", "expected": { "action": "create_event", "when": null } },
+    { "id": "s17", "text": "מה התוכנית שלי למחר?", "expected": { "action": "query_schedule", "when": "tomorrow" } },
+    { "id": "s18", "text": "בשבוע הבא אחרי זה", "expected": { "action": "ask_clarification", "when": null } },
+    { "id": "s19", "text": "תזכיר לי בעוד שעתיים להתחיל להתכונן לאימון", "expected": { "action": "create_reminder", "when": "in_2_hours" } },
+    { "id": "s20", "text": "יש לי שיעור פרטי באנגלית מחר בבוקר", "expected": { "action": "create_event", "when": "tomorrow_morning" } }
+  ]
+}
