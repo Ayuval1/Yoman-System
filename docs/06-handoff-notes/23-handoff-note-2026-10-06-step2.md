@@ -39,10 +39,10 @@
 מצב Plan: שלב 3 (השער: קריאת Haiku אחת ב-Sandbox עם הטוקן) אחרי סיכום ואישור מפורש. קודם לבדוק שהסקיל `yoman-builder` ברשימה, ולקרוא את `15` (קריטריוני השער, הספים "מוצע").
 
 ## 📁 קבצים שנגעתי בהם
-**נוצרו:** `docs/23-handoff-note-2026-10-06-step2.md`.
+**נוצרו:** `docs/06-handoff-notes/23-handoff-note-2026-10-06-step2.md`.
 
-**שונו:** `docs/02-build-plan.md` (שורת שלב 2), `docs/05-open-questions.md` (שורת "שלב 1 — הנחות", ושורה חדשה "שלב 2 — פתוח").
+**שונו:** `docs/01-foundation/02-build-plan.md` (שורת שלב 2), `docs/01-foundation/05-open-questions.md` (שורת "שלב 1 — הנחות", ושורה חדשה "שלב 2 — פתוח").
 
-**לא שונה בכוונה:** `api/intake.js`, `api/cron-plan.js`, `db/schema.sql`, `vercel.json`, `docs/00-project-instructions.md`, `docs/אפיון.md`, `docs/03-permissions-rules.md`. לא נכנס שום סוד לקבצים.
+**לא שונה בכוונה:** `api/intake.js`, `api/cron-plan.js`, `db/schema.sql`, `vercel.json`, `docs/01-foundation/00-project-instructions.md`, `docs/01-foundation/אפיון.md`, `docs/02-rules/03-permissions-rules.md`. לא נכנס שום סוד לקבצים.
 
-**נקראו בלבד:** `CLAUDE.md`, `docs/22`, `docs/10`, `docs/03-app-channel-rules.md`, `docs/04-working-method.md`, וקבצי הסקיל `yoman-builder`.
+**נקראו בלבד:** `CLAUDE.md`, `docs/22`, `docs/10`, `docs/02-rules/03-app-channel-rules.md`, `docs/03-working-method/04-working-method.md`, וקבצי הסקיל `yoman-builder`.
