@@ -79,12 +79,12 @@
 - המערכת לא מנהלת עסק; רק תג על אירוע ביומן "פרויקטים".
 
 ## 9. איך לעבוד בסשן הזה
-0. **קרא קודם, בסדר הזה:** `CLAUDE.md` · `docs/02-build-plan.md` (בראשו פתק מצביע) · `docs/16-handoff-note-2026-10-04.md` · `docs/14-chapter7-stress-round.md` · `docs/15-gate-success-criteria.md` · `docs/05-open-questions.md`. אל תטען את כל המסמכים בבת אחת (מכסת ה-Pro של יובל משותפת) — פתח מסמך נוסף רק כשהמשימה נוגעת בו.
-0א. **בדוק סתירה:** האם `docs/00-project-instructions.md` תואם ל-`CLAUDE.md`. **`CLAUDE.md` גובר** (הוא ההוראות החיות). סתירה — דווח ליובל, אל תתקן לבד.
+0. **קרא קודם, בסדר הזה:** `CLAUDE.md` · `docs/01-foundation/02-build-plan.md` (בראשו פתק מצביע) · `docs/06-handoff-notes/16-handoff-note-2026-10-04.md` · `docs/05-chapter7/14-chapter7-stress-round.md` · `docs/05-chapter7/15-gate-success-criteria.md` · `docs/01-foundation/05-open-questions.md`. אל תטען את כל המסמכים בבת אחת (מכסת ה-Pro של יובל משותפת) — פתח מסמך נוסף רק כשהמשימה נוגעת בו.
+0א. **בדוק סתירה:** האם `docs/01-foundation/00-project-instructions.md` תואם ל-`CLAUDE.md`. **`CLAUDE.md` גובר** (הוא ההוראות החיות). סתירה — דווח ליובל, אל תתקן לבד.
 1. **קרא את הריפו** ורשום מה יש. **אל תשנה כלום.**
 2. **הצע תוכנית לשלב 1** במצב Plan: רשימת קבצים, ושדות לכל טבלה לפי סעיף 6, ושאלות פתוחות. אל תכתוב קוד לפני "כן".
 3. אם חסר לך מידע — **שאל את יובל שאלה אחת**, או כתוב "אין באפשרותי לאשר זאת" ומה חסר.
 4. כל שינוי = ענף ו-PR. ההסבר ב-PR בעברית, קצר.
 5. **בסוף שלב 1 — דוח קצר:** מה נבנה, מה אומת (עם איך), מה לא אומת, ומה צריך יובל לעשות (למשל להכניס סוד ב-Vercel).
-6. **קרא מסמך בפועל לפני שאתה מצטט אותו** (`docs/01-system-overview.md`, `06-db-schema.md`, `03-scheduling-rules.md`, `03-app-channel-rules.md`) — אל תשחזר מזיכרון.
-7. **סוף שלב:** עדכן ב-`docs/02-build-plan.md` ו-`05-open-questions.md` רק אחרי אישור מפורש של יובל, וקרא את הקובץ מחדש רגע לפני כל כתיבה.
+6. **קרא מסמך בפועל לפני שאתה מצטט אותו** (`docs/01-foundation/01-system-overview.md`, `06-db-schema.md`, `03-scheduling-rules.md`, `03-app-channel-rules.md`) — אל תשחזר מזיכרון.
+7. **סוף שלב:** עדכן ב-`docs/01-foundation/02-build-plan.md` ו-`05-open-questions.md` רק אחרי אישור מפורש של יובל, וקרא את הקובץ מחדש רגע לפני כל כתיבה.
