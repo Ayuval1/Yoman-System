@@ -21,11 +21,16 @@ function secretsMatch(given, expected) {
   return timingSafeEqual(a, b);
 }
 
+// מסיר רווחים וירידות שורה בתחילת/סוף הערך (ערך שהועתק מקובץ מגיע עם ירידת שורה). ריק אחרי ניקוי = חסר.
+function cleanEnv(value) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
 function vapidConfigFromEnv() {
   return {
-    subject: process.env.VAPID_SUBJECT,
-    publicKey: process.env.VAPID_PUBLIC_KEY,
-    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: cleanEnv(process.env.VAPID_SUBJECT),
+    publicKey: cleanEnv(process.env.VAPID_PUBLIC_KEY),
+    privateKey: cleanEnv(process.env.VAPID_PRIVATE_KEY),
   };
 }
 

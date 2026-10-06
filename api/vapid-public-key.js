@@ -9,7 +9,9 @@ function reply(status, body) {
 
 export async function handle(request, { env = process.env } = {}) {
   if (request.method !== 'GET') return reply(405, 'Method Not Allowed');
-  const key = env[KEY_ENV_NAME];
+  // trim: ערך שהועתק מקובץ מגיע עם ירידת שורה; ריק אחרי ניקוי = חסר.
+  const raw = env[KEY_ENV_NAME];
+  const key = typeof raw === 'string' ? raw.trim() : raw;
   if (!key) {
     console.error(`${KEY_ENV_NAME} לא מוגדר בשרת`);
     return reply(500, 'מפתח VAPID ציבורי לא מוגדר בשרת.');
