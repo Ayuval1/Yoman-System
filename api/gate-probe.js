@@ -22,7 +22,7 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 const PASS_THRESHOLD = 0.9; // מוצע, לא אושר (15)
 
 const ALLOWED_ACTIONS = ['create_reminder', 'create_event', 'query_schedule', 'ask_clarification'];
-const ALLOWED_WHEN = ['today_evening', 'tomorrow', 'tomorrow_morning', 'in_2_hours', 'this_week', null];
+const ALLOWED_WHEN = ['today', 'today_afternoon', 'today_evening', 'tomorrow', 'tomorrow_morning', 'in_2_hours', 'this_week', 'next_week', null];
 
 const INSTRUCTIONS = `אתה מפרש הודעות קצרות בעברית של נער בן 14 ליומן אישי.
 החזר JSON בלבד, בלי טקסט נוסף, בצורה: {"action": "...", "when": "..."}
