@@ -66,6 +66,29 @@ function isCorrect(actual, expected) {
   );
 }
 
+// אבחון: מוציא מגוף שגיאה של Google רק error.status/error.message (JSON), חתוך ל-200 תווים.
+// גוף שאינו JSON (או בלי error) - רק הסטטוס. לא נרשמים כותרות, בקשה או מפתח.
+async function describeHttpError(response) {
+  let extra = '';
+  try {
+    const body = JSON.parse(await response.text());
+    const parts = [body?.error?.status, body?.error?.message].filter((p) => typeof p === 'string' && p.length > 0);
+    extra = parts.join(': ').slice(0, 200);
+  } catch {
+    extra = '';
+  }
+  return extra ? `HTTP ${response.status} ${extra}` : `HTTP ${response.status}`;
+}
+
+// מסיר מהודעה כל הופעה של המפתח או של תוכן המשפט, ומקצר. בטיחות נוספת - לא אמור להופיע שם בכלל.
+function safeMessage(message, apiKey, sentenceText) {
+  let out = String(message ?? '');
+  for (const secretValue of [apiKey, sentenceText]) {
+    if (secretValue) out = out.split(secretValue).join('[הוסר]');
+  }
+  return out.slice(0, 220);
+}
+
 // קורא ל-Gemini פעם אחת. לא עושה ניסיון חוזר.
 async function askGemini(fetchFn, apiKey, text) {
   const response = await fetchFn(GEMINI_URL, {
@@ -77,7 +100,7 @@ async function askGemini(fetchFn, apiKey, text) {
     }),
   });
   if (!response.ok) {
-    return { status: response.status, parsed: null, error: `HTTP ${response.status}` };
+    return { status: response.status, parsed: null, error: await describeHttpError(response) };
   }
   try {
     const data = await response.json();
@@ -116,6 +139,7 @@ export async function handle(request, {
   const failedIds = [];
   let passed = 0;
   let abortedAt = null;
+  const problems = []; // אבחון: id + status + הודעה קצרה לכל משפט שנכשל (בלי תוכן משפט).
 
   for (const item of items) {
     const startedAt = Date.now();
@@ -127,6 +151,8 @@ export async function handle(request, {
       result = { status: null, parsed: null, error: `שגיאת רשת: ${error?.message}` };
     }
 
+    // ההודעה נוקה לפני שהיא נרשמת (ב-call_log וגם בתשובה): בלי מפתח ובלי תוכן משפט, ומקוצרת.
+    if (result.error !== null) result.error = safeMessage(result.error, apiKey, item.text);
     const correct = result.error === null && isCorrect(result.parsed, item.expected);
     const callOk = result.error === null;
     try {
@@ -143,6 +169,9 @@ export async function handle(request, {
       passed += 1;
     } else {
       failedIds.push(item.id);
+      // תשובה שגויה של המודל (בלי שגיאה): נרשמים רק הערכים שהחזיר, חתוכים.
+      const reason = result.error ?? `wrong answer: action=${String(result.parsed?.action).slice(0, 30)} when=${String(result.parsed?.when).slice(0, 30)}`;
+      problems.push(`${item.id} [${result.status ?? 'net'}] ${safeMessage(reason, apiKey, item.text)}`);
     }
 
     // 429 או רשת: עוצרים. המשפטים שנותרו לא רצו ונספרים ככישלון.
@@ -157,14 +186,16 @@ export async function handle(request, {
   const total = items.length;
   const ok = abortedAt === null && passed / total >= PASS_THRESHOLD;
   const detail = `${passed}/${total}; failed: ${failedIds.join(',') || 'none'}${abortedAt ? `; aborted_at=${abortedAt}` : ''}; model=${GEMINI_MODEL}`;
+  // אורך כולל מוגבל: הסיכום + פירוט הבעיות (id, סטטוס, הודעה קצרה) עד 1500 תווים.
+  const fullDetail = (problems.length ? `${detail} | ${problems.join(' ; ')}` : detail).slice(0, 1500);
   try {
-    await sql`INSERT INTO probe_log (probe, ok, detail) VALUES ('gate-gemini', ${ok}, ${detail})`;
+    await sql`INSERT INTO probe_log (probe, ok, detail) VALUES ('gate-gemini', ${ok}, ${fullDetail})`;
   } catch (error) {
     console.error('gate-probe: כתיבה ל-probe_log נכשלה:', error?.message);
     return reply(500, 'Internal Server Error');
   }
 
-  return reply(200, `${ok ? 'עבר' : 'לא עבר'}: ${detail}`);
+  return reply(200, `${ok ? 'עבר' : 'לא עבר'}: ${fullDetail}`);
 }
 
 // הנחה, לא אומת: פורמט "export default { fetch }" - ראו הערה ב-api/intake.js.
