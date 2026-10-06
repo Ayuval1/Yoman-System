@@ -5,8 +5,6 @@
 <!-- viewport-fit=cover — בלעדיו התוכן נחתך מתחת לסרגל הבית של האייפון -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>מערכת יומן</title>
-<!-- המפתח הציבורי של VAPID (לא סוד). ריק עד שיוכרע מאיפה הוא מגיע. -->
-<meta name="vapid-public-key" content="">
 
 <!-- ============================================================
      האייקון — התג היחיד ש-iOS קורא בפועל.
@@ -157,12 +155,24 @@ export async function enablePush(vapidPublicKey) {
   return res.ok ? { ok: true } : { ok: false, reason: 'הרישום נכשל' };
 }
 
+// --- הכפתור זמני: מוצג רק כשההתראות עוד לא הופעלו ---
+// לא אומת: getSubscription()/permissionState() על window.pushManager. webkit.org/blog/16535 לא מזכיר אותם,
+// ו-MDN מתעד getSubscription רק על ServiceWorkerRegistration. לכן הזיהוי הוא Notification.permission בלבד.
+// הגבלה: הרשאה שאושרה אבל רישום השרת נכשל (למשל סוד שגוי) יסתיר את הכפתור בטעינה הבאה.
 const pushBtn = document.getElementById('enablePush');
+const pushAlreadyOn = () => 'Notification' in window && Notification.permission === 'granted';
+if (pushAlreadyOn()) pushBtn.hidden = true;
+
 pushBtn.addEventListener('click', async () => {
-  const key = document.querySelector('meta[name="vapid-public-key"]')?.content || '';
   try {
-    const result = await enablePush(key);
-    pushBtn.textContent = result.ok ? 'התראות פעילות' : 'לא הצלחתי: ' + result.reason;
+    const keyRes = await fetch('/api/vapid-public-key');
+    if (!keyRes.ok) {
+      pushBtn.textContent = 'לא הצלחתי: המפתח לא התקבל מהשרת';
+      return;
+    }
+    const result = await enablePush((await keyRes.text()).trim());
+    if (result.ok) pushBtn.hidden = true;
+    else pushBtn.textContent = 'לא הצלחתי: ' + result.reason;
   } catch (err) {
     console.warn('[app] הפעלת התראות נכשלה', err);
     pushBtn.textContent = 'לא הצלחתי להפעיל התראות';
