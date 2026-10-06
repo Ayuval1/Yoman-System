@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover — בלעדיו התוכן נחתך מתחת לסרגל הבית של האייפון -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מערכת יומן</title>
+<!-- המפתח הציבורי של VAPID (לא סוד). ריק עד שיוכרע מאיפה הוא מגיע. -->
+<meta name="vapid-public-key" content="">
+
+<!-- ============================================================
+     האייקון — התג היחיד ש-iOS קורא בפועל.
+     ⚠️ iOS מתעלם מ-icons שב-manifest.json. אל תסתמך עליו.
+     ⚠️ המטמון של התג הזה נקבע ברמת הדומיין ושורד מחיקה והוספה
+        מחדש של הקיצור. לכן: לא מתקינים על מסך הבית לפני
+        שהאייקון הסופי כבר בשרת.
+     ============================================================ -->
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180.png">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<link rel="manifest" href="/manifest.json">
+
+<!-- מסך מלא בלי סרגלי ספארי, כשמופעל ממסך הבית -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="מערכת יומן">
+<meta name="theme-color" content="#0A7A36">
+
+<link rel="stylesheet" href="/tokens.css">
+<style>
+  /* שלד בלבד. העיצוב המלא נגזר מ-design/mockups/ — ראה README. */
+  .app { display: flex; flex-direction: column; min-height: 100dvh; }
+
+  .hero {
+    position: relative; z-index: 2; color: #fff;
+    padding: calc(env(safe-area-inset-top) + 8px) 24px 44px;
+    background: linear-gradient(168deg, var(--deep2) 0%, var(--deep) 66%, #096B2F 100%);
+    border-radius: 0 0 var(--r-hero) var(--r-hero);
+    box-shadow: var(--sh-hero);
+  }
+  .hero h1 { font-size: var(--fs-title); font-weight: var(--fw-bold); letter-spacing: -.9px; }
+  .hero p  { font-size: 14.5px; opacity: .72; margin-top: 2px; }
+
+  .push-btn {
+    margin-top: 12px; border: 0; border-radius: var(--r-pill);
+    padding: 8px 16px; font: inherit; font-size: var(--fs-label);
+    color: var(--deep); background: #fff; font-weight: var(--fw-med);
+  }
+
+  .feed { flex: 1; padding: 0 16px 10px; display: flex; flex-direction: column; gap: 15px; }
+
+  .composer {
+    padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .composer input {
+    flex: 1; border: 0; background: var(--card);
+    border-radius: var(--r-pill); padding: 12px 18px;
+    font: inherit; color: var(--label); box-shadow: var(--sh-card3);
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <h1 id="today">—</h1>
+      <p id="todayDate"></p>
+      <button type="button" id="enablePush" class="push-btn">הפעל התראות</button>
+    </header>
+
+    <main class="feed" id="feed" aria-live="polite"></main>
+
+    <form class="composer" id="composer">
+      <input id="msg" placeholder="הודעה" autocomplete="off" enterkeyhint="send">
+    </form>
+  </div>
+
+<script type="module">
+// ============================================================
+// שלד לפרק 7. אין פה לוגיקה עסקית — רק מה שצריך כדי שה-PWA
+// יתקין, ירשם לדחיפה, וידע לעדכן את המספר על האייקון.
+// ============================================================
+
+const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני',
+                'יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+
+function paintDate(now = new Date()) {
+  document.getElementById('today').textContent = 'יום ' + DAYS[now.getDay()];
+  document.getElementById('todayDate').textContent =
+    `${now.getDate()} ב${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+}
+paintDate();
+
+// --- אין שירות-עובד (הכרעת שלב 4א): דחיפה הצהרתית, המערכת מציגה את ההתראה בעצמה ---
+// ⚠️ שירות-עובד שמציג התראה בעצמו מבטל את הפורמט ההצהרתי (ממצא 1, docs/05-chapter7/14).
+
+// --- המספר על האייקון ---
+// app_badge = הודעות שלא נקראו + פריטים שיובל לא ענה עליהם.
+// setAppBadge קובע ערך מוחלט; אין פעולת הגדלה. הספירה היא של השרת.
+// איפוס רק ב-clearAppBadge (לא "שליחת 0" מהשרת: זו דחיפה שקטה ואפל לא תומכת).
+export async function setBadge(count) {
+  if (!('setAppBadge' in navigator) || !('clearAppBadge' in navigator)) return false; // לא נתמך — לא נופלים
+  try {
+    count > 0 ? await navigator.setAppBadge(count) : await navigator.clearAppBadge();
+    return true;
+  } catch (err) {
+    console.warn('[app] badge נכשל', err);
+    return false;
+  }
+}
+
+// --- הרשמה לדחיפה (בלי שירות-עובד) ---
+// מקור: webkit.org/blog/16535 — "window.pushManager" לניהול מנוי בלי שירות-עובד.
+// ⚠️ לא אומת: שחובה מחווה של משתמש ב-subscribe עצמו (הפוסט לא אומר). מכאן נקראת רק מלחיצה.
+// ⚠️ ב-iOS ההרשאה נדרשת בתוך לחיצה, ורק כשהאפליקציה רצה ממסך הבית.
+// ⚠️ הנחה, ממתין לאישור יובל: הסוד נשאל ב-prompt ונשמר ב-localStorage. לא מוטמע בקוד,
+//    כי דף ווב חושף כל סוד שמוטמע בו. ההכרעה הסופית לא התקבלה.
+const SECRET_STORAGE_KEY = 'yoman_intake_secret';
+
+function urlBase64ToUint8Array(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+
+// vapidPublicKey: מחרוזת base64url של המפתח הציבורי (לא סוד). מגיע מהשרת/מתצורה, לא מוטבע כאן.
+export async function enablePush(vapidPublicKey) {
+  if (!('Notification' in window) || !window.pushManager) return { ok: false, reason: 'לא נתמך במכשיר הזה' };
+  if (!vapidPublicKey) return { ok: false, reason: 'חסר מפתח VAPID ציבורי' };
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return { ok: false, reason: 'ההרשאה לא אושרה' };
+
+  const subscription = await window.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+  });
+
+  let secret = null;
+  try { secret = localStorage.getItem(SECRET_STORAGE_KEY); } catch { /* אין אחסון */ }
+  if (!secret) {
+    secret = window.prompt('סוד הקליטה');
+    if (!secret) return { ok: false, reason: 'לא הוזן סוד' };
+    try { localStorage.setItem(SECRET_STORAGE_KEY, secret); } catch { /* ממשיכים בלי לשמור */ }
+  }
+
+  const res = await fetch('/api/push-subscribe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-intake-secret': secret },
+    body: JSON.stringify(subscription.toJSON()),
+  });
+  if (res.status === 401) {
+    try { localStorage.removeItem(SECRET_STORAGE_KEY); } catch { /* */ }
+    return { ok: false, reason: 'הסוד לא התקבל' };
+  }
+  return res.ok ? { ok: true } : { ok: false, reason: 'הרישום נכשל' };
+}
+
+const pushBtn = document.getElementById('enablePush');
+pushBtn.addEventListener('click', async () => {
+  const key = document.querySelector('meta[name="vapid-public-key"]')?.content || '';
+  try {
+    const result = await enablePush(key);
+    pushBtn.textContent = result.ok ? 'התראות פעילות' : 'לא הצלחתי: ' + result.reason;
+  } catch (err) {
+    console.warn('[app] הפעלת התראות נכשלה', err);
+    pushBtn.textContent = 'לא הצלחתי להפעיל התראות';
+  }
+});
+
+// ⚠️ אין כפתורים בהתראה באייפון — ספארי מתעלמת מ-actions.
+//    ההתראה פותחת את הצ'אט; האישור קורה בתוך האפליקציה.
+
+document.getElementById('composer').addEventListener('submit', e => {
+  e.preventDefault();
+  const input = document.getElementById('msg');
+  if (!input.value.trim()) return;
+  // פרק 8: שליחה לשרת הקליטה.
+  input.value = '';
+});
+</script>
+</body>
+</html>
