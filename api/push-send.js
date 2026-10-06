@@ -139,10 +139,11 @@ export async function handle(request, {
         counts.failed += 1;
         await sql`UPDATE push_subscriptions SET last_status = ${status} WHERE id = ${sub.id}`;
       }
-      // 410 ו-429: ההודעה בוודאות לא נמסרה, אז משחררים את התפיסה כדי שניסיון מאוחר עם אותו מפתח יעבוד.
+      // 410 ו-429: ההודעה בוודאות לא נמסרה, אז משחררים את המפתח הייחודי כדי שניסיון מאוחר עם אותו מפתח יעבוד.
+      // משחררים בלי למחוק (build-rules 31): השורה נשארת כיומן, ורק המפתח משתנה.
       // רשת/5xx: לא ברור אם נמסר - התפיסה נשארת (עדיף לא לשלוח פעמיים).
       if (claimed && (status === 410 || status === 429)) {
-        await sql`DELETE FROM push_sends WHERE subscription_id = ${sub.id} AND dedupe_key = ${dedupeKey}`;
+        await sql`UPDATE push_sends SET dedupe_key = dedupe_key || ':released:' || id::text, status_code = ${status} WHERE subscription_id = ${sub.id} AND dedupe_key = ${dedupeKey}`;
       }
     } catch (writeError) {
       console.error('push-send: עדכון מצב נכשל:', writeError?.name);
