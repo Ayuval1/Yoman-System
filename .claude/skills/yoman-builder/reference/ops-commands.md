@@ -88,4 +88,14 @@ python .claude/skills/yoman-builder/scripts/check-pointers.py --lines    # גם 
 | Redeploy של Production אחרי הוספת משתנה | `vercel redeploy <כתובת הפריסה האחרונה> --target production` | **אומת 7.10.2026** (הבנייה אורכת כ-20 שניות). לאמת אחר כך ב-`list_deployments` (`READY`, `target: production`). פעולה שפורסמת ל-Production: באישור יובל |
 | בדיקת Google בלי סוד | `GET /api/google-calendars` מחזיר `unauthorized`; `GET /api/google-auth-start` מחזיר `method_not_allowed` | **אומת 7.10.2026** בדפדפן. עם הסוד: רק יובל מריץ, ב-PowerShell |
 
+## 8. בדיקות קבועות ושאילתות במסד דרך Vercel (7.10.2026, סשן שני)
+
+| מה | איך | מצב |
+|---|---|---|
+| חבילת הבדיקות | `node --test "test/*.test.js"` (502 בדיקות). `node --test test/` נכשל ב-Node 24 | **אומת 7.10.2026** |
+| שאילתה או סכמה במסד | Vercel ← Storage ← Query. כיבוי מתג Read-only רק לפקודות CREATE (פקודה אחת בכל הרצה), והחזרתו אחר כך | **אומת** ליצירת `google_watch_channels` |
+| אימות טבלה | `select count(*) from information_schema.columns where table_name='google_watch_channels';` צפוי 12 | **אומת** |
+| קריאת `probe_log` מהדפדפן של Claude | נחסמה בסיווג | **לא אומת**; יובל קורא |
+| `gate-probe` ו-`daily-check` | דורשים `CRON_SECRET` (לא `INTAKE_SECRET`); בכל פקודה לכתוב את שם הסוד | **אומת** (401 בלעדיו) |
+
 </div>
