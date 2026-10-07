@@ -64,6 +64,7 @@
       <h1 id="today">—</h1>
       <p id="todayDate"></p>
       <button type="button" id="enablePush" class="push-btn">הפעל התראות</button>
+      <button type="button" id="connectGoogle" class="push-btn">חבר Google</button>
     </header>
 
     <main class="feed" id="feed" aria-live="polite"></main>
@@ -176,6 +177,42 @@ pushBtn.addEventListener('click', async () => {
   } catch (err) {
     console.warn('[app] הפעלת התראות נכשלה', err);
     pushBtn.textContent = 'לא הצלחתי להפעיל התראות';
+  }
+});
+
+// --- חיבור ל-Google Calendar (שלב 5א) ---
+// אותו מנגנון סוד כמו כפתור ההתראות (prompt + localStorage). השרת מחזיר { url } של דף ההסכמה, ועוברים אליו.
+// ⚠️ לא נבדק במכשיר: הכפתור נשאר גלוי תמיד (אין דרך לדעת מכאן אם כבר מחוברים).
+const googleBtn = document.getElementById('connectGoogle');
+googleBtn.addEventListener('click', async () => {
+  try {
+    let secret = null;
+    try { secret = localStorage.getItem(SECRET_STORAGE_KEY); } catch { /* אין אחסון */ }
+    if (!secret) {
+      secret = window.prompt('סוד הקליטה');
+      if (!secret) { googleBtn.textContent = 'לא הוזן סוד'; return; }
+      try { localStorage.setItem(SECRET_STORAGE_KEY, secret); } catch { /* ממשיכים בלי לשמור */ }
+    }
+    const res = await fetch('/api/google-auth-start', { method: 'POST', headers: { 'x-intake-secret': secret } });
+    if (res.status === 401) {
+      try { localStorage.removeItem(SECRET_STORAGE_KEY); } catch { /* */ }
+      googleBtn.textContent = 'לא הצלחתי: הסוד לא התקבל';
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.url) {
+      googleBtn.textContent = 'לא הצלחתי: ' + (data?.message ?? 'שגיאה');
+      return;
+    }
+    // מנווטים רק לדף ההסכמה של Google.
+    if (!data.url.startsWith('https://accounts.google.com/')) {
+      googleBtn.textContent = 'לא הצלחתי: כתובת לא צפויה';
+      return;
+    }
+    window.location.href = data.url;
+  } catch (err) {
+    console.warn('[app] חיבור Google נכשל', err);
+    googleBtn.textContent = 'לא הצלחתי להתחיל חיבור';
   }
 });
 

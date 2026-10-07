@@ -146,3 +146,30 @@ CREATE TABLE IF NOT EXISTS push_sends (
   status_code     integer,
   UNIQUE (subscription_id, dedupe_key)
 );
+
+-- ---------------------------------------------------------------------------
+-- google_oauth_states — state חד-פעמי לתהליך ההסכמה ל-Google (שלב 5א). תפוגה 10 דקות; ניצול אטומי ב-UPDATE אחד
+-- (lib/google.js, consumeState). אין מחיקה פיזית: שורה שנוצלה או פגה נשארת כיומן.
+-- הנחה, לא אומת: שמות העמודות והטבלה הם הצעה שלי (המשימה קבעה את השדות). מיושם ב-Neon ידנית על ידי יובל.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_oauth_states (
+  state      text        PRIMARY KEY,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  used_at    timestamptz               -- NULL = לא נוצל
+);
+
+-- ---------------------------------------------------------------------------
+-- google_credentials — החיבור ל-Google. שורה אחת לחשבון (שימוש אישי יחיד: account = 'primary').
+-- refresh_token_enc: AES-256-GCM, פורמט "v1.<iv>.<tag>.<ciphertext>"; המפתח רק במשתנה הסביבה TOKEN_ENC_KEY, לעולם לא במסד.
+-- access token לא נשמר. last_error: קוד קצר בלבד (למשל invalid_grant (400)), בלי ערכים.
+-- הנחה, לא אומת: העמודה account נוספה על ידי כדי לאכוף "שורה אחת לחשבון" (המשימה לא פירטה מפתח); שאר השדות לפי המשימה.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_credentials (
+  account           text        PRIMARY KEY DEFAULT 'primary',
+  refresh_token_enc text        NOT NULL,
+  scopes_granted    text,                       -- הסקופים שניתנו בפועל, מופרדים ברווח
+  obtained_at       timestamptz NOT NULL DEFAULT now(),
+  last_refresh_at   timestamptz,                -- רענון access token מוצלח אחרון
+  last_error        text
+);
