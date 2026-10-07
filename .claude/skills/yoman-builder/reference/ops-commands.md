@@ -80,4 +80,12 @@ python .claude/skills/yoman-builder/scripts/check-pointers.py --lines    # גם 
 | פריסה | `READY` ב-Production | 3 |
 | אחרי כל שינוי קבצים | מצביעים | 5 |
 
+## 7. Vercel: שמות משתני סביבה ו-Redeploy (7.10.2026)
+
+| מה | פקודה | מצב |
+|---|---|---|
+| רשימת שמות וסוגים של משתני סביבה (בלי ערכים) | `MSYS_NO_PATHCONV=1 vercel api "/v10/projects/yoman-system/env"` ואז לסנן `key`, `type`, `target` | **אומת 7.10.2026** (הכלי `filter_project_envs` ב-Claude החזיר 403). ב-Git Bash בלי `MSYS_NO_PATHCONV=1` הנתיב מתעוות ("Endpoint must start with /") |
+| Redeploy של Production אחרי הוספת משתנה | `vercel redeploy <כתובת הפריסה האחרונה> --target production` | **אומת 7.10.2026** (הבנייה אורכת כ-20 שניות). לאמת אחר כך ב-`list_deployments` (`READY`, `target: production`). פעולה שפורסמת ל-Production: באישור יובל |
+| בדיקת Google בלי סוד | `GET /api/google-calendars` מחזיר `unauthorized`; `GET /api/google-auth-start` מחזיר `method_not_allowed` | **אומת 7.10.2026** בדפדפן. עם הסוד: רק יובל מריץ, ב-PowerShell |
+
 </div>
