@@ -173,3 +173,26 @@ CREATE TABLE IF NOT EXISTS google_credentials (
   last_refresh_at   timestamptz,                -- רענון access token מוצלח אחרון
   last_error        text
 );
+
+-- ---------------------------------------------------------------------------
+-- google_watch_channels — ערוצי watch של Google Calendar (שלב 5ב). ערוץ אחד לכל יומן בכל רגע, אבל נשמרת היסטוריה:
+-- ערוץ שנעצר/פג נשאר כשורה (stopped_at), ויומן יכול לקבל ערוץ חדש. אין מחיקה פיזית.
+-- הטבלה הישנה watch_channels (ערוץ אחד לכל יומן, UNIQUE על calendar_id) לא בשימוש ולא שונתה.
+-- ה-webhook מאמת לפי channel_id (+ HMAC ב-lib/google.js) ולא קורא אירועים ולא פונה ל-Google.
+-- הנחה, לא אומת: שמות העמודות והטבלה הם הצעה שלי. מיושם ב-Neon ידנית על ידי יובל.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS google_watch_channels (
+  id                   uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  calendar_id          text        NOT NULL,
+  channel_id           text        NOT NULL UNIQUE,
+  resource_id          text,
+  expiration           timestamptz,               -- NULL = Google לא החזיר תפוגה
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  last_notification_at timestamptz,
+  last_resource_state  text,                      -- sync | exists | not_exists
+  last_message_number  integer,
+  notification_count   integer     NOT NULL DEFAULT 0,
+  stopped_at           timestamptz,               -- NULL = פעיל
+  sync_token           text                       -- שמור לשלב מאוחר, לא בשימוש עכשיו
+);
+CREATE INDEX IF NOT EXISTS google_watch_channels_calendar_idx ON google_watch_channels (calendar_id);
