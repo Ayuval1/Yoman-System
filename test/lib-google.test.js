@@ -145,9 +145,9 @@ describe('lib/google: הצפנה (AES-256-GCM)', () => {
   test('encryptToken: מפתח באורך שגוי - זורק', () => {
     assert.throws(() => encryptToken('abc', randomBytes(16)));
   });
-  // באג מוּשע: decryptToken לא מציין authTagLength, ולכן Node מקבל תג קצר (4-15 בתים) כתקף - זיוף אפשרי בסיכוי 2^-32 לתג של 4 בתים.
+  // decryptToken מציין authTagLength:16, ולכן תג קצר (4-15 בתים) נדחה (בלי זה זיוף אפשרי בסיכוי 2^-32 לתג של 4 בתים).
   for (const n of [4, 8, 12, 15]) {
-    test(`תג אימות קצוץ ל-${n} בתים חייב להידחות`, { todo: 'באג: lib/google.js decryptToken - אין authTagLength:16, תג קצר מתקבל' }, () => {
+    test(`תג אימות קצוץ ל-${n} בתים חייב להידחות`, () => {
       const p = encryptToken('refresh-token', KEY).split('.');
       p[2] = Buffer.from(p[2], 'base64url').subarray(0, n).toString('base64url');
       assert.throws(() => decryptToken(p.join('.'), KEY), /פענוח נכשל/);
