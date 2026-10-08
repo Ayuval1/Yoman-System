@@ -1,10 +1,18 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron-plan?slot=1", "schedule": "0 5 * * *" },
-    { "path": "/api/cron-plan?slot=2", "schedule": "0 17 * * *" },
+    { "path": "/api/cron-plan?slot=1", "schedule": "0 1 * * *" },
+    { "path": "/api/cron-plan?slot=2", "schedule": "0 14 * * *" },
     { "path": "/api/daily-check", "schedule": "30 4 * * *" },
     { "path": "/api/gate-probe?from=0", "schedule": "50 4 * * *" }
+  ],
+  "functions": {
+    "api/queues/deliver.js": {
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "daily-slots", "retryAfterSeconds": 60, "maxDeliveries": 5 }]
+    }
+  },
+  "rewrites": [
+    { "source": "/api/vapid-public-key", "destination": "/api/push-subscribe" }
   ],
   "headers": [
     {

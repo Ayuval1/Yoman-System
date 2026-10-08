@@ -3,7 +3,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
 const MODULES = [
-  'intake', 'cron-plan', 'push-send', 'push-subscribe', 'gate-probe', 'vapid-public-key',
+  'intake', 'cron-plan', 'push-send', 'push-subscribe', 'gate-probe',
   'google-calendars', 'google-auth-start', 'google-auth-callback', 'google-webhook', 'google-watch-start',
 ];
 

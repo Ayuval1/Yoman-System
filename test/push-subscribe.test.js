@@ -13,7 +13,7 @@ const post = (body, headers = H) => jsonRequest(body, { headers });
 const run = (r, sql = fakeSql(), extra = {}) => handle(r, { sql, secret: FAKE_SECRET, ...extra });
 
 describe('push-subscribe: שיטות ואימות', () => {
-  for (const method of ['GET', 'PUT', 'DELETE']) {
+  for (const method of ['PUT', 'DELETE']) {
     test(`${method} - 405`, async () => {
       const sql = fakeSql();
       const res = await run(req('https://x.test/', { method, headers: H }), sql);
@@ -21,6 +21,20 @@ describe('push-subscribe: שיטות ואימות', () => {
       assert.equal(sql.calls.length, 0);
     });
   }
+  test('GET מגיש את המפתח הציבורי בלי סוד ובלי מסד (איחוד מ-vapid-public-key)', async () => {
+    const sql = fakeSql();
+    const res = await run(req('https://x.test/api/push-subscribe'), sql, { env: { VAPID_PUBLIC_KEY: ' BPublicKeyForTestsOnly ' + String.fromCharCode(10) }, secret: undefined });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), 'BPublicKeyForTestsOnly');
+    assert.equal(sql.calls.length, 0);
+  });
+  test('GET בלי מפתח מוגדר - 500, ובלי נגיעה במסד', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql();
+    const res = await run(req('https://x.test/api/push-subscribe'), sql, { env: {} });
+    assert.equal(res.status, 500);
+    assert.equal(sql.calls.length, 0);
+  });
   test('בלי סוד - 401', async () => {
     const sql = fakeSql();
     const res = await run(post(goodBody(), {}), sql);
