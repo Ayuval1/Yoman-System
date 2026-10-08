@@ -1,13 +1,15 @@
-// בדיקת בריאות יומית (טיוטה, לא מוזגה). קריאה בלבד: בלי Claude/Gemini, בלי חידוש watch, בלי כתיבה ל-Google.
-// כותב רק שתי שורות ל-probe_log ביום: 'google-token-daily' ו-'google-watch-daily'.
+// בדיקת בריאות יומית (טיוטה, לא מוזגה). בלי Claude/Gemini, ובלי קריאת אירועים. בדיקות token ו-watch הן קריאה בלבד.
+// כתיבה ל-Google: רק חידוש ערוצי watch שעומדים לפוג (שלב 5ג, lib/watch-renew.js) - ורק כשיש כאלה; אחרת אפס קריאות להרשמה.
+// כותב שלוש שורות ל-probe_log ביום: 'google-token-daily', 'google-watch-daily' ו-'google-watch-renew-daily'.
 // מטרה: להפיק אוטומטית את הראיה "יום 8 / יום 15" של חיבור Google (open-items, "Google In production") בלי בדיקה ידנית.
 // הגנה: זהה ל-api/cron-plan.js - Authorization: Bearer CRON_SECRET (Vercel Cron שולח אותו לבד), השוואה בזמן קבוע.
 // אסור שייכנס לפלט או ל-probe_log: שמות/מזהי יומנים, tokens, סודות. רק מספרים וקודי סיבה קצרים.
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import {
   decryptToken, googleConfigFromEnv, listCalendars, missingConfig, parseEncKey, refreshAccessToken, shortReason,
 } from '../lib/google.js';
+import { renewExpiringChannels } from '../lib/watch-renew.js';
 
 const ACCOUNT = 'primary';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -129,7 +131,7 @@ async function logProbe(sql, probe, ok, detail) {
 
 // handle מקבל DB, config, fetch ושעון מבחוץ כדי שאפשר לבדוק בלי מסד ובלי רשת.
 export async function handle(request, {
-  sql, secret = process.env.CRON_SECRET, config = googleConfigFromEnv(), fetchImpl = fetch, now = () => new Date(),
+  sql, secret = process.env.CRON_SECRET, config = googleConfigFromEnv(), fetchImpl = fetch, now = () => new Date(), makeChannelId = randomUUID,
 }) {
   if (request.method !== 'GET') return reply(405, 'Method Not Allowed');
   // נכשלים סגור, בדיוק כמו cron-plan.
@@ -156,9 +158,20 @@ export async function handle(request, {
     console.error('daily-check: בדיקת watch קרסה', error?.name);
     watch = { ok: false, reason: 'check_failed', detail: 'reason=check_failed' };
   }
+  // חידוש ערוצים אחרי שתי הבדיקות (הן מדווחות את המצב שלפני החידוש). חריגה לא עוצרת כלום.
+  let renew;
+  try {
+    const renewed = await renewExpiringChannels({ sql, config, fetchImpl, nowMs, makeChannelId });
+    renew = { ok: renewed.failed === 0, ...renewed };
+  } catch (error) {
+    console.error('daily-check: חידוש ערוצים קרס', error?.name);
+    renew = { ok: false, renewed: 0, failed: 0, skipped: 0, reason: 'check_crashed' };
+  }
+  const renewDetail = `renewed=${renew.renewed} failed=${renew.failed} skipped=${renew.skipped}${renew.reason ? ` reason=${renew.reason}` : ''}`;
 
   const tokenLogged = await logProbe(sql, 'google-token-daily', token.ok, token.detail);
   const watchLogged = await logProbe(sql, 'google-watch-daily', watch.ok, watch.detail);
+  const renewLogged = await logProbe(sql, 'google-watch-renew-daily', renew.ok, renewDetail);
 
   const { detail: _tokenDetail, ...tokenOut } = token;
   const { detail: _watchDetail, ...watchOut } = watch;
@@ -166,6 +179,7 @@ export async function handle(request, {
     checked_at: now().toISOString(),
     google_token: { ...tokenOut, logged: tokenLogged },
     google_watch: { ...watchOut, logged: watchLogged },
+    google_watch_renew: { ...renew, logged: renewLogged },
   });
 }
 

@@ -6,14 +6,13 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import {
-  WATCH_ADDRESS, decryptToken, deriveChannelToken, googleConfigFromEnv, listCalendars, missingConfig, parseEncKey,
+  WATCHABLE_ROLES, WATCH_ADDRESS, decryptToken, deriveChannelToken, googleConfigFromEnv, listCalendars, missingConfig, parseEncKey,
   refreshAccessToken, shortReason, watchCalendarEvents,
 } from '../lib/google.js';
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
 const ACCOUNT = 'primary';
-const WATCHABLE_ROLES = ['owner', 'writer'];
 
 function reply(status, body) {
   return new Response(JSON.stringify(body), {
