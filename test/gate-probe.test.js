@@ -259,6 +259,28 @@ describe('gate-probe: כשלי Gemini', () => {
     assert.match(text, /^עבר: .*1\/1 ran=1; failed: none; retries=2/);
     assert.deepEqual(sleeps, [20000, 40000]);
   });
+  test('תקציב הזמן הכולל: עוצר לפני משפט שההשהיה והקריאה שלו יחרגו, וכותב שורת probe_log עם time_budget', async () => {
+    const { deps, fetchFn, sql } = setup();
+    let t = 0;
+    deps.now = () => { const v = t; t += 100000; return v; };
+    const text = await (await handle(get(), deps)).text();
+    assert.match(text, /^לא עבר: /);
+    assert.match(text, /time_budget/);
+    assert.match(text, /aborted_at=s0[1-4]/);
+    assert.match(text, /not-run: s0\d/);
+    assert.ok(fetchFn.calls.length < 10);
+    assert.equal(sql.find('INSERT INTO probe_log').length, 1);
+  });
+  test('כל קריאה ל-Gemini נושאת signal עם תקרת זמן (אין קריאה תלויה לנצח)', async () => {
+    const { deps, fetchFn } = setup();
+    await handle(get('?count=1'), deps);
+    assert.ok(fetchFn.calls[0].options.signal instanceof AbortSignal);
+  });
+  test('שורת הסיכום כוללת elapsed', async () => {
+    const { deps } = setup();
+    const text = await (await handle(get('?count=1'), deps)).text();
+    assert.match(text, /; elapsed=\d+s$/);
+  });
   test('429 לא מנוסה שוב (אין ניסיון חוזר, אין השהיה)', async () => {
     const { deps, fetchFn, sleeps } = setup({ route: () => new Response('{}', { status: 429 }) });
     await handle(get(), deps);
