@@ -22,7 +22,7 @@ function secretsMatch(given, expected) {
 }
 
 export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], env = process.env }) {
-  // GET מגיש את המפתח הציבורי (לא סוד). אוחד לכאן מ-api/vapid-public-key.js בגלל מגבלת 12 הפונקציות ב-Hobby;
+  // GET מגיש את המפתח הציבורי (לא סוד). אוחד לכאן מקובץ vapid-public-key הישן שהיה ב-api בגלל מגבלת 12 הפונקציות ב-Hobby;
   // הכתובת הישנה /api/vapid-public-key מופנית לכאן ב-vercel.json (rewrites).
   if (request.method === 'GET') return handleVapidKey(request, { env });
   if (request.method !== 'POST') return reply(405, 'Method Not Allowed');
