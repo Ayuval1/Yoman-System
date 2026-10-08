@@ -98,4 +98,15 @@ python .claude/skills/yoman-builder/scripts/check-pointers.py --lines    # גם 
 | קריאת `probe_log` מהדפדפן של Claude | נחסמה בסיווג | **לא אומת**; יובל קורא |
 | `gate-probe` ו-`daily-check` | דורשים `CRON_SECRET` (לא `INTAKE_SECRET`); בכל פקודה לכתוב את שם הסוד | **אומת** (401 בלעדיו) |
 
+## 9. בדיקות אחרי שלב 5ג (8.10.2026)
+
+| מה | איך | מצב |
+|---|---|---|
+| קריאת `probe_log` לפי זמן | `select * from probe_log order by at desc limit 10;` **לא `ORDER BY 1`**: העמודה הראשונה היא `id` (uuid אקראי), והמיון לא לפי זמן | **אומת** (8.10.2026, טעות בפועל) |
+| שורת החידוש היומית | `google-watch-renew-daily` ב-`probe_log`, פורמט `renewed=N failed=N skipped=N [reason=code]`. שורה שלישית לצד `google-token-daily` ו-`google-watch-daily` | נבנה בקוד, **לא נראה בפרודקשן**; ראשון צפוי 14.10 |
+| קריאת ערוצים | `select expiration, created_at, notification_count, last_resource_state, stopped_at from google_watch_channels order by created_at desc;` (בלי `calendar_id`, כדי לא להציג מזהי יומנים) | שמות העמודות לפי `db/schema.sql`; השאילתה בנוסח הזה **לא הורצה** |
+| POST ל-endpoint מה-iPad | לשכפל את הקיצור הקיים `יומן-בדיקה` (כבר מחזיק את הכותרת `x-intake-secret`), לשנות כתובת (למשל `/api/google-watch-start`), שיטה POST. בדיקת "התקבל" המובנית תציג "לא נשלח" כוזב: צפוי | **אומת** ל-`google-watch-start` ב-8.10.2026 |
+| GET עם `CRON_SECRET` מה-iPad (למשל `gate-probe?from=0`) | קיצור משוכפל, כותרת `Authorization: Bearer <CRON_SECRET>` | **לא נוסה** |
+| חבילת הבדיקות | `node --test "test/*.test.js"` | 528 עוברות בענף 5ג (8.10.2026) |
+
 </div>
