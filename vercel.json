@@ -6,6 +6,11 @@
     { "path": "/api/daily-check", "schedule": "30 4 * * *" },
     { "path": "/api/gate-probe?from=0", "schedule": "50 4 * * *" }
   ],
+  "functions": {
+    "api/queues/probe-deliver.js": {
+      "experimentalTriggers": [{ "type": "queue/v2beta", "topic": "probe-delay", "retryAfterSeconds": 60, "maxDeliveries": 3 }]
+    }
+  },
   "headers": [
     {
       "source": "/api/(.*)",
