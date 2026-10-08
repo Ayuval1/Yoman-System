@@ -1,7 +1,7 @@
-// בדיקות ל-api/vapid-public-key.js.
+// בדיקות ל-lib/vapid-public-key.js (הועבר מ-api/; הנקודה מוגשת דרך GET ב-api/push-subscribe.js).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { handle } from '../api/vapid-public-key.js';
+import { handleVapidKey as handle } from '../lib/vapid-public-key.js';
 import { captureConsole, req } from './helpers.js';
 
 const PUB = 'BPublicKeyForTestsOnly_abc-123';

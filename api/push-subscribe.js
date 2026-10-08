@@ -5,6 +5,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { validateSubscription } from '../lib/push.js';
+import { handleVapidKey } from '../lib/vapid-public-key.js';
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
@@ -20,7 +21,10 @@ function secretsMatch(given, expected) {
   return timingSafeEqual(a, b);
 }
 
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME] }) {
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], env = process.env }) {
+  // GET מגיש את המפתח הציבורי (לא סוד). אוחד לכאן מ-api/vapid-public-key.js בגלל מגבלת 12 הפונקציות ב-Hobby;
+  // הכתובת הישנה /api/vapid-public-key מופנית לכאן ב-vercel.json (rewrites).
+  if (request.method === 'GET') return handleVapidKey(request, { env });
   if (request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
