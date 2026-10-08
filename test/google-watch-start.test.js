@@ -240,12 +240,27 @@ describe('google-watch-start: כשלים חלקיים', () => {
     assert.equal(body.results[0].reason, 'unexpected_error');
     assert.equal(body.results[1].status, 'created');
   });
-  test('expiration מופרך (ענק) - מסתיים ב-unexpected_error ולא בקריסה (תיעוד: הערוץ נפתח אצל Google אך לא נשמר)', async (t) => {
+  test('expiration מופרך (ענק) - הערוץ נשמר עם NULL ומסומן expiration_unusable, בלי כשל', async (t) => {
     captureConsole(t);
-    const f = googleFetch({ watch: jsonResponse({ resourceId: 'R', expiration: '1e30' }) });
-    const res = await run(post(), { fetchImpl: f });
+    const sql = mkSql();
+    const f = googleFetch({ watch: () => jsonResponse({ resourceId: 'R', expiration: '1e30' }) });
+    const res = await run(post(), { sql, fetchImpl: f });
     assert.equal(res.status, 200);
-    assert.equal((await res.json()).results[0].reason, 'unexpected_error');
+    const body = await res.json();
+    assert.equal(body.created, 2);
+    assert.equal(body.failed, 0);
+    assert.equal(inserts(sql).length, 2);
+    assert.equal(inserts(sql)[0].values[3], null);
+    assert.deepEqual(body.results[0], { index: 0, ok: true, status: 'created', expiration: null, expiration_unusable: true });
+  });
+  test('expiration בגבול התקף האחרון (8.64e15) נשמר רגיל; מעליו - NULL', async (t) => {
+    captureConsole(t);
+    const ok = mkSql();
+    await run(post(), { sql: ok, fetchImpl: googleFetch({ watch: () => jsonResponse({ resourceId: 'R', expiration: '8640000000000000' }) }) });
+    assert.equal(inserts(ok)[0].values[3], '+275760-09-13T00:00:00.000Z');
+    const over = mkSql();
+    await run(post(), { sql: over, fetchImpl: googleFetch({ watch: () => jsonResponse({ resourceId: 'R', expiration: '8640000000000001' }) }) });
+    assert.equal(inserts(over)[0].values[3], null);
   });
 });
 
@@ -259,7 +274,7 @@ describe('google-watch-start: פרטיות', () => {
   test('התשובה כוללת רק index וסטטוסים', async () => {
     const body = await (await run(post())).json();
     for (const r of body.results) {
-      for (const key of Object.keys(r)) assert.ok(['index', 'ok', 'status', 'reason', 'expiration'].includes(key), key);
+      for (const key of Object.keys(r)) assert.ok(['index', 'ok', 'status', 'reason', 'expiration', 'expiration_unusable'].includes(key), key);
     }
   });
   test('בכל כשל: הלוג והתשובה נקיים מטוקנים, שמות יומנים וסודות', async (t) => {
