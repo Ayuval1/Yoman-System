@@ -151,7 +151,7 @@ test('כשל חלקי: watch נופל, בדיקת token עדיין רצה ושת
   const body = await res.json();
   assert.equal(body.google_token.ok, true);
   assert.equal(body.google_watch.ok, false);
-  assert.equal(sql.inserts.length, 2);
+  assert.equal(sql.inserts.length, 3); // + שורת google-watch-renew-daily (גם החידוש קורא את הטבלה ונופל, ונרשם check_crashed)
   assert.equal(sql.inserts.find((r) => r.probe === 'google-watch-daily').ok, false);
 });
 
