@@ -30,7 +30,7 @@ export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TO
   let row;
   try {
     const rows = await sql`
-      SELECT id, last_resource_state FROM google_watch_channels WHERE channel_id = ${channelId} AND stopped_at IS NULL
+      SELECT id, last_resource_state, last_message_number FROM google_watch_channels WHERE channel_id = ${channelId} AND stopped_at IS NULL
     `;
     row = rows[0];
   } catch (error) {
@@ -45,6 +45,9 @@ export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TO
   const state = KNOWN_STATES.includes(rawState) ? rawState : null;
   const parsedNumber = Number.parseInt(request.headers.get('x-goog-message-number') ?? '', 10);
   const messageNumber = Number.isSafeInteger(parsedNumber) && parsedNumber >= 0 && parsedNumber <= 2147483647 ? parsedNumber : null;
+
+  // אותו מספר הודעה שכבר נספר בערוץ (Google שלח שוב) - לא סופרים פעם נוספת. משווים למספר האחרון השמור בשורה.
+  if (messageNumber !== null && row.last_message_number === messageNumber) return reply(200, 'OK');
 
   try {
     await sql`

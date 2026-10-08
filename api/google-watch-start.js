@@ -117,7 +117,19 @@ export async function handle(request, {
         continue;
       }
 
-      const expirationIso = watched.expiration === null ? null : new Date(watched.expiration).toISOString();
+      // תפוגה מופרכת (ענקית) גורמת ל-toISOString לזרוק RangeError. הערוץ כבר נפתח אצל Google, אז לא זורקים:
+      // שומרים NULL (כמו "Google לא החזיר תפוגה") ומסמנים בתשובה ובלוג שהתפוגה לא שמישה.
+      let expirationIso = null;
+      let expirationUnusable = false;
+      if (watched.expiration !== null) {
+        const expirationDate = new Date(watched.expiration);
+        if (Number.isNaN(expirationDate.getTime())) {
+          expirationUnusable = true;
+          console.error('google-watch-start: תפוגה לא שמישה מ-Google, נשמר NULL');
+        } else {
+          expirationIso = expirationDate.toISOString();
+        }
+      }
       try {
         await sql`
           INSERT INTO google_watch_channels (calendar_id, channel_id, resource_id, expiration)
@@ -131,7 +143,7 @@ export async function handle(request, {
         continue;
       }
       summary.created += 1;
-      results.push({ index, ok: true, status: 'created', expiration: expirationIso });
+      results.push({ index, ok: true, status: 'created', expiration: expirationIso, ...(expirationUnusable ? { expiration_unusable: true } : {}) });
     } catch (error) {
       console.error('google-watch-start: טיפול ביומן נכשל', error?.name);
       summary.failed += 1;

@@ -149,11 +149,31 @@ describe('google-webhook: קליטה וכתיבה', () => {
     const sql = mkSql({ onQuery: (text) => { if (text.startsWith('UPDATE')) throw new Error('x'); } });
     assert.equal((await run(hook(), { sql })).status, 500);
   });
-  test('התראה כפולה (אותו מספר הודעה פעמיים) נספרת פעמיים - אין dedupe (תיעוד)', async () => {
-    const sql = mkSql();
-    await run(hook({ num: '3' }), { sql });
-    await run(hook({ num: '3' }), { sql });
-    assert.equal(updates(sql).length, 2);
+  test('אותו מספר הודעה כמו האחרון השמור - 200, לא נספר ולא נכתב כלום', async () => {
+    const sql = mkSql({ row: { id: 42, last_resource_state: 'exists', last_message_number: 3 } });
+    const res = await run(hook({ num: '3' }), { sql });
+    assert.equal(res.status, 200);
+    assert.equal(updates(sql).length, 0);
+    assert.equal(probes(sql).length, 0);
+  });
+  test('מספר הודעה שונה מהאחרון השמור (גם נמוך ממנו) - נספר', async () => {
+    for (const num of ['4', '2']) {
+      const sql = mkSql({ row: { id: 42, last_resource_state: 'exists', last_message_number: 3 } });
+      await run(hook({ num }), { sql });
+      assert.equal(updates(sql).length, 1, num);
+    }
+  });
+  test('מספר הודעה לא תקין או חסר - נספר גם כשהשמור הוא null או מספר', async () => {
+    for (const num of ['abc', null]) {
+      const sql = mkSql({ row: { id: 42, last_resource_state: null, last_message_number: 3 } });
+      await run(hook({ num }), { sql });
+      assert.equal(updates(sql).length, 1, String(num));
+    }
+  });
+  test('הודעה ראשונה בערוץ (השמור null) עם מספר 0 - נספרת', async () => {
+    const sql = mkSql({ row: { id: 42, last_resource_state: null, last_message_number: null } });
+    await run(hook({ num: '0' }), { sql });
+    assert.equal(updates(sql).length, 1);
   });
 });
 
