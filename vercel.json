@@ -5,5 +5,11 @@
     { "path": "/api/cron-plan?slot=2", "schedule": "0 17 * * *" },
     { "path": "/api/daily-check", "schedule": "30 4 * * *" },
     { "path": "/api/gate-probe?from=0", "schedule": "50 4 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [{ "key": "X-Content-Type-Options", "value": "nosniff" }]
+    }
   ]
 }
