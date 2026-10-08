@@ -6,8 +6,9 @@ const message = [
   'Use full-open INSTEAD of session-manager for this project: do not rely on session-manager,',
   'and do not touch Notion (not in use since 8.10.2026).',
   'full-open = read the latest handoff note, sync real state (git, deploy, tests), report skills availability,',
-  'read the project memory file, list what waits for Yuval (with exact secret NAMES), then one-screen report',
-  'in Plan mode with exactly one question. Hebrew only, male form, short.',
+  'read the project memory file, list what waits for Yuval (with exact secret NAMES), run the full open-items scan',
+  '(3 read-only Explore agents, checklist shown in chat only, no file), then one-screen report in Plan mode',
+  'with at most one NON-technical question (technical decisions: decide and report). Hebrew only, male form, short.',
 ].join(' ');
 
 process.stdout.write(JSON.stringify({
