@@ -1,4 +1,4 @@
-// נקודת הקליטה היחידה (שלב 1). מקור: docs/17 סעיפים 4-5, docs/03-app-channel-rules.md "פרטי הקלט", build-rules 23.
+// נקודת הקליטה היחידה (שלב 1). מקור: docs/17 סעיפים 4-5, docs/02-rules/03-app-channel-rules.md "פרטי הקלט", build-rules 23.
 // מה היא עושה: מקבלת POST (Form) מהקיצור, בודקת סוד בכותרת, שומרת את ההודעה הגולמית ב-sources, עונה "התקבל".
 // מה היא לא עושה: אין קריאה למודל, אין עיבוד, אין זיהוי כפילות ("כבר קיבלתי" - לא בשלב 1), אין תמונות.
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -60,7 +60,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   }
 
   const text = form.get(TEXT_FIELD);
-  // שלב 1: טקסט בלבד. הודעה בלי טקסט (תמונה בלבד) - לא נתמכת עדיין (docs/03-intake-rules.md "הודעה בלי טקסט", שלב מאוחר).
+  // שלב 1: טקסט בלבד. הודעה בלי טקסט (תמונה בלבד) - לא נתמכת עדיין (docs/02-rules/03-intake-rules.md "הודעה בלי טקסט", שלב מאוחר).
   // הנחה, לא אומת: מחזירים 400 ולא שומרים כלום. הטקסט נשמר כפי שהתקבל, בלי trim ובלי עיבוד.
   if (typeof text !== 'string' || text.length === 0) {
     return reply(400, 'לא נשלח, נסה שוב.');

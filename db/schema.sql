@@ -1,11 +1,11 @@
 -- סכמת מסד הנתונים, שלב 1 (Neon / Postgres).
--- מקורות: docs/06-db-schema.md (sources) · docs/17-step1-cloud-handoff.md סעיף 6 · docs/20-handoff-note-2026-10-05-close.md (טבלת השדות המוצעת).
+-- מקורות: docs/01-foundation/06-db-schema.md (sources) · docs/05-chapter7/17-step1-cloud-handoff.md סעיף 6 · docs/06-handoff-notes/20-handoff-note-2026-10-05-close.md (טבלת השדות המוצעת).
 -- כללים: מזהים uuid · כל הזמנים timestamptz · אין מחיקה פיזית (יש סטטוס) · מה שלא ידוע נשאר NULL.
 -- הקובץ אידמפוטנטי: אפשר להריץ אותו כמה פעמים. הוא רק יוצר מה שחסר, ולא משנה טבלה קיימת.
 -- לא בשלב 1: טבלת media ושאר הטבלאות (06).
 
 -- ---------------------------------------------------------------------------
--- sources — ההודעה הגולמית כפי שהתקבלה. נוסח מחייב: docs/06-db-schema.md שורות 13-26.
+-- sources — ההודעה הגולמית כפי שהתקבלה. נוסח מחייב: docs/01-foundation/06-db-schema.md שורות 13-26.
 -- media_url ירד (הוחלף בטבלת media, שאינה בשלב 1).
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sources (
