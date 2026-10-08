@@ -169,12 +169,24 @@ describe('intake: קלט ותקינות', () => {
     assert.ok(!sql.calls[0].text.includes('DROP'));
     assert.equal(sql.calls[0].values[1], evil);
   });
-  test('הודעה ענקית (1M תווים) לא נחתכת - אין מגבלת גודל בקוד (תיעוד)', async () => {
-    const text = 'א'.repeat(1_000_000);
+  test('הודעה בגודל התקרה בדיוק (100,000 תווים) נשמרת במלואה', async () => {
+    const text = 'א'.repeat(100_000);
     const sql = fakeSql();
     const res = await handle(formRequest({ text }, { headers: H }), { sql, secret: FAKE_SECRET });
     assert.equal(res.status, 200);
-    assert.equal(sql.calls[0].values[1].length, 1_000_000);
+    assert.equal(sql.calls[0].values[1].length, 100_000);
+  });
+  test('הודעה מעל התקרה (100,001 תווים) נדחית ב-413 ושום דבר לא נשמר', async () => {
+    const sql = fakeSql();
+    const res = await handle(formRequest({ text: 'א'.repeat(100_001) }, { headers: H }), { sql, secret: FAKE_SECRET });
+    assert.equal(res.status, 413);
+    assert.equal(sql.calls.length, 0);
+  });
+  test('הודעה ענקית (1M תווים) נדחית ב-413 בלי לקרוס', async () => {
+    const sql = fakeSql();
+    const res = await handle(formRequest({ text: 'א'.repeat(1_000_000) }, { headers: H }), { sql, secret: FAKE_SECRET });
+    assert.equal(res.status, 413);
+    assert.equal(sql.calls.length, 0);
   });
   test('שדות text כפולים - נלקח הראשון', async () => {
     const form = new FormData();

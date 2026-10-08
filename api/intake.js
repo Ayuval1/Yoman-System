@@ -12,6 +12,8 @@ const SECRET_ENV_NAME = 'INTAKE_SECRET';
 const TEXT_FIELD = 'text';
 // הנחה, לא אומת: שם שדה השולח ב-Form. 06 קובע רק שהעמודה sender היא "כפי שהערוץ מדווח".
 const SENDER_FIELD = 'sender';
+// הנחה, לא אומת: תקרת אורך לטקסט (תווים). 100,000 היא בחירה שלי, מעל כל הודעת וואטסאפ רגילה, כדי שהודעה ענקית לא תיכתב למסד. אף מסמך לא קובע ערך.
+const MAX_TEXT_LENGTH = 100_000;
 
 const TEXT_PLAIN = { 'content-type': 'text/plain; charset=utf-8' };
 
@@ -62,6 +64,10 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   // הנחה, לא אומת: מחזירים 400 ולא שומרים כלום. הטקסט נשמר כפי שהתקבל, בלי trim ובלי עיבוד.
   if (typeof text !== 'string' || text.length === 0) {
     return reply(400, 'לא נשלח, נסה שוב.');
+  }
+  // טקסט ארוך מהתקרה לא נשמר ולא נחתך: נדחה במפורש, כדי שלא ייווצר רושם שהתקבל.
+  if (text.length > MAX_TEXT_LENGTH) {
+    return reply(413, 'ההודעה ארוכה מדי, לא נשלחה.');
   }
 
   const senderRaw = form.get(SENDER_FIELD);
