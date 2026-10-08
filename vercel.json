@@ -3,6 +3,7 @@
   "crons": [
     { "path": "/api/cron-plan?slot=1", "schedule": "0 5 * * *" },
     { "path": "/api/cron-plan?slot=2", "schedule": "0 17 * * *" },
-    { "path": "/api/daily-check", "schedule": "30 4 * * *" }
+    { "path": "/api/daily-check", "schedule": "30 4 * * *" },
+    { "path": "/api/gate-probe?from=0", "schedule": "50 4 * * *" }
   ]
 }

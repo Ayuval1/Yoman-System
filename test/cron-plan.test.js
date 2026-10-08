@@ -115,9 +115,10 @@ describe('cron-plan: לוח הזמנים ב-vercel.json מול שעון ישרא
     const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
     return parts;
   };
-  test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחר היחיד הוא /api/daily-check', () => {
+  test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם /api/daily-check ו-/api/gate-probe?from=0', () => {
     assert.deepEqual(crons.filter((c) => c.path.startsWith('/api/cron-plan')).map((c) => c.path), ['/api/cron-plan?slot=1', '/api/cron-plan?slot=2']);
-    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/cron-plan')).map((c) => c.path), ['/api/daily-check']);
+    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/cron-plan')).map((c) => c.path), ['/api/daily-check', '/api/gate-probe?from=0']);
+    assert.equal(crons.find((c) => c.path.startsWith('/api/gate-probe')).schedule, '50 4 * * *');
   });
   test('מעבר השעון בישראל ב-2026 הוא ב-25 באוקטובר (UTC+3 לפני, UTC+2 אחרי)', () => {
     assert.equal(jerusalemHour('2026-10-24T05:00:00Z'), '08:00');
