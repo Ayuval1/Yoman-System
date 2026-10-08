@@ -17,8 +17,12 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { neon } from '@neondatabase/serverless';
 
-const GEMINI_MODEL = 'gemini-3.8-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const DEFAULT_MODEL = 'gemini-3.8-flash';
+// הנחה, לא אומת: gemini-3.5-flash-lite קיים וזמין במסלול החינמי. מקור: אשכול בפורום Google AI Developers מ-6.10.2026,
+// שבו משתמש כתב שהחלפה אליו עקפה 503 (discuss.ai.google.dev/t/gemini-3-8-flash-api-returns-503-but-ai-studio-works/187076).
+// רשימה סגורה: פרמטר model לא יכול להיות מחרוזת חופשית שנכנסת לכתובת.
+const ALLOWED_MODELS = [DEFAULT_MODEL, 'gemini-3.5-flash-lite'];
+const geminiUrl = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 const PASS_THRESHOLD = 0.9; // מוצע, לא אושר (15)
 
 // מגבלות מסלול חינמי של Gemini 3.8 Flash אצל יובל (AI Studio): 5 בקשות לדקה, 20 ביום.
@@ -26,6 +30,12 @@ const PASS_THRESHOLD = 0.9; // מוצע, לא אושר (15)
 // קבוצה של 10 משפטים = 9 השהיות * 13 = 117 שניות (ההשהיה לא לפני הראשונה).
 const CALL_GAP_MS = 13000;
 const MAX_BATCH = 10; // 20 ביום: שתי קבוצות של 10 בשני ימים נפרדים.
+
+// ניסיון חוזר על 5xx (503 "high demand" וכו'): Google ממליצה על השהיה גדלה (ai.google.dev/gemini-api/docs/troubleshooting).
+// עד שני ניסיונות נוספים למשפט, אחרי 20 ו-40 שניות. תקציב הזמן הכולל נשאר מתחת ל-maxDuration (300 שניות).
+// הנחה, לא אומת: שניסיון חוזר שנכשל אינו נספר יותר ממכסה אחת; כל ניסיון נרשם ב-call_log.
+const RETRY_WAITS_MS = [20000, 40000];
+const TIME_BUDGET_MS = 270000;
 
 // הנחה, לא אומת: ש-Fluid Compute פעיל בפרויקט. לפי vercel.com/docs/functions/configuring-functions/duration
 // (עודכן 24.8.2026) ב-Hobby עם Fluid Compute ברירת המחדל והמקסימום הם 300 שניות.
@@ -103,8 +113,8 @@ function safeMessage(message, apiKey, sentenceText) {
 }
 
 // קורא ל-Gemini פעם אחת. לא עושה ניסיון חוזר.
-async function askGemini(fetchFn, apiKey, text) {
-  const response = await fetchFn(GEMINI_URL, {
+async function askGemini(fetchFn, apiKey, text, model) {
+  const response = await fetchFn(geminiUrl(model), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({
@@ -132,7 +142,9 @@ export async function handle(request, {
   fetchFn = fetch,
   sentences,
   sleep = realSleep, // ניתן להזרקה כדי שבדיקות לא ימתינו באמת
+  now = Date.now,
 }) {
+  const runStartedAt = now();
   if (request.method !== 'GET') {
     return reply(405, 'Method Not Allowed');
   }
@@ -149,6 +161,10 @@ export async function handle(request, {
   const countRaw = params.get('count') ?? String(MAX_BATCH);
   if (!/^[0-9]{1,6}$/.test(fromRaw) || !/^[0-9]{1,6}$/.test(countRaw)) {
     return reply(400, 'from ו-count חייבים להיות מספרים שלמים לא שליליים.');
+  }
+  const model = params.get('model') ?? DEFAULT_MODEL;
+  if (!ALLOWED_MODELS.includes(model)) {
+    return reply(400, `model חייב להיות אחד מ: ${ALLOWED_MODELS.join(', ')}.`);
   }
   const from = Number(fromRaw);
   const count = Number(countRaw);
@@ -171,34 +187,43 @@ export async function handle(request, {
   let passed = 0;
   let ran = 0;
   let abortedAt = null;
+  let retriesUsed = 0;
   const problems = []; // אבחון: id + status + הודעה קצרה לכל משפט שנכשל (בלי תוכן משפט).
 
   for (const item of items) {
     // השהיה בין קריאות (לא לפני הראשונה), כדי לא לחרוג מ-5 בקשות לדקה.
     if (ran > 0) await sleep(CALL_GAP_MS);
     ran += 1;
-    const startedAt = Date.now();
     let result;
-    try {
-      result = await askGemini(fetchFn, apiKey, item.text);
-    } catch (error) {
-      // שגיאת רשת: נרשם ועוצרים, בלי ניסיון חוזר.
-      result = { status: null, parsed: null, error: `שגיאת רשת: ${error?.message}` };
-    }
+    // ניסיון ראשון ועד שני ניסיונות חוזרים, רק על 5xx. 429, שגיאת רשת וכל קוד אחר: בלי ניסיון חוזר.
+    for (let attempt = 0; ; attempt += 1) {
+      const startedAt = Date.now();
+      try {
+        result = await askGemini(fetchFn, apiKey, item.text, model);
+      } catch (error) {
+        // שגיאת רשת: נרשם ועוצרים, בלי ניסיון חוזר.
+        result = { status: null, parsed: null, error: `שגיאת רשת: ${error?.message}` };
+      }
 
-    // ההודעה נוקה לפני שהיא נרשמת (ב-call_log וגם בתשובה): בלי מפתח ובלי תוכן משפט, ומקוצרת.
-    if (result.error !== null) result.error = safeMessage(result.error, apiKey, item.text);
-    const correct = result.error === null && isCorrect(result.parsed, item.expected);
-    const callOk = result.error === null;
-    try {
-      // ב-error לא נרשם תוכן המשפט, רק סוג התקלה.
-      await sql`
-        INSERT INTO call_log (kind, status_code, ok, started_at, duration_ms, error)
-        VALUES ('gate-gemini', ${result.status}, ${callOk}, now(), ${Date.now() - startedAt}, ${result.error})
-      `;
-    } catch (logError) {
-      console.error('gate-probe: כתיבה ל-call_log נכשלה:', logError?.message);
+      // ההודעה נוקה לפני שהיא נרשמת (ב-call_log וגם בתשובה): בלי מפתח ובלי תוכן משפט, ומקוצרת.
+      if (result.error !== null) result.error = safeMessage(result.error, apiKey, item.text);
+      try {
+        // ב-error לא נרשם תוכן המשפט, רק סוג התקלה. כל ניסיון נרשם בנפרד.
+        await sql`
+          INSERT INTO call_log (kind, status_code, ok, started_at, duration_ms, error)
+          VALUES ('gate-gemini', ${result.status}, ${result.error === null}, now(), ${Date.now() - startedAt}, ${result.error})
+        `;
+      } catch (logError) {
+        console.error('gate-probe: כתיבה ל-call_log נכשלה:', logError?.message);
+      }
+
+      const retryable = result.status !== null && result.status >= 500;
+      const wait = RETRY_WAITS_MS[attempt];
+      if (!retryable || wait === undefined || now() - runStartedAt + wait > TIME_BUDGET_MS) break;
+      retriesUsed += 1;
+      await sleep(wait);
     }
+    const correct = result.error === null && isCorrect(result.parsed, item.expected);
 
     if (correct) {
       passed += 1;
@@ -220,7 +245,7 @@ export async function handle(request, {
 
   const ok = abortedAt === null && ran > 0 && passed / ran >= PASS_THRESHOLD;
   const range = `${items[0].id}-${items[items.length - 1].id}`;
-  const detail = `range=${range}; ${passed}/${items.length} ran=${ran}; failed: ${failedIds.join(',') || 'none'}${notRunIds.length ? `; not-run: ${notRunIds.join(',')}` : ''}${abortedAt ? `; aborted_at=${abortedAt}` : ''}; model=${GEMINI_MODEL}`;
+  const detail = `range=${range}; ${passed}/${items.length} ran=${ran}; failed: ${failedIds.join(',') || 'none'}${notRunIds.length ? `; not-run: ${notRunIds.join(',')}` : ''}${abortedAt ? `; aborted_at=${abortedAt}` : ''}${retriesUsed ? `; retries=${retriesUsed}` : ''}; model=${model}`;
   // אורך כולל מוגבל: הסיכום + פירוט הבעיות (id, סטטוס, הודעה קצרה) עד 1500 תווים.
   const fullDetail = (problems.length ? `${detail} | ${problems.join(' ; ')}` : detail).slice(0, 1500);
   try {
