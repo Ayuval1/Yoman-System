@@ -35,7 +35,10 @@ const MAX_BATCH = 10; // 20 ביום: שתי קבוצות של 10 בשני ימ�
 // עד שני ניסיונות נוספים למשפט, אחרי 20 ו-40 שניות. תקציב הזמן הכולל נשאר מתחת ל-maxDuration (300 שניות).
 // הנחה, לא אומת: שניסיון חוזר שנכשל אינו נספר יותר ממכסה אחת; כל ניסיון נרשם ב-call_log.
 const RETRY_WAITS_MS = [20000, 40000];
-const TIME_BUDGET_MS = 270000;
+// ריצה ב-8.10.2026 נחתכה ב-"Task timed out after 300 seconds" (מדווח מלוגי Vercel), כך שגם maxDuration=300 נקרא בפועל,
+// וגם שורת probe_log לא נכתבה. לכן: תקציב זמן כולל שנבדק לפני כל משפט וכל ניסיון חוזר, וזמן מקסימלי לכל קריאה.
+const FETCH_TIMEOUT_MS = 30000;
+const TIME_BUDGET_MS = 280000;
 
 // הנחה, לא אומת: ש-Fluid Compute פעיל בפרויקט. לפי vercel.com/docs/functions/configuring-functions/duration
 // (עודכן 24.8.2026) ב-Hobby עם Fluid Compute ברירת המחדל והמקסימום הם 300 שניות.
@@ -117,6 +120,7 @@ async function askGemini(fetchFn, apiKey, text, model) {
   const response = await fetchFn(geminiUrl(model), {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     body: JSON.stringify({
       contents: [{ parts: [{ text: `${INSTRUCTIONS}\n${scrub(text)}` }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0 },
@@ -188,11 +192,21 @@ export async function handle(request, {
   let ran = 0;
   let abortedAt = null;
   let retriesUsed = 0;
+  let timeBudgetHit = false;
   const problems = []; // אבחון: id + status + הודעה קצרה לכל משפט שנכשל (בלי תוכן משפט).
 
   for (const item of items) {
     // השהיה בין קריאות (לא לפני הראשונה), כדי לא לחרוג מ-5 בקשות לדקה.
-    if (ran > 0) await sleep(CALL_GAP_MS);
+    // אם ההשהיה ועוד קריאה אחת בזמן המקסימלי חורגות מהתקציב: עוצרים לפני כן, כדי שהפונקציה תסיים ותכתוב את שורת הסיכום.
+    if (ran > 0) {
+      if (now() - runStartedAt + CALL_GAP_MS + FETCH_TIMEOUT_MS > TIME_BUDGET_MS) {
+        abortedAt = item.id;
+        timeBudgetHit = true;
+        for (const rest of items.slice(items.indexOf(item))) notRunIds.push(rest.id);
+        break;
+      }
+      await sleep(CALL_GAP_MS);
+    }
     ran += 1;
     let result;
     // ניסיון ראשון ועד שני ניסיונות חוזרים, רק על 5xx. 429, שגיאת רשת וכל קוד אחר: בלי ניסיון חוזר.
@@ -219,7 +233,7 @@ export async function handle(request, {
 
       const retryable = result.status !== null && result.status >= 500;
       const wait = RETRY_WAITS_MS[attempt];
-      if (!retryable || wait === undefined || now() - runStartedAt + wait > TIME_BUDGET_MS) break;
+      if (!retryable || wait === undefined || now() - runStartedAt + wait + FETCH_TIMEOUT_MS > TIME_BUDGET_MS) break;
       retriesUsed += 1;
       await sleep(wait);
     }
@@ -245,7 +259,7 @@ export async function handle(request, {
 
   const ok = abortedAt === null && ran > 0 && passed / ran >= PASS_THRESHOLD;
   const range = `${items[0].id}-${items[items.length - 1].id}`;
-  const detail = `range=${range}; ${passed}/${items.length} ran=${ran}; failed: ${failedIds.join(',') || 'none'}${notRunIds.length ? `; not-run: ${notRunIds.join(',')}` : ''}${abortedAt ? `; aborted_at=${abortedAt}` : ''}${retriesUsed ? `; retries=${retriesUsed}` : ''}; model=${model}`;
+  const detail = `range=${range}; ${passed}/${items.length} ran=${ran}; failed: ${failedIds.join(',') || 'none'}${notRunIds.length ? `; not-run: ${notRunIds.join(',')}` : ''}${abortedAt ? `; aborted_at=${abortedAt}` : ''}${retriesUsed ? `; retries=${retriesUsed}` : ''}; model=${model}${timeBudgetHit ? '; time_budget' : ''}; elapsed=${Math.round((now() - runStartedAt) / 1000)}s`;
   // אורך כולל מוגבל: הסיכום + פירוט הבעיות (id, סטטוס, הודעה קצרה) עד 1500 תווים.
   const fullDetail = (problems.length ? `${detail} | ${problems.join(' ; ')}` : detail).slice(0, 1500);
   try {
