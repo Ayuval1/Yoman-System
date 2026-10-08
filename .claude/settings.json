@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/session-start.js",
+            "timeout": 10,
+            "statusMessage": "full-open: פתיחת סשן"
+          }
+        ]
+      }
+    ]
+  }
+}
