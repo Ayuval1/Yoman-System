@@ -107,6 +107,7 @@ python .claude/skills/yoman-builder/scripts/check-pointers.py --lines    # גם 
 | קריאת ערוצים | `select expiration, created_at, notification_count, last_resource_state, stopped_at from google_watch_channels order by created_at desc;` (בלי `calendar_id`, כדי לא להציג מזהי יומנים) | שמות העמודות לפי `db/schema.sql`; השאילתה בנוסח הזה **לא הורצה** |
 | POST ל-endpoint מה-iPad | לשכפל את הקיצור הקיים `יומן-בדיקה` (כבר מחזיק את הכותרת `x-intake-secret`), לשנות כתובת (למשל `/api/google-watch-start`), שיטה POST. בדיקת "התקבל" המובנית תציג "לא נשלח" כוזב: צפוי | **אומת** ל-`google-watch-start` ב-8.10.2026 |
 | GET עם `CRON_SECRET` מה-iPad (למשל `gate-probe?from=0`) | קיצור משוכפל, כותרת `Authorization: Bearer <CRON_SECRET>` | **לא נוסה** |
+| `gate-probe`: ניסיון חוזר ובחירת דגם (8.10.2026) | על 5xx: עד שני ניסיונות חוזרים אחרי 20 ו-40 שניות. `?model=gemini-3.5-flash-lite` מריץ דגם אחר (רשימה סגורה; ברירת מחדל `gemini-3.8-flash`). הריצה ארוכה יותר, עד 300 שניות | **לא נוסה בפרודקשן** |
 | חבילת הבדיקות | `node --test "test/*.test.js"` | 528 עוברות בענף 5ג (8.10.2026) |
 
 </div>

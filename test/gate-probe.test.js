@@ -103,6 +103,29 @@ describe('gate-probe: שיטה, אימות ופרמטרים', () => {
   });
 });
 
+describe('gate-probe: בחירת דגם', () => {
+  test('בלי model - ברירת המחדל gemini-3.8-flash', async () => {
+    const { deps, fetchFn } = setup();
+    const text = await (await handle(get('?count=1'), deps)).text();
+    assert.match(fetchFn.calls[0].url, /models\/gemini-3\.8-flash:generateContent$/);
+    assert.match(text, /model=gemini-3\.8-flash/);
+  });
+  test('model מהרשימה (gemini-3.5-flash-lite) נשלח ונרשם', async () => {
+    const { deps, fetchFn } = setup();
+    const text = await (await handle(get('?count=1&model=gemini-3.5-flash-lite'), deps)).text();
+    assert.match(fetchFn.calls[0].url, /models\/gemini-3\.5-flash-lite:generateContent$/);
+    assert.match(text, /model=gemini-3\.5-flash-lite/);
+  });
+  test('model מחוץ לרשימה (או ניסיון הזרקה לכתובת) - 400 וללא קריאה ל-Gemini', async () => {
+    for (const bad of ['gpt-4', 'gemini-3.8-flash%2F..%2Fx', '', 'a:b']) {
+      const { deps, fetchFn } = setup();
+      const res = await handle(get(`?model=${bad}`), deps);
+      assert.equal(res.status, 400, bad);
+      assert.equal(fetchFn.calls.length, 0, bad);
+    }
+  });
+});
+
 describe('gate-probe: ריצה תקינה', () => {
   test('10 תשובות נכונות - "עבר", 9 השהיות של 13 שניות (לא לפני הראשונה)', async () => {
     const { deps, sleeps, fetchFn } = setup();
@@ -210,12 +233,45 @@ describe('gate-probe: כשלי Gemini', () => {
     assert.match(text, /not-run: s04,s05,s06,s07,s08,s09,s10/);
     assert.match(text, /aborted_at=s03/);
   });
-  test('כל 5xx (500, 502, 503) - עוצר', async () => {
+  test('כל 5xx (500, 502, 503, 504) - שלושה ניסיונות (ראשון ועוד שניים) ואז עוצר', async () => {
     for (const status of [500, 502, 503, 504]) {
-      const { deps, fetchFn } = setup({ route: () => new Response('{}', { status }) });
-      await handle(get(), deps);
-      assert.equal(fetchFn.calls.length, 1, String(status));
+      const { deps, fetchFn, sleeps } = setup({ route: () => new Response('{}', { status }) });
+      const text = await (await handle(get(), deps)).text();
+      assert.equal(fetchFn.calls.length, 3, String(status));
+      assert.deepEqual(sleeps, [20000, 40000], String(status));
+      assert.match(text, /aborted_at=s01/);
+      assert.match(text, /retries=2/);
     }
+  });
+  test('503 ואז הצלחה: ממשיך למשפט הבא, retries נרשם, וכל ניסיון ב-call_log', async () => {
+    const { deps, fetchFn, sleeps, sql } = setup({ sentences: mk(2), route: (u, o, i) => (i === 0 ? new Response('{}', { status: 503 }) : good()) });
+    const text = await (await handle(get('?count=2'), deps)).text();
+    assert.match(text, /^עבר: range=s01-s02; 2\/2 ran=2; failed: none; retries=1; model=/);
+    assert.equal(fetchFn.calls.length, 3);
+    assert.deepEqual(sleeps, [20000, 13000]);
+    const rows = sql.find('INTO call_log');
+    assert.equal(rows.length, 3);
+    assert.deepEqual(rows.map((r) => r.values[0]), [503, 200, 200]);
+  });
+  test('503 פעמיים ואז הצלחה: הניסיון השני אחרי 40 שניות', async () => {
+    const { deps, sleeps } = setup({ sentences: mk(1), route: (u, o, i) => (i < 2 ? new Response('{}', { status: 503 }) : good()) });
+    const text = await (await handle(get('?count=1'), deps)).text();
+    assert.match(text, /^עבר: .*1\/1 ran=1; failed: none; retries=2/);
+    assert.deepEqual(sleeps, [20000, 40000]);
+  });
+  test('429 לא מנוסה שוב (אין ניסיון חוזר, אין השהיה)', async () => {
+    const { deps, fetchFn, sleeps } = setup({ route: () => new Response('{}', { status: 429 }) });
+    await handle(get(), deps);
+    assert.equal(fetchFn.calls.length, 1);
+    assert.deepEqual(sleeps, []);
+  });
+  test('תקציב הזמן נגמר: אין ניסיון חוזר שיחרוג מ-270 שניות', async () => {
+    const { deps, fetchFn, sleeps } = setup({ route: () => new Response('{}', { status: 503 }) });
+    let t = 0;
+    deps.now = () => { const v = t; t += 260000; return v; };
+    await handle(get(), deps);
+    assert.equal(fetchFn.calls.length, 1);
+    assert.deepEqual(sleeps, []);
   });
   test('401/403/404/400 - לא עוצר (ממשיך למשפט הבא)', async () => {
     for (const status of [400, 401, 403, 404]) {
