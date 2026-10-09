@@ -54,6 +54,17 @@ const INSTRUCTIONS = `אתה מפרש הודעות קצרות בעברית של 
 החזר JSON בלבד, בלי טקסט נוסף, בצורה: {"action": "...", "when": "..."}
 action חייב להיות אחד מ: ${ALLOWED_ACTIONS.join(', ')}.
 when חייב להיות אחד מ: ${ALLOWED_WHEN.filter(Boolean).join(', ')}, או null אם אין מועד ברור.
+פירוש ה-action:
+create_reminder - משימה או דבר לזכור לעשות (להכין, לקנות, ללמוד, להביא).
+create_event - דבר עם שעה או פגישה עם אנשים אחרים, שתופס חלון זמן קבוע ביומן.
+query_schedule - שאלה על מה מתוכנן.
+ask_clarification - הודעה עמומה שאי אפשר לדעת ממנה מה לעשות.
+כלל ל-when: קבע אותו רק לפי מילת זמן שכתובה בהודעה (למשל מחר, הערב, בשבוע הבא). אם אין בהודעה מילת זמן, when הוא null. אסור להשלים או לנחש מועד.
+דוגמאות:
+"להתקשר לסבתא" -> {"action": "create_reminder", "when": null}
+"לסדר את החדר מחר בבוקר" -> {"action": "create_reminder", "when": "tomorrow_morning"}
+"פגישה עם המורה מחר" -> {"action": "create_event", "when": "tomorrow"}
+"מה יש לי הערב?" -> {"action": "query_schedule", "when": "today_evening"}
 אם ההודעה עמומה ואי אפשר לדעת מה לעשות - action הוא ask_clarification ו-when הוא null.
 ההודעה:`;
 
