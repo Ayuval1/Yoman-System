@@ -1,5 +1,5 @@
 // שליחת דחיפה לכל המנויים הפעילים (שלב 4א). POST JSON: { title, body?, navigate, app_badge?, dedupe_key? }.
-// הגנה: CRON_SECRET בכותרת Authorization "Bearer <סוד>", כמו api/cron-plan.js ו-api/gate-probe.js.
+// הגנה: CRON_SECRET בכותרת Authorization "Bearer <סוד>", כמו lib/ops/cron-plan.js ו-lib/ops/gate-probe.js.
 // משתני סביבה (לעולם לא בקוד): VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto: או https:). חסר - 500 ולא שולחים.
 // כללים: build-rules 27-29 (docs/17:55-57). 429 - נשמר retry_after והמנוי לא נוסה שוב בריצה; 410 - status='gone_410' בלי מחיקה;
 // dedupe_key - אותו מפתח לאותו מנוי לא נשלח פעמיים (טבלת push_sends); כל קריאה נרשמת ב-call_log (בלי endpoint, מפתחות או תוכן).

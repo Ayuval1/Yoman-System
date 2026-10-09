@@ -1,8 +1,8 @@
-// בדיקות ל-lib/watch-renew.js (חידוש ערוצי watch) ולחיבורו ל-api/daily-check.js. בלי מסד ובלי רשת.
+// בדיקות ל-lib/watch-renew.js (חידוש ערוצי watch) ולחיבורו ל-lib/ops/daily-check.js. בלי מסד ובלי רשת.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { renewExpiringChannels } from '../lib/watch-renew.js';
-import { handle } from '../api/daily-check.js';
+import { handle } from '../lib/ops/daily-check.js';
 import { fakeSql, captureConsole, req, jsonResponse } from './helpers.js';
 import { CONFIG, KEY, googleFetch, encRefresh, assertNoSecrets, CALENDARS, CAL_NAMES, ACCESS_TOKEN } from './google-fixtures.js';
 import { verifyChannelToken, WATCH_ADDRESS } from '../lib/google.js';
