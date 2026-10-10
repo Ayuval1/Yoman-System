@@ -121,7 +121,7 @@ describe('cron-plan: תזמון משבצות לתור', () => {
   test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם daily-check ו-gate-probe?from=0 (כולם דרך /api/ops)', () => {
     const cronPlanPaths = crons.filter((c) => c.path.startsWith('/api/ops?task=cron-plan'));
     assert.deepEqual(cronPlanPaths.map((c) => c.path), ['/api/ops?task=cron-plan&slot=1', '/api/ops?task=cron-plan&slot=2']);
-    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', '/api/ops?task=gate-probe&from=0']);
+    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', '/api/ops?task=gate-probe&from=0&model=gemini-3.5-flash-lite']);
     assert.equal(crons.find((c) => c.path.startsWith('/api/ops?task=gate-probe')).schedule, '50 4 * * *');
   });
   test('שעות ה-Cron: slot=1 בשעה 01:00 UTC ו-slot=2 בשעה 14:00 UTC (חלון של שעה, לפני היעד גם בקיץ וגם בחורף)', () => {
