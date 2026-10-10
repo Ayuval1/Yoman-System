@@ -1,8 +1,8 @@
-// בדיקות ל-api/cron-plan.js (שלב 1: שורה ב-probe_log בלבד) וללוח הזמנים ב-vercel.json (קריאה בלבד).
+// בדיקות ל-lib/ops/cron-plan.js (שלב 1: שורה ב-probe_log בלבד) וללוח הזמנים ב-vercel.json (קריאה בלבד).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { handle } from '../api/cron-plan.js';
+import { handle } from '../lib/ops/cron-plan.js';
 import { fakeSql, captureConsole, req, FAKE_CRON } from './helpers.js';
 
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
@@ -118,10 +118,11 @@ describe('cron-plan: תזמון משבצות לתור', () => {
     const res = await handle(req(`https://x.test/api/cron-plan?slot=${slot}`, { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(iso), send });
     return { res, send, sql };
   };
-  test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם /api/daily-check ו-/api/gate-probe?from=0', () => {
-    assert.deepEqual(crons.filter((c) => c.path.startsWith('/api/cron-plan')).map((c) => c.path), ['/api/cron-plan?slot=1', '/api/cron-plan?slot=2']);
-    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/cron-plan')).map((c) => c.path), ['/api/daily-check', '/api/gate-probe?from=0']);
-    assert.equal(crons.find((c) => c.path.startsWith('/api/gate-probe')).schedule, '50 4 * * *');
+  test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם daily-check ו-gate-probe?from=0 (כולם דרך /api/ops)', () => {
+    const cronPlanPaths = crons.filter((c) => c.path.startsWith('/api/ops?task=cron-plan'));
+    assert.deepEqual(cronPlanPaths.map((c) => c.path), ['/api/ops?task=cron-plan&slot=1', '/api/ops?task=cron-plan&slot=2']);
+    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', '/api/ops?task=gate-probe&from=0']);
+    assert.equal(crons.find((c) => c.path.startsWith('/api/ops?task=gate-probe')).schedule, '50 4 * * *');
   });
   test('שעות ה-Cron: slot=1 בשעה 01:00 UTC ו-slot=2 בשעה 14:00 UTC (חלון של שעה, לפני היעד גם בקיץ וגם בחורף)', () => {
     assert.equal(crons[0].schedule, '0 1 * * *');
@@ -133,7 +134,12 @@ describe('cron-plan: תזמון משבצות לתור', () => {
   });
   test('פונקציית הצרכן מוגדרת עם טריגר התור daily-slots, והכתובת הישנה של vapid מופנית ל-push-subscribe', () => {
     assert.equal(cfg.functions['api/queues/deliver.js'].experimentalTriggers[0].topic, 'daily-slots');
-    assert.deepEqual(cfg.rewrites, [{ source: '/api/vapid-public-key', destination: '/api/push-subscribe' }]);
+    assert.deepEqual(cfg.rewrites, [
+      { source: '/api/vapid-public-key', destination: '/api/push-subscribe' },
+      { source: '/api/cron-plan', destination: '/api/ops?task=cron-plan' },
+      { source: '/api/daily-check', destination: '/api/ops?task=daily-check' },
+      { source: '/api/gate-probe', destination: '/api/ops?task=gate-probe' },
+    ]);
   });
   test('slot=1 בקיץ (2026-10-24 01:30Z): יעד 07:30 ישראל = 04:30Z, 3 שעות השהיה, מפתח לפי תאריך', async () => {
     const { res, send } = await sendAt(1, '2026-10-24T01:30:00.000Z');

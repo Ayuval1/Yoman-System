@@ -1,8 +1,8 @@
-// בדיקות ל-api/daily-check.js. בלי מסד ובלי רשת: sql ו-fetch מוזרקים.
+// בדיקות ל-lib/ops/daily-check.js. בלי מסד ובלי רשת: sql ו-fetch מוזרקים.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { handle } from '../api/daily-check.js';
+import { handle } from '../lib/ops/daily-check.js';
 import { encryptToken } from '../lib/google.js';
 
 const SECRET = 'test-cron-secret';

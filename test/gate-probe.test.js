@@ -1,8 +1,8 @@
-// בדיקות ל-api/gate-probe.js: בדיקת השער מול Gemini (fetch, מסד והשהיה מזויפים; אין רשת ואין המתנה אמיתית).
+// בדיקות ל-lib/ops/gate-probe.js: בדיקת השער מול Gemini (fetch, מסד והשהיה מזויפים; אין רשת ואין המתנה אמיתית).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { handle, scrub, config } from '../api/gate-probe.js';
+import { handle, scrub, config } from '../lib/ops/gate-probe.js';
 import { fakeSql, fakeFetch, captureConsole, req, jsonResponse, FAKE_CRON } from './helpers.js';
 
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
