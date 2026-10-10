@@ -91,4 +91,6 @@
 - `.claude/skills/yoman-builder/SKILL.md` (סשן בנייה, שלב 4), `.claude/skills/full-open/SKILL.md` (המלצה בפתיחה), `.claude/skills/full-close/SKILL.md` (סגירה).
 - `docs/08-chapter8/35-chapter8-plan.md` (ה-PRD הנוכחי), `docs/03-working-method/24-working-with-yuval.md` (הכללים על יובל; הכלל הזה גובר עליהם רק לפערים).
 
+- `docs/03-working-method/40-research-plan-vs-build-sessions.md`: דוח המחקר המלא שעליו נשען סעיף 7. נשמר בריפו אחרי שנכתב סעיף 7; הניסוח "לא נשמר בריפו" בסעיף 7 היה נכון בזמן הכתיבה ולא עודכן. עדיין `[מדווח]`: הדוח מבוסס על חיפוש וקריאת עמודים, ולא נבדק מחדש.
+
 </div>
