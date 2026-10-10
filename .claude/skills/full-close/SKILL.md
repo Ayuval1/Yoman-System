@@ -40,7 +40,7 @@ description: סגירה מלאה של שיחה/סשן. השתמש בזה בכל 
 
 | צעד | מה עושים כאן |
 |---|---|
-| 1 | `CLAUDE.md` (סעיפים "Git" ו"סוף פרק") ושלב 6 ב-`yoman-builder`. אם `project-knowledge-pack` או `seder-usgira` זמינים, מפעילים אותם; אם לא, לא משחזרים מהזיכרון ומדווחים |
+| 1 | `CLAUDE.md` (סעיפים "Git" ו"סוף פרק") ושלב 6 ב-`yoman-builder`. **הוראת יובל, 10.10.2026: מפעילים בפועל, דרך כלי Skill, את `yoman-builder` ואת `netanel-gen:seder-usgira` (מצב הסגירה של `netanel-gen`).** אם `project-knowledge-pack` זמין, מפעילים גם אותו; סקיל שלא זמין לא משחזרים מהזיכרון ומדווחים |
 | 2 | `node --test "test/*.test.js"`, מצב פריסה ב-Vercel (`list_deployments`, מצב READY על הקומיט), ו-`python .claude/skills/yoman-builder/scripts/check-pointers.py` |
 | 3 | `docs/01-foundation/02-build-plan.md`, `05-open-questions.md`, סוף `01-system-overview.md` (הכרעה עם נימוק ומה נפסל), סוף `docs/03-working-method/24-working-with-yuval.md` (תיקונים) — בהוספה בלבד. **לא נוגעים** ב-`אפיון.md` וב-`03-permissions-rules.md` בלי אישור מפורש |
 | 4 | `docs/06-handoff-notes/` — המספר הבא אחרי הגבוה ביותר בכל `docs/`, במבנה של פתק 30 או 31 |
@@ -64,6 +64,7 @@ Notion לא בשימוש ולא נוגעים בו.
 3. לא מחקתי, לא מיזגתי ולא הכנסתי סוד בניגוד לשערי העצירה?
 4. כל כלי כתיבה החזיר תשובה (לא רק תיארתי)?
 5. הדוח נשלח לפני הפרידה, כולל מה לא נעשה ולמה?
+6. הפעלתי בפועל את `yoman-builder` ואת `netanel-gen:seder-usgira` (לא רק בדקתי שהם זמינים)?
 
 <!-- אין scripts/: סקריפט סגירה (למשל close-session.py ב-Yoman-System) ספציפי לפרויקט ושייך לריפו שלו. -->
 
