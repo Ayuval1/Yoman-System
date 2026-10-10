@@ -44,10 +44,12 @@ $p=[Net.NetworkCredential]::new('',(Read-Host -AsSecureString 'secret')).Passwor
 - **אזהרה:** שאילתה בלי סינון `environment` לא הראתה בקשות ששלחתי. **לא ברור אם הסינון הוא הסיבה.** לכן: קיום שורה = הוכחה; **היעדר שורה = לא הוכחה.**
 - פריסה: `list_deployments` ואחריו `get_deployment` מראים אם הפריסה `READY` ובאיזו סביבה. **אומת** בשלב 1.
 - לוגי Vercel ב-Hobby נשמרים **שעה בלבד** (`open-items.md`). לכן `probe_log` ו-`call_log` במסד.
+- **תיקון (10.10.2026): `get_runtime_logs` של ה-MCP קורא פלט `console` בלבד, בלי קודי סטטוס.** `api/intake.js` מדפיס רק שגיאות, ולכן קליטה תקינה לא נראית בו (ריק אינו עדות). **הכלי הנכון לשאלה "הגיעה בקשה?":** `vercel logs --project yoman-system --scope yuval-amars-projects --environment production --no-branch --since 1h`. **אומת 10.10.2026:** `POST /api/intake 200`. השעה בשעון ישראל. פירוט: `.claude/skills/vercel-fast-check/`.
 
 ## 4. שאילתות במסד (עורך ה-Query של Neon, בתוך Vercel)
 
 הדרך: Vercel ← הפרויקט `yoman-system` ← Storage ← `neon-orange-anchor` ← Query. הקישור הישיר: `https://vercel.com/yuval-amars-projects/yoman-system/stores`.
+**קישור ישיר לעורך עצמו** (נצפה ב-10.10.2026, חוסך ארבעה קליקים): `https://vercel.com/yuval-amars-projects/yoman-system/integrations/neon/icfg_vFBDxKJVJmI11gZs4OoewHCU/resources/storage/store_vD2YGYvK5bTxtwo2/query`. מסלול מלא ב-`.claude/skills/vercel-fast-check/reference/chrome-neon-playbook.md`.
 
 **כללי העורך (אומתו בשלב 1):** פקודה אחת בכל הרצה (כמה פקודות נכשלות עם `cannot insert multiple commands into a prepared statement`). מצב "Read-only" נשאר דלוק בשאילתות קריאה. מכבים אותו רק להרצת סכמה, באישור, ומחזירים אחר כך.
 
