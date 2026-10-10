@@ -39,7 +39,7 @@ function pushSql({ subs = [], claim = () => [{ id: 1 }], onQuery } = {}) {
   });
 }
 
-const post = (body = BODY, headers = AUTH) => jsonRequest(body, { headers });
+const post = (body = BODY, headers = AUTH) => jsonRequest(body, { headers, url: 'https://yoman-system.vercel.app/api/push-send' });
 const run = (r, deps = {}) => handle(r, { sql: pushSql(), secret: FAKE_CRON, vapid: VAPID, makeSender: fakeSender(), now: () => NOW, ...deps });
 
 describe('push-send: שיטות ואימות', () => {
@@ -99,13 +99,13 @@ describe('push-send: ולידציה של הגוף', () => {
   test('JSON פגום / ריק - 400', async () => {
     for (const bad of ['{', '', 'nope', '{"title":']) {
       const sql = sqlNever();
-      assert.equal((await run(jsonRequest(bad, { headers: AUTH }), { sql })).status, 400, bad);
+      assert.equal((await run(jsonRequest(bad, { headers: AUTH, url: 'https://yoman-system.vercel.app/api/push-send' }), { sql })).status, 400, bad);
       assert.equal(sql.calls.length, 0);
     }
   });
   test('JSON שאינו אובייקט - 400', async () => {
     for (const bad of ['null', '5', '"x"', 'true']) {
-      assert.equal((await run(jsonRequest(bad, { headers: AUTH }))).status, 400, bad);
+      assert.equal((await run(jsonRequest(bad, { headers: AUTH, url: 'https://yoman-system.vercel.app/api/push-send' }))).status, 400, bad);
     }
   });
   test('מערך כגוף - 400 (חסר title)', async () => {
@@ -176,6 +176,13 @@ describe('push-send: שליחה מוצלחת', () => {
     const makeSender = fakeSender();
     await run(post({ title: 'אימון 🏃‍♂️', body: 'ריצה קלה — 5K', navigate: '/x' }), { sql: pushSql({ subs: [mkSub(1)] }), makeSender });
     assert.equal(JSON.parse(makeSender.sent[0].json).notification.title, 'אימון 🏃‍♂️');
+  });
+  test('navigate יחסי בבקשה נשלח ככתובת מלאה לפי המקור של הבקשה, וכתובת של אתר אחר נדחית ב-400', async () => {
+    const makeSender = fakeSender();
+    await run(post({ ...BODY, navigate: '/today' }), { sql: pushSql({ subs: [mkSub(1)] }), makeSender });
+    assert.equal(JSON.parse(makeSender.sent[0].json).notification.navigate, 'https://yoman-system.vercel.app/today');
+    const sql = pushSql({ subs: [mkSub(1)] });
+    assert.equal((await run(post({ ...BODY, navigate: 'https://evil.test/' }), { sql })).status, 400);
   });
   test('סטטוס 200 גם נחשב הצלחה (טווח 2xx)', async () => {
     const res = await run(post(), { sql: pushSql({ subs: [mkSub(1)] }), makeSender: fakeSender({ 1: { status: 200 } }) });

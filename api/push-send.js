@@ -65,7 +65,7 @@ export async function handle(request, {
   }
   if (input === null || typeof input !== 'object') return reply(400, 'גוף הבקשה אינו אובייקט.');
 
-  const payload = buildPayload(input);
+  const payload = buildPayload(input, { origin: new URL(request.url).origin });
   if (!payload.ok) return reply(400, payload.reason);
 
   let dedupeKey = null;

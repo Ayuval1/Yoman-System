@@ -92,51 +92,69 @@ describe('lib/push: buildPayload', () => {
     assert.equal(DECLARATIVE_MAGIC, 8030);
   });
   test('כולל body ו-app_badge כמחרוזת', () => {
-    const n = parse(buildPayload({ title: 't', navigate: '/x', body: 'גוף', app_badge: 3 })).notification;
+    const n = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף', app_badge: 3 })).notification;
     assert.equal(n.body, 'גוף');
     assert.equal(n.app_badge, '3');
   });
   test('app_badge: ערכים חוקיים', () => {
     for (const [input, out] of [[0, '0'], ['0', '0'], [9999, '9999'], ['12', '12'], ['007', '7']]) {
-      assert.equal(parse(buildPayload({ title: 't', navigate: '/', app_badge: input })).notification.app_badge, out, String(input));
+      assert.equal(parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: input })).notification.app_badge, out, String(input));
     }
   });
   test('app_badge: ערכים לא חוקיים', () => {
     for (const bad of [-1, 1.5, 10000, '12345', 'abc', true, {}, NaN, Infinity, '-3', '']) {
-      assert.equal(buildPayload({ title: 't', navigate: '/', app_badge: bad }).ok, false, String(bad));
+      assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: bad }).ok, false, String(bad));
     }
   });
   test('app_badge null/undefined - מתעלמים', () => {
     for (const v of [null, undefined]) {
-      assert.equal('app_badge' in parse(buildPayload({ title: 't', navigate: '/', app_badge: v })).notification, false);
+      assert.equal('app_badge' in parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: v })).notification, false);
     }
   });
   test('title חסר / ריק / רווחים / לא מחרוזת / ארוך מ-120', () => {
     for (const title of [undefined, '', '   ', 5, null, 'א'.repeat(121)]) {
-      assert.equal(buildPayload({ title, navigate: '/' }).ok, false, String(title));
+      assert.equal(buildPayload({ title, navigate: 'https://yoman-system.vercel.app/' }).ok, false, String(title));
     }
   });
-  test('title באורך 120 בדיוק עובר', () => assert.equal(buildPayload({ title: 'א'.repeat(120), navigate: '/' }).ok, true));
+  test('title באורך 120 בדיוק עובר', () => assert.equal(buildPayload({ title: 'א'.repeat(120), navigate: 'https://yoman-system.vercel.app/' }).ok, true));
   test('navigate חסר / ריק / רווחים / ארוך מ-500', () => {
     for (const navigate of [undefined, '', '  ', 7, 'a'.repeat(501)]) {
       assert.equal(buildPayload({ title: 't', navigate }).ok, false, String(navigate));
     }
   });
   test('body ארוך מ-500 או לא מחרוזת - נדחה; 500 בדיוק עובר', () => {
-    assert.equal(buildPayload({ title: 't', navigate: '/', body: 'x'.repeat(501) }).ok, false);
-    assert.equal(buildPayload({ title: 't', navigate: '/', body: 5 }).ok, false);
-    assert.equal(buildPayload({ title: 't', navigate: '/', body: 'x'.repeat(500) }).ok, true);
+    assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', body: 'x'.repeat(501) }).ok, false);
+    assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', body: 5 }).ok, false);
+    assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', body: 'x'.repeat(500) }).ok, true);
   });
-  test('body ריק (מחרוזת ריקה) מותר', () => assert.equal(buildPayload({ title: 't', navigate: '/', body: '' }).ok, true));
+  test('body ריק (מחרוזת ריקה) מותר', () => assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', body: '' }).ok, true));
   test('בלי ארגומנטים בכלל - נדחה בלי קריסה', () => assert.equal(buildPayload().ok, false));
   test('עברית, אימוג׳י ובייט NULL נשמרים ב-JSON תקין', () => {
     const title = 'אימון 🏃 \u0000 "ציטוט"';
-    const r = buildPayload({ title, navigate: '/' });
+    const r = buildPayload({ title, navigate: 'https://yoman-system.vercel.app/' });
     assert.equal(r.ok, true);
     assert.equal(parse(r).notification.title, title);
   });
+  test('navigate יחסי הופך לכתובת מלאה לפי origin (נתיב, query ו-hash נשמרים)', () => {
+    const origin = 'https://yoman-system.vercel.app';
+    for (const [input, out] of [['/', `${origin}/`], ['/today?x=1#a', `${origin}/today?x=1#a`], ['  /x  ', `${origin}/x`]]) {
+      assert.equal(parse(buildPayload({ title: 't', navigate: input }, { origin })).notification.navigate, out, input);
+    }
+  });
+  test('navigate מלא של אותו האתר עובר כמו שהוא', () => {
+    const origin = 'https://yoman-system.vercel.app';
+    assert.equal(parse(buildPayload({ title: 't', navigate: `${origin}/a` }, { origin })).notification.navigate, `${origin}/a`);
+  });
+  test('navigate שאינו של האתר נדחה: אתר אחר, http, //protocol-relative, javascript:, ובלי origin גם יחסי', () => {
+    const origin = 'https://yoman-system.vercel.app';
+    for (const navigate of ['https://evil.test/', 'http://yoman-system.vercel.app/', '//evil.test/x', 'javascript:alert(1)', 'x/y', 'https://yoman-system.vercel.app.evil.test/']) {
+      assert.equal(buildPayload({ title: 't', navigate }, { origin }).ok, false, navigate);
+    }
+    assert.equal(buildPayload({ title: 't', navigate: '/x' }).ok, false);
+    assert.equal(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x' }).ok, true);
+  });
   test('שדות עודפים (למשל __proto__ או data) לא נכנסים ל-payload', () => {
-    const input = JSON.parse('{"title":"t","navigate":"/","__proto__":{"x":1},"data":"secret","web_push":1}');
+    const input = JSON.parse('{"title":"t","navigate":"https://yoman-system.vercel.app/","__proto__":{"x":1},"data":"secret","web_push":1}');
     const out = parse(buildPayload(input));
     assert.equal(out.web_push, 8030);
     assert.equal('data' in out.notification, false);
