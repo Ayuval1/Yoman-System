@@ -4,7 +4,7 @@
     { "path": "/api/ops?task=cron-plan&slot=1", "schedule": "0 1 * * *" },
     { "path": "/api/ops?task=cron-plan&slot=2", "schedule": "0 14 * * *" },
     { "path": "/api/ops?task=daily-check", "schedule": "30 4 * * *" },
-    { "path": "/api/ops?task=gate-probe&from=0", "schedule": "50 4 * * *" }
+    { "path": "/api/ops?task=gate-probe&from=0&model=gemini-3.5-flash-lite", "schedule": "50 4 * * *" }
   ],
   "functions": {
     "api/queues/deliver.js": {
