@@ -248,3 +248,27 @@ describe('קבועים', () => {
     });
   });
 });
+
+// --- תיקון ביקורת 12.10.2026 (סעיף 11): טווח שיעורים בתשובה חופשית מורחב כמו ב-extractFacts ---
+describe('applyAnswer: טווח שיעורים בתשובה (ביקורת, סעיף 11)', () => {
+  const lessonOf = (answer) => applyAnswer({ facts: [], field: 'lesson', answer })[0]?.value;
+  test('"שיעורים 1-3" = 1,2,3 (ולא 1,3)', () => {
+    assert.equal(lessonOf('שיעורים 1-3'), '1,2,3');
+  });
+  test('טווחים בצורות נוספות: מקף לבד, "עד", "5-6"', () => {
+    assert.equal(lessonOf('1-3'), '1,2,3');
+    assert.equal(lessonOf('שיעורים 1 עד 3'), '1,2,3');
+    assert.equal(lessonOf('שיעורים 5-6'), '5,6');
+    assert.equal(lessonOf('שיעורים 2 עד 4 ו-7'), '2,3,4,7');
+  });
+  test('בלי טווח: כמו קודם (רשימה, תווית כפתור, מספר בודד)', () => {
+    assert.equal(lessonOf('8 ו-9'), '8,9');
+    assert.equal(lessonOf('שיעור 5 · אנגלית'), '5');
+    assert.equal(lessonOf('שיעור 3'), '3');
+    assert.equal(lessonOf('3, 5'), '3,5');
+  });
+  test('מספר מחוץ ל-1 עד 9 או בלי מספר: לא נשמר', () => {
+    assert.equal(lessonOf('שיעור 12'), undefined);
+    assert.equal(lessonOf('השני'), undefined);
+  });
+});

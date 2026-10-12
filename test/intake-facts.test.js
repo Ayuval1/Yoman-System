@@ -334,3 +334,86 @@ describe('assessFacts ו-isUnderstood', () => {
     assert.equal(isUnderstood('short_day', [fact('date', '2026-10-12')]), true);
   });
 });
+
+// --- תיקוני ביקורת 12.10.2026 (סעיפים 1, 3, 4, 6, 7): חותמת קליטה ראשון 11.10.2026 18:00 בישראל, "מחר" = שני 12.10 ---
+describe('extractFacts: תיקוני ביקורת 12.10', () => {
+  const EVENING = '2026-10-11T15:00:00Z';
+  const at = (text) => extract(text, EVENING);
+  const has = (result, field) => result.facts.some((fact) => fact.field === field);
+
+  test('סעיף 1: מבחן ושעה רחוקה אינם יום מקוצר, והמבחן נרשם', () => {
+    const result = at('מחר מבחן בהיסטוריה בשעה 9:05. בסיום המבחן תוכלו ללכת הביתה');
+    assert.equal(result.type, 'exam');
+    assert.equal(valueOf(result, 'subject'), 'היסטוריה');
+    assert.equal(valueOf(result, 'date'), '2026-10-12');
+    assert.equal(at('המבחן מחר ב-8:15, מי שסיים יכול לצאת').type, 'exam');
+    assert.equal(at('סיום הפרויקט עד יום ראשון ב-23:59').type, null);
+  });
+
+  test('סעיף 3: הנושא הוא מה שאחרי "על" שאחרי מילת הסוג, לא ה"על" הראשון בהודעה', () => {
+    const result = at('על כולם להגיע בזמן. מחר מבחן בהיסטוריה על המהפכה הצרפתית');
+    assert.equal(valueOf(result, 'topic'), 'המהפכה הצרפתית');
+    assert.equal(valueOf(result, 'date'), '2026-10-12');
+  });
+  test('סעיף 3: אין "על" אחרי מילת הסוג = נושא חסר (נשאלת שאלה)', () => {
+    const result = at('על כולם להגיע בזמן. מחר מבחן בהיסטוריה');
+    assert.equal(has(result, 'topic'), false);
+    assert.ok(result.missing.includes('topic'));
+  });
+  test('סעיף 3: בשיעורי בית הנושא אחרי "ש.ב", ובפרק/בנושא אחרי מילת הסוג', () => {
+    assert.equal(valueOf(at('על כולם לשים לב: ש.ב בהיסטוריה על פרק 3'), 'topic'), 'פרק 3');
+    assert.equal(valueOf(at('בנושא הזה כבר דיברנו. מחר בוחן במתמטיקה בנושא שברים'), 'topic'), 'שברים');
+  });
+
+  test('סעיף 4: "פרק 2.3" אינו תאריך והוא חלק מהנושא', () => {
+    const result = at('מבחן במתמטיקה על פרק 2.3');
+    assert.equal(has(result, 'date'), false);
+    assert.equal(valueOf(result, 'topic'), 'פרק 2.3');
+    assert.ok(result.missing.includes('date'));
+  });
+  test('סעיף 4: "בפרק 1.2 בשיעור 3": בלי תאריך, הנושא "פרק 1.2" והשיעור 3', () => {
+    const result = at('בוחן בפיזיקה בפרק 1.2 בשיעור 3');
+    assert.equal(has(result, 'date'), false);
+    assert.equal(valueOf(result, 'topic'), 'פרק 1.2');
+    assert.equal(valueOf(result, 'lesson'), '3');
+  });
+  test('סעיף 4: "תרגילים 2.1 עד 2.5" אינם תאריכים', () => {
+    const result = at('שיעורי בית במתמטיקה: תרגילים 2.1 עד 2.5');
+    assert.equal(result.type, 'homework');
+    assert.equal(has(result, 'date'), false);
+  });
+  test('סעיף 4: תאריך אמיתי לצד מספר פרק נשאר תאריך', () => {
+    const result = at('מבחן במתמטיקה על פרק 2.3 ב-15.10');
+    assert.equal(valueOf(result, 'date'), '2026-10-15');
+    assert.equal(valueOf(result, 'topic'), 'פרק 2.3');
+  });
+
+  test('סעיף 6: "אחרי שיעור 6" ו"משיעור 6" אינם השיעור המושפע; השיעור חסר ונשאלת שאלה', () => {
+    for (const text of ['מחר משוחררים אחרי שיעור 6', 'התלמידים משוחררים מחר אחרי שיעור 4', 'משוחררים משיעור 6']) {
+      const result = at(text);
+      assert.equal(result.type, 'cancel', text);
+      assert.equal(has(result, 'lesson'), false, text);
+      assert.ok(result.missing.includes('lesson'), text);
+    }
+  });
+  test('סעיף 6: "אחרי שיעור 4" לא מסיק מקצוע ממספר השיעור', () => {
+    const result = at('התלמידים משוחררים מחר אחרי שיעור 4');
+    assert.equal(valueOf(result, 'subject'), undefined);
+    assert.deepEqual(result.ambiguous, [{ field: 'subject', candidates: ['מתמטיקה', 'פיזיקה'] }]);
+  });
+  test('סעיף 6: שיעור רגיל נשאר נקרא (ביקורת נגדית)', () => {
+    assert.equal(valueOf(at('מחר לא יהיה שיעור 3'), 'lesson'), '3');
+    assert.equal(valueOf(at('מחר לא יתקיימו שיעורים 3 ו-4 ומשוחררים אחרי שיעור 4'), 'lesson'), '3,4');
+  });
+
+  test('סעיף 7: "ביום שלישי בעוד שבועיים" = השלישי הקרוב ועוד 14 ימים', () => {
+    const result = at('מבחן בהיסטוריה ביום שלישי בעוד שבועיים');
+    assert.equal(valueOf(result, 'date'), '2026-10-27');
+    assert.equal(originOf(result, 'date'), 'inferred');
+  });
+  test('סעיף 7: "ביום שלישי שעבר" לא מייצר תאריך (שדה חסר)', () => {
+    const result = at('מבחן בהיסטוריה ביום שלישי שעבר');
+    assert.equal(has(result, 'date'), false);
+    assert.ok(result.missing.includes('date'));
+  });
+});

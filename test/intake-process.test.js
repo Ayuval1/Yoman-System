@@ -7,7 +7,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { processSource, pendingQuestion, answerQuestion, TYPE_FIELD } from '../lib/intake-process.js';
+import { processSource, pendingQuestion, answerQuestion, TYPE_FIELD, RECORD_CANDIDATE_RULES, MAX_PROCESSABLE_LENGTH } from '../lib/intake-process.js';
 import { RECEIVED_REPLY, DUPLICATE_REPLY, UNKNOWN_BUTTON } from '../lib/intake-questions.js';
 import { UNKNOWN_VALUE } from '../lib/intake-facts.js';
 import { handle } from '../api/intake.js';
@@ -21,6 +21,7 @@ const OTHER_ID = '22222222-2222-4222-8222-222222222222';
 const MSG_ID = '33333333-3333-4333-8333-333333333333';
 const SATURDAY = new Date('2026-10-10T08:00:00Z'); // מחר = ראשון 11.10.2026
 const THURSDAY = new Date('2026-10-08T08:00:00Z');
+const SUNDAY_EVENING = new Date('2026-10-11T15:00:00Z'); // ראשון 11.10.2026 18:00 בישראל: "מחר" = שני 12.10
 
 const slot = (weekday, period, subject) => ({ weekday, period, startsAt: '08:15', endsAt: '09:00', subject, teacher: null, room: null });
 const TIMETABLE = {
@@ -144,7 +145,7 @@ describe('processSource: לא מובן, ערוץ אחר וקלט פגום', () =
     const result = await processSource({ sql, source: source('שלום מה נשמע') });
     assert.deepEqual(result, { status: 'unclassified', reply: RECEIVED_REPLY });
     assert.equal(writesOf(sql).length, 0);
-    assert.ok(!sql.calls.some((c) => c.text.includes('processed_at')));
+    assert.ok(!writesOf(sql).some((c) => c.text.includes('processed_at')), 'processed_at נשאר NULL: אין כתיבה שמסמנת');
   });
 
   test('ערוץ שאינו הקיצור: skipped, בלי אף קריאה למסד', async () => {
@@ -181,7 +182,7 @@ function sourcesModel(rows) {
   return (text, values) => {
     if (!text.includes('FROM sources s JOIN sources p')) return undefined;
     const me = rows.find((row) => row.id === values[0]);
-    const earlier = rows.some((p) => p.id !== me.id && p.hash === me.hash && israelDay(p.at) === israelDay(me.at)
+    const earlier = rows.some((p) => p.id !== me.id && p.hash === me.hash && p.processed !== false && israelDay(p.at) === israelDay(me.at)
       && (p.at < me.at || (p.at.getTime() === me.at.getTime() && p.id < me.id)));
     return earlier ? [{ found: 1 }] : [];
   };
@@ -207,7 +208,7 @@ describe('processSource: כפילות (I-21)', () => {
     await processSource({ sql, source: source(TEXT) });
     const query = sql.find('FROM sources s JOIN sources p')[0];
     assert.equal(sql.find('FROM sources s JOIN sources p').length, 1);
-    for (const part of ['p.content_hash = s.content_hash', "AT TIME ZONE 'Asia/Jerusalem'", 'p.id <> s.id', 'p.received_at < s.received_at', 'p.received_at = s.received_at AND p.id < s.id']) {
+    for (const part of ['p.content_hash = s.content_hash', "AT TIME ZONE 'Asia/Jerusalem'", 'p.id <> s.id', 'p.processed_at IS NOT NULL', 'p.received_at < s.received_at', 'p.received_at = s.received_at AND p.id < s.id']) {
       assert.ok(query.text.includes(part), part);
     }
     assert.deepEqual(query.values, [SRC_ID]);
@@ -490,12 +491,12 @@ describe('answerQuestion', () => {
   });
 });
 
-describe('answerQuestion: candidate_rules (I-48) רק לערוץ app', () => {
+describe('answerQuestion: candidate_rules (I-48) רק לערוץ app, וכבוי כברירת מחדל (RECORD_CANDIDATE_RULES)', () => {
   const TYPED = 'מחר מבחן ביצירה'; // "ביצירה" נפלה דרך המילון (שורש "יצירה")
 
   test('הודעה שיובל הקליד (app): נרשם דפוס מועמד, עם evidence של מזהה ההודעה בלבד, ו-upsert בפקודה אחת', async () => {
     const sql = answerDb({ src: source(TYPED, { channel: 'app' }), facts: SAVED_NO_SUBJECT });
-    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY });
+    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY, recordCandidateRules: true });
     const call = atomicOf(sql);
     assert.equal(writesOf(sql).length, 1);
     assert.ok(call.text.includes('INSERT INTO candidate_rules'));
@@ -512,7 +513,7 @@ describe('answerQuestion: candidate_rules (I-48) רק לערוץ app', () => {
 
   test('הודעה מהקיצור (טקסט של אחרים): לא נרשם כלום ב-candidate_rules, והדפוס לא נשלח למסד בכלל', async () => {
     const sql = answerDb({ src: source(TYPED, { channel: 'shortcut' }), facts: SAVED_NO_SUBJECT });
-    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY });
+    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY, recordCandidateRules: true });
     const call = atomicOf(sql);
     assert.ok(!call.values.some((v) => typeof v === 'string' && v.includes('יצירה')));
     // הפקודה קבועה במבנה: ה-CTE קיים אבל כל הפרמטרים של הדפוס הם NULL, כך שהוא לא כותב ולא מעדכן
@@ -521,8 +522,239 @@ describe('answerQuestion: candidate_rules (I-48) רק לערוץ app', () => {
 
   test('app בלי שורשים שנפלו: אין דפוס', async () => {
     const sql = answerDb({ src: source('מחר מבחן', { channel: 'app' }), facts: SAVED_NO_SUBJECT });
-    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY });
+    await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY, recordCandidateRules: true });
     assert.deepEqual(answerParams(atomicOf(sql)).pattern, [null, null, null]);
+  });
+});
+
+// --- תיקוני ביקורת 12.10.2026 (סעיפים 8, 10, 12-15). חותמת קליטה ראשון 11.10.2026 18:00 בישראל, "מחר" = שני 12.10 ---
+describe('processSource: שאלה שהועברה (ביקורת, סעיף 8; 03-intake-rules.md:157-174, צעד 3)', () => {
+  test('"מתי המבחן באנגלית?": שאלה בלי תאריך = לא מסווג, בלי כתיבה, processed_at נשאר ריק', async () => {
+    const sql = dbSql();
+    const result = await processSource({ sql, source: source('מתי המבחן באנגלית?', { received_at: SUNDAY_EVENING }) });
+    assert.deepEqual(result, { status: 'unclassified', reply: RECEIVED_REPLY });
+    assert.equal(writesOf(sql).length, 0);
+    assert.equal(sql.find('INTO facts').length, 0);
+    assert.equal(sql.find('INTO messages').length, 0);
+  });
+  test('שאלה שיש בה תאריך (מידע קודם) נרשמת כמו קודם', async () => {
+    const sql = dbSql();
+    const result = await processSource({ sql, source: source('האם יש מבחן במתמטיקה מחר?', { received_at: SUNDAY_EVENING }) });
+    assert.deepEqual(result, { status: 'recorded', reply: 'נרשם · מבחן · מתמטיקה · שני 12.10' });
+    assert.ok(atomicOf(sql).text.includes('processed_at'));
+  });
+  test('הודעה בלי סימן שאלה ובלי תאריך נרשמת כרגיל (שאלת השלמה), ולא נחסמת', async () => {
+    const result = await processSource({ sql: dbSql(), source: source('יש מבחן באנגלית', { received_at: SUNDAY_EVENING }) });
+    assert.equal(result.status, 'recorded');
+  });
+});
+
+describe('processSource: תיקוני ביקורת על ההודעות המומצאות (סעיפים 1-4, 6, 7, 9)', () => {
+  const run = async (text) => {
+    const sql = dbSql();
+    const result = await processSource({ sql, source: source(text, { received_at: SUNDAY_EVENING }) });
+    return { sql, result };
+  };
+  const rowsOfRun = ({ sql }) => jsonRowsOf(atomicOf(sql));
+  const typeOfRun = (out) => rowsOfRun(out).find((row) => row.field === TYPE_FIELD).value;
+
+  test('סעיף 1: מבחן בשעה 9:05 ו"בסיום המבחן" נרשם כמבחן ולא כיום מקוצר', async () => {
+    const out = await run('מחר מבחן בהיסטוריה בשעה 9:05. בסיום המבחן תוכלו ללכת הביתה');
+    assert.equal(out.result.reply, 'נרשם · מבחן · היסטוריה · שני 12.10');
+    assert.equal(typeOfRun(out), 'exam');
+  });
+  test('סעיף 1: "סיום הפרויקט עד יום ראשון ב-23:59" לא נתפס', async () => {
+    const out = await run('סיום הפרויקט עד יום ראשון ב-23:59');
+    assert.deepEqual(out.result, { status: 'unclassified', reply: RECEIVED_REPLY });
+    assert.equal(writesOf(out.sql).length, 0);
+  });
+  test('סעיף 2: "מחר יהיה מבחן במתמטיקה ולא בוטל" נרשם כמבחן, לא כביטול', async () => {
+    const out = await run('מחר יהיה מבחן במתמטיקה ולא בוטל');
+    assert.equal(out.result.reply, 'נרשם · מבחן · מתמטיקה · שני 12.10');
+    assert.equal(typeOfRun(out), 'exam');
+  });
+  test('סעיף 2: "השיעור לא בוטל" לא נתפס', async () => {
+    const out = await run('השיעור לא בוטל');
+    assert.equal(out.result.status, 'unclassified');
+    assert.equal(writesOf(out.sql).length, 0);
+  });
+  test('סעיף 3: הנושא הוא מה שאחרי "על" שאחרי "מבחן", ונשמר כעובדה', async () => {
+    const out = await run('על כולם להגיע בזמן. מחר מבחן בהיסטוריה על המהפכה הצרפתית');
+    assert.deepEqual(rowsOfRun(out).find((row) => row.field === 'topic'), { field: 'topic', value: 'המהפכה הצרפתית', origin: 'read' });
+  });
+  test('סעיף 4: "פרק 2.3" אינו תאריך: אין עובדת date, ונשאלת שאלת תאריך', async () => {
+    const out = await run('מבחן במתמטיקה על פרק 2.3');
+    const rows = rowsOfRun(out);
+    assert.equal(rows.some((row) => row.field === 'date'), false);
+    assert.deepEqual(rows.find((row) => row.field === 'topic'), { field: 'topic', value: 'פרק 2.3', origin: 'read' });
+    assert.ok(atomicOf(out.sql).values.includes('לאיזה תאריך?'));
+  });
+  test('סעיף 6: "משוחררים אחרי שיעור 6": אין עובדת lesson', async () => {
+    const out = await run('מחר משוחררים אחרי שיעור 6');
+    assert.equal(rowsOfRun(out).some((row) => row.field === 'lesson'), false);
+  });
+  test('סעיף 7: "ביום שלישי בעוד שבועיים": התאריך 27.10', async () => {
+    const out = await run('מבחן בהיסטוריה ביום שלישי בעוד שבועיים');
+    assert.deepEqual(rowsOfRun(out).find((row) => row.field === 'date'), { field: 'date', value: '2026-10-27', origin: 'inferred' });
+    assert.equal(out.result.reply, 'נרשם · מבחן · היסטוריה · שלישי 27.10');
+  });
+  test('סעיף 7: "ביום שלישי שעבר": אין עובדת date, והתשובה "התקבל"', async () => {
+    const out = await run('מבחן בהיסטוריה ביום שלישי שעבר');
+    assert.equal(rowsOfRun(out).some((row) => row.field === 'date'), false);
+    assert.equal(out.result.reply, RECEIVED_REPLY);
+  });
+  test('סעיף 9: תוצאות וחזרה אינם אירוע, ולא נכתבים', async () => {
+    for (const text of ['תוצאות המבחן בהיסטוריה יתפרסמו ביום שלישי', 'מחר חזרה לקראת המבחן במתמטיקה']) {
+      const out = await run(text);
+      assert.deepEqual(out.result, { status: 'unclassified', reply: RECEIVED_REPLY }, text);
+      assert.equal(writesOf(out.sql).length, 0, text);
+    }
+  });
+});
+
+describe('answerQuestion: candidate_rules כבוי עד סינון שמות (ביקורת, סעיף 10)', () => {
+  const WITH_NAME = 'מחר מבחן אצל דנה לוי בנושא שברים'; // שם מומצא, רק לבדיקת הפרטיות
+  const answerWithName = async (options = {}) => {
+    const sql = answerDb({ src: source(WITH_NAME, { channel: 'app' }), facts: SAVED_NO_SUBJECT });
+    const result = await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY, ...options });
+    return { sql, result };
+  };
+
+  test('הקבוע כבוי בקוד', () => {
+    assert.equal(RECORD_CANDIDATE_RULES, false);
+  });
+  test('ברירת מחדל: גם הודעת app עם שם לא כותבת דפוס, והשם לא נשלח למסד', async () => {
+    const { sql } = await answerWithName();
+    const call = atomicOf(sql);
+    assert.deepEqual(answerParams(call).pattern, [null, null, null]);
+    assert.ok(!call.values.some((value) => typeof value === 'string' && /דנה|לוי|אצל/.test(value)), 'אף שם או שורש מההודעה לא נשלח למסד');
+  });
+  test('כשהוא כבוי שאר התשובה עובדת: העובדה נשמרת, השאלה נסגרת והבאה נוצרת', async () => {
+    const { sql, result } = await answerWithName();
+    assert.deepEqual(result, { done: false, reply: 'על איזה נושא?', status: 'answered' });
+    assert.deepEqual(jsonRowsOf(atomicOf(sql)), [
+      { field: 'subject', value: 'מתמטיקה', origin: 'read' },
+      { field: 'lesson', value: '7', origin: 'inferred' },
+    ]);
+    assert.equal(answerParams(atomicOf(sql)).nextText, 'על איזה נושא?');
+  });
+  test('כשהקבוע דלוק (בבדיקה) הנתיב הישן עדיין עובד: דפוס נשלח ל-candidate_rules', async () => {
+    const { sql } = await answerWithName({ recordCandidateRules: true });
+    const pattern = answerParams(atomicOf(sql)).pattern;
+    assert.ok(pattern.every((value) => typeof value === 'string' && value !== ''), 'דפוס נשלח בשלושת המקומות');
+    assert.equal(new Set(pattern).size, 1);
+  });
+  test('recordCandidateRules: false מכבה (זה גם ברירת המחדל של הקבוע)', async () => {
+    const { sql } = await answerWithName({ recordCandidateRules: false });
+    assert.deepEqual(answerParams(atomicOf(sql)).pattern, [null, null, null]);
+  });
+});
+
+describe('processSource: מקור שכבר טופל, כפילות מול מקור שלא טופל, והודעה ארוכה (ביקורת, סעיפים 13-15)', () => {
+  const TEXT = 'מחר יש מבחן במתמטיקה';
+  const at = (iso) => new Date(iso);
+
+  test('סעיף 13: הפקודה האטומית מחזירה claimed=0 (מישהו כבר תפס): skipped ו"התקבל"', async () => {
+    const sql = dbSql({ extra: (text) => (text.includes('INTO facts') ? [{ claimed: 0, facts_written: 0, questions_written: 0 }] : undefined) });
+    assert.deepEqual(await processSource({ sql, source: source(TEXT) }), { status: 'skipped', reply: RECEIVED_REPLY });
+  });
+  test('סעיף 13: claimed=1 נרשם; בלי שורות בתוצאה (fakeSql רגיל) נרשם כמו קודם; "0" כטקסט הוא 0', async () => {
+    const claimed = dbSql({ extra: (text) => (text.includes('INTO facts') ? [{ claimed: 1, facts_written: 4, questions_written: 1 }] : undefined) });
+    assert.equal((await processSource({ sql: claimed, source: source(TEXT) })).status, 'recorded');
+    assert.equal((await processSource({ sql: dbSql(), source: source(TEXT) })).status, 'recorded');
+    const asText = dbSql({ extra: (text) => (text.includes('INTO facts') ? [{ claimed: '0' }] : undefined) });
+    assert.equal((await processSource({ sql: asText, source: source(TEXT) })).status, 'skipped');
+  });
+
+  test('סעיף 14: קודמת שלא טופלה (processed_at ריק) אינה כפילות; קודמת שטופלה כן', async () => {
+    const rows = (processed) => [
+      { id: SRC_ID, hash: sha(TEXT), at: at('2026-10-10T08:00:00Z'), processed },
+      { id: OTHER_ID, hash: sha(TEXT), at: at('2026-10-10T09:00:00Z') },
+    ];
+    const run = (list) => processSource({ sql: dbSql({ extra: sourcesModel(list) }), source: source(TEXT, { id: OTHER_ID }) });
+    assert.equal((await run(rows(false))).status, 'recorded', 'הראשונה לא טופלה: השנייה מעובדת');
+    assert.equal((await run(rows(true))).status, 'duplicate');
+  });
+
+  test('סעיף 15: 100,000 תווים של "ש.ב " מסתיימים מהר, בלי חילוץ, בלי כתיבה ובלי קריאה למסד', async () => {
+    const text = 'ש.ב '.repeat(25_000);
+    assert.equal(text.length, 100_000);
+    const sql = dbSql();
+    const started = performance.now();
+    const result = await processSource({ sql, source: source(text) });
+    const took = performance.now() - started;
+    assert.ok(took < 1000, `לקח ${Math.round(took)}ms`);
+    assert.deepEqual(result, { status: 'unclassified', reply: RECEIVED_REPLY });
+    assert.equal(sql.calls.length, 0);
+  });
+  test('סעיף 15: התקרה היא 20,000 תווים: בדיוק 20,000 מעובד, 20,001 לא', async () => {
+    assert.equal(MAX_PROCESSABLE_LENGTH, 20_000);
+    const padded = (length) => TEXT + ' '.repeat(length - TEXT.length);
+    assert.equal((await processSource({ sql: dbSql(), source: source(padded(20_000)) })).status, 'recorded');
+    const over = dbSql();
+    assert.equal((await processSource({ sql: over, source: source(padded(20_001)) })).status, 'unclassified');
+    assert.equal(writesOf(over).length, 0);
+  });
+  test('סעיף 15: הודעה קרובה לתקרה עם הרבה אירועים עדיין מעובדת מהר', async () => {
+    const text = 'ש.ב '.repeat(5_000);
+    const started = performance.now();
+    await processSource({ sql: dbSql(), source: source(text, { received_at: SUNDAY_EVENING }) });
+    const took = performance.now() - started;
+    assert.ok(took < 1000, `לקח ${Math.round(took)}ms`);
+  });
+});
+
+// בדיקות מבניות: ניסויי שבירה הראו שפקודות ה-SQL עצמן לא נתפסות בבדיקות התנהגות (ה-SQL מזויף ואינו מורץ), ולכן נועלים את מבנה הפקודות.
+describe('מבנה פקודות ה-SQL: כל כתיבה תלויה בתפיסה האטומית (ביקורת, סעיף 12)', () => {
+  test('כפילות: אותו יום בישראל הוא שוויון, ואי-השוויון היחיד הוא על ה-id', async () => {
+    const sql = dbSql();
+    await processSource({ sql, source: source('מחר יש מבחן במתמטיקה') });
+    const { text } = sql.find('FROM sources s JOIN sources p')[0];
+    assert.ok(text.includes("(p.received_at AT TIME ZONE 'Asia/Jerusalem')::date = (s.received_at AT TIME ZONE 'Asia/Jerusalem')::date"), 'יום ישראלי זהה');
+    assert.ok(text.includes('p.content_hash = s.content_hash'));
+    assert.equal(text.split('<>').length - 1, 1, 'אי-שוויון אחד בלבד: p.id <> s.id');
+    assert.ok(text.includes('p.id <> s.id'));
+  });
+
+  test('processSource: התפיסה היא רק של שורה שלא טופלה', async () => {
+    const sql = dbSql();
+    await processSource({ sql, source: source('מחר מבחן') });
+    assert.match(atomicOf(sql).text, /^WITH claim AS \( UPDATE sources SET processed_at = now\(\) WHERE id = \?::uuid AND processed_at IS NULL RETURNING id \)/);
+  });
+  test('processSource: העובדות והשאלה נכתבות רק מתוך התפיסה (claim), לא מערכים חיצוניים', async () => {
+    const sql = dbSql();
+    await processSource({ sql, source: source('מחר מבחן') });
+    const { text } = atomicOf(sql);
+    assert.match(text, /INSERT INTO facts \([^)]*\) SELECT claim\.id, x\.field, x\.value, \?::text, 'script', NULL::text, NULL::uuid, x\.origin, NULL::text FROM claim, jsonb_to_recordset\(\?::jsonb\) AS x\(field text, value text, origin text\) RETURNING id/);
+    assert.match(text, /INSERT INTO messages \([^)]*\) SELECT 'out', \?::text, 'question', now\(\), true, NULL::uuid, NULL::timestamptz, 'source', claim\.id, 1 FROM claim WHERE \?::text IS NOT NULL RETURNING id/);
+    assert.match(text, /SELECT \(SELECT count\(\*\) FROM claim\)::int AS claimed/);
+  });
+
+  describe('answerQuestion', () => {
+    const run = async () => {
+      const sql = answerDb({ src: source('מחר מבחן ביצירה', { channel: 'app' }), facts: SAVED_NO_SUBJECT });
+      await answerQuestion({ sql, messageId: MSG_ID, answer: 'מתמטיקה', now: SATURDAY, recordCandidateRules: true });
+      return atomicOf(sql).text;
+    };
+    test('סגירת השאלה היא compare-and-set על שאלה שעדיין ממתינה', async () => {
+      assert.match(await run(), /^WITH closed AS \( UPDATE messages SET awaiting_reply = false WHERE id = \?::uuid AND kind = 'question' AND awaiting_reply = true RETURNING id \)/);
+    });
+    test('העובדות החדשות נכתבות רק מתוך closed', async () => {
+      assert.match(await run(), /INSERT INTO facts \([^)]*\) SELECT \?::uuid, x\.field, x\.value, \?::text, 'script', NULL::text, NULL::uuid, x\.origin, NULL::text FROM closed, jsonb_to_recordset\(\?::jsonb\) AS x\(field text, value text, origin text\) RETURNING id/);
+    });
+    test('השאלה הבאה נכתבת רק מתוך closed', async () => {
+      assert.match(await run(), /INSERT INTO messages \([^)]*\) SELECT 'out', \?::text, 'question', now\(\), true, NULL::uuid, NULL::timestamptz, 'source', \?::uuid, \?::integer FROM closed WHERE \?::text IS NOT NULL RETURNING id/);
+    });
+    test('עדכון הדפוס מותנה בכך שהשאלה אכן נסגרה (EXISTS על closed)', async () => {
+      assert.match(await run(), /UPDATE candidate_rules SET .* WHERE pattern = \?::text AND EXISTS \(SELECT 1 FROM closed\) RETURNING id/);
+    });
+    test('הוספת הדפוס מתוך closed, ורק אם העדכון לא מצא דפוס קיים', async () => {
+      assert.match(await run(), /INSERT INTO candidate_rules \([^)]*\) SELECT \?::text, 1, now\(\), now\(\), jsonb_build_object\('message_ids', jsonb_build_array\(\?::text\)\), 'candidate' FROM closed WHERE \?::text IS NOT NULL AND NOT EXISTS \(SELECT 1 FROM r_upd\) RETURNING id/);
+    });
+    test('בפקודה בדיוק שלוש הכנסות (עובדות, שאלה, דפוס), וכולן INSERT ... SELECT ולא VALUES', async () => {
+      const inserts = [...(await run()).matchAll(/INSERT INTO (\w+) \([^)]*\) (SELECT|VALUES)/g)].map((m) => [m[1], m[2]]);
+      assert.deepEqual(inserts, [['facts', 'SELECT'], ['messages', 'SELECT'], ['candidate_rules', 'SELECT']]);
+    });
   });
 });
 

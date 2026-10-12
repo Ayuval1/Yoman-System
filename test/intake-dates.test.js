@@ -10,6 +10,8 @@ import {
 
 const SUNDAY_MORNING = '2026-10-11T08:00:00Z'; // ראשון 11.10.2026 11:00 בישראל
 const dateOf = (text, at = SUNDAY_MORNING, options) => resolveDate(text, at, options);
+// שני 5.10.2026: לפני 6.10, כדי שתאריך בלי שנה ("6.10") ייקרא כשנה הנוכחית (ביקורת 12.10, סעיף 5: ההופעה הקרובה מהיום והלאה)
+const MONDAY_5_10 = '2026-10-05T08:00:00Z';
 
 describe('resolveDate: היום, מחר, מחרתיים', () => {
   test('היום / מחר / מחרתיים = inferred', () => {
@@ -112,16 +114,16 @@ describe('resolveDate: שם יום', () => {
 
 describe('resolveDate: תאריך מפורש', () => {
   test('D.M, D.M.YYYY, D/M, D/M/YY = read', () => {
-    assert.deepEqual(dateOf('מבחן ב-6.10'), { date: '2026-10-06', origin: 'read', ambiguous: false });
+    assert.deepEqual(dateOf('מבחן ב-6.10', MONDAY_5_10), { date: '2026-10-06', origin: 'read', ambiguous: false });
     assert.equal(dateOf('מבחן ב-6.10.2026').date, '2026-10-06');
-    assert.equal(dateOf('מבחן ב-6/10').date, '2026-10-06');
+    assert.equal(dateOf('מבחן ב-6/10', MONDAY_5_10).date, '2026-10-06');
     assert.equal(dateOf('מבחן ב-6/10/26').date, '2026-10-06');
     assert.equal(dateOf('מבחן ב6.10').origin, 'read');
     assert.equal(dateOf('מבחן ב-12.10.').date, '2026-10-12'); // נקודה בסוף משפט
   });
-  test('בלי שנה: השנה הקרובה לחותמת הקליטה', () => {
+  test('בלי שנה: ההופעה הקרובה מהיום והלאה (ביקורת 12.10, סעיף 5; קודם: השנה הקרובה לחותמת, גם אם עברה)', () => {
     assert.equal(dateOf('ב-5.1', '2026-12-20T10:00:00Z').date, '2027-01-05');
-    assert.equal(dateOf('ב-28.12', '2027-01-03T10:00:00Z').date, '2026-12-28');
+    assert.equal(dateOf('ב-28.12', '2027-01-03T10:00:00Z').date, '2027-12-28'); // 28.12.2026 כבר עבר
   });
   test('תאריך שלא קיים או לא תקין = null', () => {
     assert.equal(dateOf('31.2'), null);
@@ -134,7 +136,7 @@ describe('resolveDate: תאריך מפורש', () => {
     assert.equal(dateOf('להביא 15.5 שקלים'), null);
   });
   test('תאריך מפורש שנעשה צמוד לשם יום שמסכים איתו = read, בלי עמימות', () => {
-    assert.deepEqual(dateOf("ביום ג' 6.10"), { date: '2026-10-06', origin: 'read', ambiguous: false });
+    assert.deepEqual(dateOf("ביום ג' 6.10", MONDAY_5_10), { date: '2026-10-06', origin: 'read', ambiguous: false });
     assert.equal(dateOf('ביום שלישי 13.10').origin, 'read');
   });
   test('תאריך מפורש שסותר את שם היום = ambiguous עם שני המועמדים (המפורש ראשון)', () => {
@@ -176,5 +178,88 @@ describe('עזרי תאריך', () => {
   test('receivedAt כ-Date או כמספר', () => {
     assert.equal(dateOf('מחר', new Date('2026-10-11T08:00:00Z')).date, '2026-10-12');
     assert.equal(dateOf('מחר', Date.parse('2026-10-11T08:00:00Z')).date, '2026-10-12');
+  });
+});
+
+// --- תיקוני ביקורת 12.10.2026 (סעיפים 4, 5, 7): חותמת קליטה ראשון 11.10.2026 18:00 בישראל ---
+describe('resolveDate: מספר פרק או תרגיל אינו תאריך (ביקורת, סעיף 4)', () => {
+  const EVENING = '2026-10-11T15:00:00Z';
+  test('מספר עשרוני אחרי פרק, סעיף, תרגיל, יחידה, עמוד, שאלה ומשימה', () => {
+    for (const text of ['מבחן במתמטיקה על פרק 2.3', 'בפרק 1.2', 'בסעיף 3.4', 'תרגיל 2.5', 'ביחידה 4.1', 'בעמוד 15.5', 'שאלה 2.3', 'משימה 1.2']) {
+      assert.deepEqual(resolveDates(text, EVENING), [], text);
+    }
+  });
+  test('טווח ורשימה אחרי מילת סעיף: "תרגילים 2.1 עד 2.5", "פרקים 2.1 ו-2.3", "תרגילים 2.1-2.5"', () => {
+    for (const text of ['שיעורי בית במתמטיקה: תרגילים 2.1 עד 2.5', 'פרקים 2.1 ו-2.3', 'תרגילים 2.1-2.5', 'פרק מספר 2.3']) {
+      assert.deepEqual(resolveDates(text, EVENING), [], text);
+    }
+  });
+  test('תאריך אמיתי באותה הודעה נשאר תאריך', () => {
+    assert.deepEqual(resolveDates('בפרק 2.3 מבחן ב-15.10', EVENING).map((m) => m.date), ['2026-10-15']);
+    assert.deepEqual(resolveDates('תרגילים 2.1 עד 2.5 להגשה ב-20.10', EVENING).map((m) => m.date), ['2026-10-20']);
+  });
+});
+
+describe('resolveDate: תאריך בלי שנה = ההופעה הקרובה מהיום והלאה (ביקורת, סעיף 5)', () => {
+  const EVENING = '2026-10-11T15:00:00Z';
+  test('תאריך שעבר השנה = השנה הבאה', () => {
+    assert.equal(resolveDate('מבחן בהיסטוריה ב-15.5', EVENING).date, '2027-05-15');
+    assert.equal(resolveDate('מבחן בהיסטוריה ב-15.4', EVENING).date, '2027-04-15');
+    assert.equal(resolveDate('מבחן בהיסטוריה ב-20.6', EVENING).date, '2027-06-20');
+    assert.equal(resolveDate('ב-10.10', EVENING).date, '2027-10-10'); // אתמול
+  });
+  test('היום עצמו והעתיד השנה נשארים השנה', () => {
+    assert.equal(resolveDate('ב-11.10', EVENING).date, '2026-10-11');
+    assert.equal(resolveDate('ב-12.10', EVENING).date, '2026-10-12');
+    assert.equal(resolveDate('ב-31.12', EVENING).date, '2026-12-31');
+  });
+  test('29.2: ההופעה הקרובה בשנה מעוברת', () => {
+    assert.equal(resolveDate('ב-29.2', EVENING).date, '2028-02-29');
+  });
+  test('חצות מקומי: "היום" בישראל קובע, לא UTC', () => {
+    // 21:30Z ב-11.10 = 00:30 ב-12.10 בישראל: ה-12.10 הוא היום, ה-11.10 כבר עבר
+    assert.equal(resolveDate('ב-12.10', '2026-10-11T21:30:00Z').date, '2026-10-12');
+    assert.equal(resolveDate('ב-11.10', '2026-10-11T21:30:00Z').date, '2027-10-11');
+  });
+});
+
+describe('resolveDate: "בעוד שבועיים" ו"שעבר" (ביקורת, סעיף 7)', () => {
+  const EVENING = '2026-10-11T15:00:00Z'; // ראשון; השלישי הקרוב = 13.10
+  test('השלישי הקרוב ועוד 7 × מספר השבועות', () => {
+    assert.equal(resolveDate('מבחן בהיסטוריה ביום שלישי בעוד שבועיים', EVENING).date, '2026-10-27');
+    assert.equal(resolveDate('ביום שלישי בעוד שבוע', EVENING).date, '2026-10-20');
+    assert.equal(resolveDate('ביום שלישי בעוד 3 שבועות', EVENING).date, '2026-11-03');
+    assert.equal(resolveDate('ביום שלישי בעוד שלושה שבועות', EVENING).date, '2026-11-03');
+  });
+  test('הסדר ההפוך: "בעוד שבועיים ביום שלישי"', () => {
+    assert.equal(resolveDate('בעוד שבועיים ביום שלישי', EVENING).date, '2026-10-27');
+    assert.equal(resolveDate('בעוד 3 שבועות ביום שלישי', EVENING).date, '2026-11-03');
+  });
+  test('המופע נשאר inferred, בלי עמימות', () => {
+    assert.deepEqual(resolveDate('ביום שלישי בעוד שבועיים', EVENING), { date: '2026-10-27', origin: 'inferred', ambiguous: false });
+  });
+  test('אותו יום בשבוע כמו היום: עמימות (היום + 7N או ההופעה הקרובה + 7N)', () => {
+    const result = resolveDate('ביום ראשון בעוד שבועיים', EVENING);
+    assert.equal(result.ambiguous, true);
+    assert.deepEqual(result.candidates, ['2026-10-25', '2026-11-01']);
+  });
+  test('כמות שלא מזוהה ליד יום: אין תאריך (בטוח: נשאלת שאלה)', () => {
+    assert.equal(resolveDate('ביום שלישי בעוד שעה', EVENING), null);
+    assert.equal(resolveDate('ביום שלישי בעוד שבעה שבועות', EVENING), null);
+  });
+  test('"שעבר": אין תאריך (עמימות או שדה חסר)', () => {
+    for (const text of ['מבחן בהיסטוריה ביום שלישי שעבר', 'ביום שלישי שעבר', 'ביום ד שעבר', 'ביום שלישי בשבוע שעבר', 'ביום שלישי הקודם']) {
+      assert.equal(resolveDate(text, EVENING), null, text);
+    }
+  });
+  test('"בעוד שבועיים" אחרי פסיק שייך למשפט הבא ואינו נדבק ליום שלפניו', () => {
+    assert.deepEqual(resolveDates('מבחן ביום שלישי, בעוד שבועיים בוחן באנגלית', EVENING).map((m) => m.date), ['2026-10-13']);
+    assert.deepEqual(resolveDates('מבחן ביום שלישי. בעוד שבועיים ביום שלישי בוחן', EVENING).map((m) => m.date), ['2026-10-13', '2026-10-27']);
+    assert.equal(resolveDate('מבחן ביום שלישי, שעבר היה בוחן', EVENING).date, '2026-10-13');
+  });
+  test('בקרות: ללא "בעוד" או עם "הבא"/"הקרוב" כמו קודם', () => {
+    assert.equal(resolveDate('ביום שלישי', EVENING).date, '2026-10-13');
+    assert.equal(resolveDate('ביום שלישי הקרוב', EVENING).date, '2026-10-13');
+    assert.deepEqual(resolveDate('ביום שלישי הבא', EVENING).candidates, ['2026-10-13', '2026-10-20']);
   });
 });
