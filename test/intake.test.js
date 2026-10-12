@@ -199,7 +199,8 @@ describe('intake: קלט ותקינות', () => {
 });
 
 describe('intake: כפילויות', () => {
-  test('אותה הודעה פעמיים - hash זהה (אין dedupe בשלב 1, תיעוד: שתי הכנסות)', async () => {
+  // המקור נשמר תמיד, גם כפילות (שתי הכנסות עם hash זהה). זיהוי הכפילות ("כבר קיבלתי") נעשה אחרי השמירה, ב-lib/intake-process.js (test/intake-process.test.js).
+  test('אותה הודעה פעמיים - hash זהה, ושתי ההכנסות נשמרות (הכפילות מזוהה בעיבוד ולא בשמירה)', async () => {
     const sql = fakeSql();
     await handle(formRequest({ text: 'זהה' }, { headers: H }), { sql, secret: FAKE_SECRET });
     await handle(formRequest({ text: 'זהה' }, { headers: H }), { sql, secret: FAKE_SECRET });
