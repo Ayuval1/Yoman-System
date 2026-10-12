@@ -1,8 +1,12 @@
-// נקודת הקליטה היחידה (שלב 1). מקור: docs/17 סעיפים 4-5, docs/02-rules/03-app-channel-rules.md "פרטי הקלט", build-rules 23.
-// מה היא עושה: מקבלת POST (Form) מהקיצור, בודקת סוד בכותרת, שומרת את ההודעה הגולמית ב-sources, עונה "התקבל".
-// מה היא לא עושה: אין קריאה למודל, אין עיבוד, אין זיהוי כפילות ("כבר קיבלתי" - לא בשלב 1), אין תמונות.
+// נקודת הקליטה היחידה (שלב 1; מחוברת לצינור הקוד בשלב 8.2). מקור: docs/17 סעיפים 4-5, docs/02-rules/03-app-channel-rules.md "פרטי הקלט" (שורות 98-103), build-rules 23.
+// מה היא עושה: מקבלת POST (Form) מהקיצור, בודקת סוד בכותרת, שומרת את ההודעה הגולמית ב-sources (המקור נשמר לפני כל עיבוד),
+// ואז מפעילה את צינור הקוד (lib/intake-process.js): כפילות ("כבר קיבלתי"), חילוץ עובדות, שמירה אטומית, שאלת הבהרה. התשובה לקיצור: "נרשם · ..." כשהמערכת הבינה, אחרת "התקבל".
+// כשל או תקיעה בעיבוד לעולם לא משנים את הסטטוס ולא את השמירה: ההודעה נשמרה, התשובה 200 "התקבל", ו-processed_at נשאר ריק (מה שלא עובד נשלח שוב בשלבים הבאים).
+// מה היא לא עושה: אין קריאה למודל, אין תמונות, אין ערוץ app (הצ'אט המוקלד הוא שלב 8.2א, ושינוי הערוץ כאן דורש "כן" של יובל).
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
+import { processSource } from '../lib/intake-process.js';
+import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 
 // הנחה, לא אומת: שם הכותרת של הסוד. אף מסמך לא קובע אותו (03-app-channel-rules: "סוד קבוע בכותרת").
 const SECRET_HEADER = 'x-intake-secret';
@@ -14,6 +18,8 @@ const TEXT_FIELD = 'text';
 const SENDER_FIELD = 'sender';
 // הנחה, לא אומת: תקרת אורך לטקסט (תווים). 100,000 היא בחירה שלי, מעל כל הודעת וואטסאפ רגילה, כדי שהודעה ענקית לא תיכתב למסד. אף מסמך לא קובע ערך.
 const MAX_TEXT_LENGTH = 100_000;
+// הנחה, לא אומת: 5 שניות לעיבוד אחרי השמירה. אף מסמך לא קובע ערך; Fluid Compute פעיל, ו-maxDuration של נקודה זו לא נמדד.
+const PROCESS_TIMEOUT_MS = 5000;
 
 const TEXT_PLAIN = { 'content-type': 'text/plain; charset=utf-8' };
 
@@ -33,8 +39,17 @@ function hashText(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
-// handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME] }) {
+// מריץ את ההבטחה, ודוחה אותה אחרי ms אם לא הסתיימה. הטיימר נוקה תמיד, כדי שלא יחזיק את התהליך.
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. processor (אופציונלי): החלפת צינור העיבוד, לבדיקות.
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], processor = processSource }) {
   const startedAt = Date.now();
 
   if (request.method !== 'POST') {
@@ -74,10 +89,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   // מה שלא ידוע נשאר לא ידוע: בלי שולח - NULL.
   const sender = typeof senderRaw === 'string' && senderRaw.length > 0 ? senderRaw : null;
 
+  let contentHash;
+  let saved;
   try {
-    await sql`
+    contentHash = hashText(text);
+    saved = await sql`
       INSERT INTO sources (channel, sender, raw_content, content_hash, received_at)
-      VALUES ('shortcut', ${sender}, ${text}, ${hashText(text)}, now())
+      VALUES ('shortcut', ${sender}, ${text}, ${contentHash}, now())
+      RETURNING id, received_at
     `;
   } catch (error) {
     // ההודעה לא נשמרה - לא מעלימים את זה: 500 לקיצור ("לא נשלח, נסה שוב"), ורישום ב-call_log אם אפשר.
@@ -94,7 +113,23 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     return reply(500, 'לא נשלח, נסה שוב.');
   }
 
-  return reply(200, 'התקבל');
+  // ההודעה נשמרה. מכאן והלאה אין כשל שמחזיר שגיאה לקיצור: בלי מזהה שורה (כך לא ניתן לעבד) או עם כשל או תקיעה בעיבוד, התשובה "התקבל".
+  const row = Array.isArray(saved) ? saved[0] : undefined;
+  if (!row?.id) return reply(200, RECEIVED_REPLY);
+  // הנחה, לא אומת: הדרייבר מחזיר timestamptz כ-Date. אם החותמת חסרה או לא ניתנת לפענוח, משתמשים בשעת ההגעה לשרת (פער של שניות לכל היותר), כדי שהעיבוד לא ייפול בשקט.
+  const stamped = row.received_at instanceof Date || typeof row.received_at === 'string' ? new Date(row.received_at) : null;
+  const receivedAt = stamped && !Number.isNaN(stamped.getTime()) ? row.received_at : new Date();
+  let result = null;
+  try {
+    result = await withTimeout(
+      processor({ sql, source: { id: row.id, channel: 'shortcut', raw_content: text, content_hash: contentHash, received_at: receivedAt } }),
+      PROCESS_TIMEOUT_MS,
+    );
+  } catch (error) {
+    // רק שם השגיאה: לא תוכן ההודעה ולא message (שעלולה לכלול ערכים מהמסד).
+    console.error('intake: עיבוד נכשל:', error?.name);
+  }
+  return reply(200, typeof result?.reply === 'string' && result.reply !== '' ? result.reply : RECEIVED_REPLY);
 }
 
 // הנחה, לא אומת: פורמט ה-handler הוא ה-Web Standard "export default { fetch }" לפי תיעוד Vercel
