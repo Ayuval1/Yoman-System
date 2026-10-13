@@ -15,15 +15,28 @@ const NEW = [
   'media', 'facts', 'events', 'tasks', 'commitments', 'links', 'changes', 'decisions', 'messages',
   'candidate_rules', 'static_loads', 'timetable_slots', 'calendar_exceptions',
 ];
+// טבלת המדידה של הקליטה (docs/09-security/46, שלב M.1).
+const MEASUREMENT = ['intake_outcomes'];
 
 // כל CREATE TABLE, עם הגוף עד ');' שבתחילת שורה.
 const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\n\);/gi)]
   .map((m) => ({ ifNotExists: Boolean(m[1]), name: m[2], body: m[3] }));
 
 describe('db/schema.sql', () => {
-  test('בדיוק 23 הטבלאות הצפויות', () => {
-    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW].sort());
-    assert.equal(tables.length, 23);
+  test('בדיוק 24 הטבלאות הצפויות', () => {
+    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT].sort());
+    assert.equal(tables.length, 24);
+  });
+
+  test('intake_outcomes: בדיוק חמש העמודות של 46, source_id ייחודי ומפנה ל-sources, ובלי עמודת טקסט או שם', () => {
+    const t = tables.find((x) => x.name === 'intake_outcomes');
+    const columns = t.body.split('\n').map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`);
+    assert.deepEqual(columns, ['id uuid', 'source_id uuid', 'status text', 'reason text', 'recorded_at timestamptz']);
+    assert.match(t.body, /^\s*id\s+uuid\s+PRIMARY KEY DEFAULT gen_random_uuid\(\)/m);
+    assert.match(t.body, /^\s*source_id\s+uuid\s+NOT NULL UNIQUE REFERENCES sources\(id\)/m);
+    assert.match(t.body, /^\s*status\s+text\s+NOT NULL/m);
+    assert.match(t.body, /^\s*reason\s+text\s*,/m); // nullable: מלא רק כש-status הוא failed
+    assert.match(t.body, /^\s*recorded_at\s+timestamptz\s+NOT NULL DEFAULT now\(\)/m);
   });
 
   test('כל CREATE TABLE כולל IF NOT EXISTS', () => {

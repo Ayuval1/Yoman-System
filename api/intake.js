@@ -2,6 +2,7 @@
 // מה היא עושה: מקבלת POST (Form) מהקיצור, בודקת סוד בכותרת, שומרת את ההודעה הגולמית ב-sources (המקור נשמר לפני כל עיבוד),
 // ואז מפעילה את צינור הקוד (lib/intake-process.js): כפילות ("כבר קיבלתי"), חילוץ עובדות, שמירה אטומית, שאלת הבהרה. התשובה לקיצור: "נרשם · ..." כשהמערכת הבינה, אחרת "התקבל".
 // כשל או תקיעה בעיבוד לעולם לא משנים את הסטטוס ולא את השמירה: ההודעה נשמרה, התשובה 200 "התקבל", ו-processed_at נשאר ריק (מה שלא עובד נשלח שוב בשלבים הבאים).
+// אחרי העיבוד ולפני התשובה נרשמת תוצאת העיבוד ב-intake_outcomes (docs/09-security/46, שלב M.1): קוד סטטוס בלבד, בלי טקסט ובלי שמות. כשל ברישום הזה לא משנה את התשובה לקיצור.
 // מה היא לא עושה: אין קריאה למודל, אין תמונות, אין ערוץ app (הצ'אט המוקלד הוא שלב 8.2א, ושינוי הערוץ כאן דורש "כן" של יובל).
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
@@ -20,6 +21,11 @@ const SENDER_FIELD = 'sender';
 const MAX_TEXT_LENGTH = 100_000;
 // הנחה, לא אומת: 5 שניות לעיבוד אחרי השמירה. אף מסמך לא קובע ערך; Fluid Compute פעיל, ו-maxDuration של נקודה זו לא נמדד.
 const PROCESS_TIMEOUT_MS = 5000;
+// הערוץ של נקודה זו. קבוע אחד: הוא הערוץ שנשלח לצינור העיבוד, והוא התנאי לרישום ב-intake_outcomes (46, D17: נמדדות רק הודעות מהקיצור).
+// הסינון לפי הערוץ עצמו ולא לפי הסטטוס skipped, כי שלב 8.2א-1 יוסיף ערוץ app שמעובד (docs/08-chapter8/47, "תלויות", סעיף 2). אותו ערך כתוב גם כמחרוזת ב-INSERT ל-sources.
+const CHANNEL_SHORTCUT = 'shortcut';
+// הסטטוסים של הצינור שנרשמים כמות שהם (46, D17). 'skipped' לא נרשם; כל ערך אחר נרשם failed.
+const OUTCOME_STATUSES = ['recorded', 'unclassified', 'duplicate'];
 
 const TEXT_PLAIN = { 'content-type': 'text/plain; charset=utf-8' };
 
@@ -48,8 +54,20 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// מה נרשם ב-intake_outcomes על עיבוד אחד (46, D17): { status, reason }, או null כשלא נרשמת שורה (ערוץ שאינו הקיצור, או skipped).
+// failure: 'error' / 'timeout' כשהצינור זרק, אחרת null. ערך שחזר בלי status מוכר נרשם failed עם error.
+export function outcomeFor({ channel, result, failure = null }) {
+  if (channel !== CHANNEL_SHORTCUT) return null;
+  if (failure) return { status: 'failed', reason: failure };
+  const status = result?.status;
+  if (status === 'skipped') return null;
+  if (OUTCOME_STATUSES.includes(status)) return { status, reason: null };
+  return { status: 'failed', reason: 'error' };
+}
+
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. processor (אופציונלי): החלפת צינור העיבוד, לבדיקות.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], processor = processSource }) {
+// processTimeoutMs (אופציונלי): קיצור ההמתנה לעיבוד, כדי לבדוק תקיעה בלי לחכות 5 שניות.
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], processor = processSource, processTimeoutMs = PROCESS_TIMEOUT_MS }) {
   const startedAt = Date.now();
 
   if (request.method !== 'POST') {
@@ -119,15 +137,32 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   // הנחה, לא אומת: הדרייבר מחזיר timestamptz כ-Date. אם החותמת חסרה או לא ניתנת לפענוח, משתמשים בשעת ההגעה לשרת (פער של שניות לכל היותר), כדי שהעיבוד לא ייפול בשקט.
   const stamped = row.received_at instanceof Date || typeof row.received_at === 'string' ? new Date(row.received_at) : null;
   const receivedAt = stamped && !Number.isNaN(stamped.getTime()) ? row.received_at : new Date();
+  const channel = CHANNEL_SHORTCUT;
   let result = null;
+  let failure = null;
   try {
     result = await withTimeout(
-      processor({ sql, source: { id: row.id, channel: 'shortcut', raw_content: text, content_hash: contentHash, received_at: receivedAt } }),
-      PROCESS_TIMEOUT_MS,
+      processor({ sql, source: { id: row.id, channel, raw_content: text, content_hash: contentHash, received_at: receivedAt } }),
+      processTimeoutMs,
     );
   } catch (error) {
     // רק שם השגיאה: לא תוכן ההודעה ולא message (שעלולה לכלול ערכים מהמסד).
     console.error('intake: עיבוד נכשל:', error?.name);
+    failure = error?.name === 'TimeoutError' ? 'timeout' : 'error';
+  }
+  // רישום תוצאת העיבוד (46, M.1): מזהה המקור וקודים בלבד, בלי טקסט ובלי שולח. שורה אחת לכל מקור, בלי עדכון ובלי מחיקה.
+  // כשל כאן לא משנה את התשובה לקיצור. הנחה, לא אומת: בלי timeout נפרד לכתיבה הזו (46 לא קובע; ההשפעה על זמן התגובה היא H5 שם).
+  const outcome = outcomeFor({ channel, result, failure });
+  if (outcome) {
+    try {
+      await sql`
+        INSERT INTO intake_outcomes (source_id, status, reason)
+        VALUES (${row.id}::uuid, ${outcome.status}, ${outcome.reason})
+        ON CONFLICT (source_id) DO NOTHING
+      `;
+    } catch (error) {
+      console.error('intake: רישום התוצאה נכשל:', error?.name);
+    }
   }
   return reply(200, typeof result?.reply === 'string' && result.reply !== '' ? result.reply : RECEIVED_REPLY);
 }
