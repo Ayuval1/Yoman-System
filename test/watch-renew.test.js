@@ -204,7 +204,7 @@ describe('daily-check: חיבור החידוש', () => {
     const body = await (await run({ sql, fetchImpl: f })).json();
     assert.deepEqual(body.google_watch_renew, { ok: true, renewed: 0, failed: 0, skipped: 0, logged: true });
     assert.deepEqual(sql.logs.find((l) => l.probe === 'google-watch-renew-daily'), { probe: 'google-watch-renew-daily', ok: true, detail: 'renewed=0 failed=0 skipped=0' });
-    assert.equal(sql.logs.length, 3);
+    assert.equal(sql.logs.length, 4); // + שורת intake-daily (docs/09-security/46, שלב M.1)
     assert.equal(f.calls.length, 2);
     assert.equal(watchCalls(f).length, 0);
   });
@@ -223,7 +223,7 @@ describe('daily-check: חיבור החידוש', () => {
     const body = await res.json();
     assert.equal(body.google_watch_renew.ok, false);
     assert.equal(body.google_watch_renew.failed, 1);
-    assert.equal(sql.logs.length, 3);
+    assert.equal(sql.logs.length, 4); // + שורת intake-daily
     assert.equal(sql.logs.find((l) => l.probe === 'google-watch-renew-daily').ok, false);
   });
   test('חידוש שקורס (המסד נופל בקריאה): check_crashed, ושתי השורות האחרות נכתבות', async (t) => {
@@ -233,7 +233,7 @@ describe('daily-check: חיבור החידוש', () => {
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.google_watch_renew.reason, 'check_crashed');
-    assert.equal(sql.logs.length, 3);
+    assert.equal(sql.logs.length, 4); // + שורת intake-daily
     assert.equal(sql.logs.find((l) => l.probe === 'google-watch-renew-daily').detail, 'renewed=0 failed=0 skipped=0 reason=check_crashed');
   });
   test('פרטיות: אין מזהי יומנים/ערוצים/resource, שמות, tokens או סודות בתשובה, בלוג או ב-console', async (t) => {

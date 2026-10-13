@@ -829,7 +829,8 @@ describe('api/intake.js מחובר לצינור', () => {
     assert.equal(res.status, 200);
     assert.equal(await res.text(), RECEIVED_REPLY);
     assert.equal(sql.find('INTO sources').length, 1, 'ההודעה המקורית נשמרה');
-    assert.equal(writesOf(sql).length, 2, 'ה-INSERT למקור + ניסיון אחד של הפקודה האטומית, לא יותר');
+    assert.equal(writesOf(sql).length, 3, 'ה-INSERT למקור + ניסיון אחד של הפקודה האטומית + רישום התוצאה (46, M.1), לא יותר');
+    assert.deepEqual(sql.find('INTO intake_outcomes').map((call) => call.values), [[SRC_ID, 'failed', 'error']]);
     assert.equal(sql.find('INTO call_log').length, 0);
     const log = cap.text();
     assert.match(log, /intake: עיבוד נכשל/);

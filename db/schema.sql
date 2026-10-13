@@ -2,7 +2,7 @@
 -- מקורות: docs/01-foundation/06-db-schema.md (sources) · docs/05-chapter7/17-step1-cloud-handoff.md סעיף 6 · docs/06-handoff-notes/20-handoff-note-2026-10-05-close.md (טבלת השדות המוצעת).
 -- כללים: מזהים uuid · כל הזמנים timestamptz · אין מחיקה פיזית (יש סטטוס) · מה שלא ידוע נשאר NULL.
 -- הקובץ אידמפוטנטי: אפשר להריץ אותו כמה פעמים. הוא רק יוצר מה שחסר, ולא משנה טבלה קיימת.
--- שלב 1 כלל רק את sources; 13 הטבלאות של 06 נוספו בשלב 8.1 (בסוף הקובץ).
+-- שלב 1 כלל רק את sources; 13 הטבלאות של 06 נוספו בשלב 8.1, ואחריהן intake_outcomes (שלב M.1 של 46, בסוף הקובץ).
 
 -- ---------------------------------------------------------------------------
 -- sources — ההודעה הגולמית כפי שהתקבלה. נוסח מחייב: docs/01-foundation/06-db-schema.md שורות 13-26.
@@ -410,4 +410,18 @@ CREATE TABLE IF NOT EXISTS calendar_exceptions (
   kind      text,                                               -- vacation / exam / short_day / trip (06:204)
   title     text,
   certain   boolean                                             -- false כשהמקור לא ודאי (06:206). NULL = לא ידוע
+);
+
+-- ---------------------------------------------------------------------------
+-- intake_outcomes — תוצאת העיבוד של הודעה מהקיצור, שורה אחת לכל מקור. מקור: docs/09-security/46-prd-code-only-measurement.md, שלב M.1 (D4, D5, D7, D17).
+-- נכתבת ב-api/intake.js אחרי העיבוד. נרשמות רק הודעות מהקיצור (channel = 'shortcut'); skipped לא נרשם (D17).
+-- append-only: אין UPDATE ואין DELETE (D5). בלי טקסט הודעה ובלי שמות: רק מזהים וקודים (D7).
+-- 46 קובע רק שמות וסוגים; NOT NULL ו-DEFAULT הם החלטה של Claude שיובל אישר בסיכום השלב (13.10.2026).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS intake_outcomes (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id   uuid        NOT NULL UNIQUE REFERENCES sources(id),  -- שורה אחת לכל מקור: כתיבה שנייה נבלמת (ON CONFLICT DO NOTHING בקוד)
+  status      text        NOT NULL,                                -- recorded / unclassified / duplicate / failed. בלי CHECK, כדי לא לנעול רשימה
+  reason      text,                                                -- error / timeout; מלא רק כש-status הוא failed
+  recorded_at timestamptz NOT NULL DEFAULT now()
 );
