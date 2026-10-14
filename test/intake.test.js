@@ -250,3 +250,114 @@ describe('intake: כשלים ופרטיות', () => {
     assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8');
   });
 });
+
+// ---------------------------------------------------------------------------
+// שלב 8.2א-1 (docs/08-chapter8/47, "8.2א-1 נתונים ושרת"): שדה הערוץ. "קריטריון N" = קריטריון הקבלה N בטבלת 8.2א-1 של 47.
+// ---------------------------------------------------------------------------
+describe('intake: שדה הערוץ (שלב 8.2א-1)', () => {
+  const SRC_ID = '11111111-1111-4111-8111-111111111111';
+  const SATURDAY = new Date('2026-10-10T08:00:00Z'); // מחר = ראשון 11.10.2026
+  // פקודת השמירה של הקיצור, תו בתו כפי שהייתה לפני השלב (אחרי כיווץ רווחים של fakeSql).
+  const SHORTCUT_INSERT = "INSERT INTO sources (channel, sender, raw_content, content_hash, received_at) VALUES ('shortcut', ?, ?, ?, now()) RETURNING id, received_at";
+  const APP_INSERT = "INSERT INTO sources (channel, sender, raw_content, content_hash, received_at) VALUES ('app', ?, ?, ?, now()) RETURNING id, received_at";
+  // מסד מדומה: השמירה מחזירה שורה, מערכת השעות ריקה, ואפשר לסמן כפילות.
+  const db = ({ duplicate = false } = {}) => fakeSql((text) => {
+    if (text.includes('INTO sources')) return [{ id: SRC_ID, received_at: SATURDAY }];
+    if (text.includes('FROM sources s JOIN sources p')) return duplicate ? [{ found: 1 }] : [];
+    return [];
+  });
+  const send = (fields, sql, extra = {}) => handle(formRequest(fields, { headers: H }), { sql, secret: FAKE_SECRET, ...extra });
+
+  test('קריטריון 7: בלי שדה ערוץ: פקודת השמירה, הפרמטרים, הסטטוס, הכותרת והתשובה זהים לקיצור של לפני השלב', async (t) => {
+    captureConsole(t); // מערכת שעות ריקה במסד המדומה: loadTimetable כותב הודעה קבועה
+    const expected = [
+      ['מחר יש מבחן במתמטיקה', {}, 'נרשם · מבחן · מתמטיקה · ראשון 11.10'],
+      ['שלום מה נשמע', {}, 'התקבל'],
+      ['יש מבחן', {}, 'התקבל'],
+      ['מחר יש מבחן במתמטיקה', { duplicate: true }, 'כבר קיבלתי'],
+    ];
+    for (const [text, options, body] of expected) {
+      const sql = db(options);
+      const res = await send({ text, sender: 'כותב' }, sql);
+      assert.equal(res.status, 200, text);
+      assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8');
+      assert.equal(await res.text(), body, text);
+      assert.equal(sql.calls[0].text, SHORTCUT_INSERT);
+      assert.deepEqual(sql.calls[0].values, ['כותב', text, sha(text)]);
+    }
+  });
+
+  test('קריטריון 7: ערוץ ריק או shortcut במפורש = בדיוק כמו בלי שדה (אותה פקודה, אותה תשובה, אותו רישום מדידה)', async (t) => {
+    captureConsole(t);
+    const run = async (fields) => {
+      const sql = db();
+      const res = await send({ text: 'מחר יש מבחן במתמטיקה', ...fields }, sql);
+      return { status: res.status, body: await res.text(), calls: sql.calls.map((c) => [c.text, c.values]) };
+    };
+    const base = await run({});
+    assert.deepEqual(await run({ channel: '' }), base);
+    assert.deepEqual(await run({ channel: 'shortcut' }), base);
+    assert.ok(base.calls.some(([text]) => text.includes('INTO intake_outcomes')), 'הקיצור נרשם במדידה');
+  });
+
+  test('קריטריון 7: ערוץ app נשמר כ-app ומועבר לצינור כ-app', async () => {
+    let seen;
+    const sql = db();
+    const res = await send({ text: 'שלום', channel: 'app' }, sql, { processor: async ({ source }) => { seen = source; return { status: 'unclassified', reply: 'התקבל' }; } });
+    assert.equal(res.status, 200);
+    assert.equal(sql.calls[0].text, APP_INSERT);
+    assert.deepEqual(sql.calls[0].values, [null, 'שלום', sha('שלום')]);
+    assert.equal(seen.channel, 'app');
+  });
+
+  test('קריטריון 7: ערוץ app דרך הצינור האמיתי: מטופל כמוקלד (שאלת "מה זה?" נכתבת)', async (t) => {
+    captureConsole(t);
+    const sql = db();
+    const res = await send({ text: 'מחר אין שיעור אנגלית', channel: 'app' }, sql);
+    assert.equal(await res.text(), 'התקבל');
+    const question = sql.calls.find((c) => c.text.startsWith('WITH q AS'));
+    assert.ok(question, 'נכתבה שאלת "מה זה?"');
+    assert.deepEqual(question.values, ['מה זה?', SRC_ID]);
+  });
+
+  test('קריטריון 7: כל ערך אחר בשדה הערוץ: 400 "לא נשלח, נסה שוב." ושום דבר לא נשמר', async () => {
+    for (const channel of ['App', 'APP', 'Shortcut', 'telegram', 'calendar', 'system', ' app', 'app ', 'null']) {
+      const sql = db();
+      const res = await send({ text: 'שלום', channel }, sql);
+      assert.equal(res.status, 400, channel);
+      assert.equal(await res.text(), 'לא נשלח, נסה שוב.');
+      assert.equal(sql.calls.length, 0, channel);
+    }
+    const form = new FormData();
+    form.append('text', 'שלום');
+    form.append('channel', new Blob(['app'], { type: 'text/plain' }), 'c.txt');
+    const sql = db();
+    const res = await handle(new Request('https://x.test/', { method: 'POST', headers: H, body: form }), { sql, secret: FAKE_SECRET });
+    assert.equal(res.status, 400, 'קובץ במקום טקסט');
+    assert.equal(sql.calls.length, 0);
+  });
+
+  test('intake_outcomes (46, D17): הודעת app לא יוצרת שורה, בכל סטטוס ובכל כשל', async (t) => {
+    captureConsole(t);
+    const processors = [
+      async () => ({ status: 'recorded', reply: 'נרשם · בדיקה' }),
+      async () => ({ status: 'unclassified', reply: 'התקבל' }),
+      async () => ({ status: 'duplicate', reply: 'כבר קיבלתי' }),
+      async () => ({ status: 'skipped', reply: 'התקבל' }),
+      async () => undefined,
+      async () => { throw new Error('x'); },
+      async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); },
+    ];
+    for (const processor of processors) {
+      const sql = db();
+      const res = await send({ text: 'שלום', channel: 'app' }, sql, { processor });
+      assert.equal(res.status, 200);
+      assert.equal(sql.find('INTO intake_outcomes').length, 0);
+    }
+    // ובצינור האמיתי, גם כשהודעה מוקלדת נרשמה
+    const sql = db();
+    await send({ text: 'מחר יש מבחן במתמטיקה', channel: 'app' }, sql);
+    assert.equal(sql.find('INTO facts').length, 1);
+    assert.equal(sql.find('INTO intake_outcomes').length, 0);
+  });
+});

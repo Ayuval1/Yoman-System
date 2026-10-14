@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 const MODULES = [
   'api/intake', 'lib/ops/cron-plan', 'api/push-send', 'api/push-subscribe', 'lib/ops/gate-probe',
   'api/google-calendars', 'api/google-auth-start', 'api/google-auth-callback', 'api/google-webhook', 'api/google-watch-start',
+  'api/chat', // שלב 8.2א-1
 ];
 
 describe('export default { fetch }', () => {
