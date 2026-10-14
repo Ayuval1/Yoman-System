@@ -390,17 +390,17 @@ describe('intake: התראה מאוגדת לתור (שלב 8.2א-3)', () => {
     assert.equal(sendQueue.calls.length, 1);
     const [topic, message, options] = sendQueue.calls[0];
     assert.equal(topic, 'daily-slots');
-    assert.deepEqual(message, { kind: 'notify', slotKey: 'notify-1792000080', targetAt: new Date(1792000205 * 1000).toISOString() });
-    assert.deepEqual(options, { delaySeconds: 115, retentionSeconds: 115 + 86400, idempotencyKey: 'notify-1792000080' });
+    assert.deepEqual(message, { kind: 'notify', slotKey: 'notify-1792000080', targetAt: new Date(1792000115 * 1000).toISOString() });
+    assert.deepEqual(options, { delaySeconds: 25, retentionSeconds: 25 + 86400, idempotencyKey: 'notify-1792000080' });
   });
   test('קריטריון 1: שלוש הודעות באותו חלון: אותו slotKey ואותו מפתח אידמפוטנטיות; הודעה בחלון הבא: מפתח חדש', async () => {
     const sendQueue = fakeQueue();
-    for (const sec of [1792000081, 1792000100, 1792000199]) await send({ text: 'א' }, { processor: recorded, sendQueue, now: () => new Date(sec * 1000) });
+    for (const sec of [1792000081, 1792000100, 1792000109]) await send({ text: 'א' }, { processor: recorded, sendQueue, now: () => new Date(sec * 1000) });
     assert.equal(sendQueue.calls.length, 3);
     assert.deepEqual([...new Set(sendQueue.calls.map(([, m]) => m.slotKey))], ['notify-1792000080']);
     assert.deepEqual([...new Set(sendQueue.calls.map(([, , o]) => o.idempotencyKey))], ['notify-1792000080']);
-    await send({ text: 'ב' }, { processor: recorded, sendQueue, now: () => new Date(1792000200 * 1000) });
-    assert.equal(sendQueue.calls[3][1].slotKey, 'notify-1792000200');
+    await send({ text: 'ב' }, { processor: recorded, sendQueue, now: () => new Date(1792000110 * 1000) });
+    assert.equal(sendQueue.calls[3][1].slotKey, 'notify-1792000110');
   });
   test('קריטריון 3: הודעה מוקלדת (app) לעולם לא נשלחת לתור, גם כשנרשמה', async () => {
     const sendQueue = fakeQueue();
