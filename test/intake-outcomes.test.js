@@ -6,7 +6,10 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { handle, outcomeFor } from '../api/intake.js';
+import { handle as handleReal, outcomeFor } from '../api/intake.js';
+// שלב 8.2א-3: ברירת המחדל של handle היא שליחה אמיתית לתור; הבדיקות הישנות לא נוגעות בו, ולכן כאן תור מדומה שאינו עושה כלום.
+const handle = (request, deps) => handleReal(request, { sendQueue: async () => {}, ...deps });
+
 import { RECEIVED_REPLY, DUPLICATE_REPLY } from '../lib/intake-questions.js';
 import { fakeSql, captureConsole, formRequest, timeoutError, FAKE_SECRET } from './helpers.js';
 

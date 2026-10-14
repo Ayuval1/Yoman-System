@@ -5,11 +5,18 @@
 // אחרי העיבוד ולפני התשובה נרשמת תוצאת העיבוד ב-intake_outcomes (docs/09-security/46, שלב M.1): קוד סטטוס בלבד, בלי טקסט ובלי שמות. כשל ברישום הזה לא משנה את התשובה לקיצור.
 // הערוץ (שלב 8.2א-1, docs/08-chapter8/47 "8.2א-1 נתונים ושרת"; 35, "כתיבה מהצ'אט לקליטה"): שדה Form בשם channel. חסר או ריק = shortcut (הקיצור לא שולח אותו,
 // ותשובתו נשארת זהה תו בתו); app = הודעה שיובל הקליד בצ'אט; כל ערך אחר = 400 ושום דבר לא נשמר. intake_outcomes נרשם רק לערוץ הקיצור (46, D17).
+// התראה מאוגדת (שלב 8.2א-3, docs/08-chapter8/47 "8.2א-3"; 35, D5): רק להודעה שהועברה (ערוץ shortcut) שהמערכת הבינה (status recorded), אחרי רישום התוצאה ולפני התשובה,
+// נשלחת לתור הודעת notify מושהית (חלון של 120 שניות, lib/message-slots.js); הצרכן (api/queues/deliver.js) בודק מצב ושולח דחיפה אחת. הודעה מוקלדת (app) לעולם לא נשלחת לתור.
+// כשל בשליחה לתור נתפס, נרשם בשם השגיאה בלבד, ולא משנה את התשובה לקיצור.
 // מה היא לא עושה: אין קריאה למודל, אין תמונות.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { processSource } from '../lib/intake-process.js';
 import { RECEIVED_REPLY } from '../lib/intake-questions.js';
+import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
+
+// נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
+const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
 
 // הנחה, לא אומת: שם הכותרת של הסוד. אף מסמך לא קובע אותו (03-app-channel-rules: "סוד קבוע בכותרת").
 const SECRET_HEADER = 'x-intake-secret';
@@ -25,6 +32,7 @@ const CHANNEL_FIELD = 'channel';
 const MAX_TEXT_LENGTH = 100_000;
 // הנחה, לא אומת: 5 שניות לעיבוד אחרי השמירה. אף מסמך לא קובע ערך; Fluid Compute פעיל, ו-maxDuration של נקודה זו לא נמדד.
 const PROCESS_TIMEOUT_MS = 5000;
+const NOTIFY_QUEUE_TIMEOUT_MS = 3000;
 // הערוצים של נקודה זו. הערוץ שהתקבל נשלח לצינור העיבוד, ורק הקיצור הוא התנאי לרישום ב-intake_outcomes (46, D17: נמדדות רק הודעות מהקיצור).
 // הסינון לפי הערוץ עצמו ולא לפי הסטטוס skipped, כי מאז שלב 8.2א-1 ערוץ app מעובד (docs/08-chapter8/47, "תלויות", סעיף 2). אותם ערכים כתובים גם כמחרוזת ב-INSERT ל-sources.
 const CHANNEL_SHORTCUT = 'shortcut';
@@ -72,7 +80,15 @@ export function outcomeFor({ channel, result, failure = null }) {
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. processor (אופציונלי): החלפת צינור העיבוד, לבדיקות.
 // processTimeoutMs (אופציונלי): קיצור ההמתנה לעיבוד, כדי לבדוק תקיעה בלי לחכות 5 שניות.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], processor = processSource, processTimeoutMs = PROCESS_TIMEOUT_MS }) {
+// sendQueue ו-now (אופציונליים): שליחה לתור והשעון של ההתראה המאוגדת, לבדיקות.
+export async function handle(request, {
+  sql,
+  secret = process.env[SECRET_ENV_NAME],
+  processor = processSource,
+  processTimeoutMs = PROCESS_TIMEOUT_MS,
+  sendQueue = realSend,
+  now = () => new Date(),
+}) {
   const startedAt = Date.now();
 
   if (request.method !== 'POST') {
@@ -180,6 +196,18 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       `;
     } catch (error) {
       console.error('intake: רישום התוצאה נכשל:', error?.name);
+    }
+  }
+  // התראה מאוגדת: רק הודעה שהועברה שנכתבה לה בועת "נרשם". מפתח אידמפוטנטיות לפי החלון: שלוש הודעות באותו חלון = הודעת תור אחת.
+  if (channel === CHANNEL_SHORTCUT && result?.status === 'recorded') {
+    try {
+      const plan = planNotify(now());
+      // הנחה, לא אומת: 3 שניות להמתנה לתור (בחירה שלי). תור תקוע לא יעכב את התשובה לקיצור; התראה שלא נשלחה = המספר יתעדכן בפתיחה הבאה.
+      await withTimeout(sendQueue(SLOT_TOPIC, { kind: plan.kind, slotKey: plan.slotKey, targetAt: plan.targetAt }, {
+        delaySeconds: plan.delaySeconds, retentionSeconds: plan.retentionSeconds, idempotencyKey: plan.slotKey,
+      }), NOTIFY_QUEUE_TIMEOUT_MS);
+    } catch (error) {
+      console.error('intake: שליחה לתור ההתראות נכשלה:', error?.name);
     }
   }
   return reply(200, typeof result?.reply === 'string' && result.reply !== '' ? result.reply : RECEIVED_REPLY);

@@ -2,7 +2,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { handle } from '../api/intake.js';
+import { handle as handleReal } from '../api/intake.js';
+// שלב 8.2א-3: ברירת המחדל של handle היא שליחה אמיתית לתור; הבדיקות הישנות לא נוגעות בו, ולכן כאן תור מדומה שאינו עושה כלום.
+const handle = (request, deps) => handleReal(request, { sendQueue: async () => {}, ...deps });
+
 import { fakeSql, captureConsole, formRequest, req, FAKE_SECRET } from './helpers.js';
 
 const H = { 'x-intake-secret': FAKE_SECRET };
@@ -359,5 +362,110 @@ describe('intake: שדה הערוץ (שלב 8.2א-1)', () => {
     await send({ text: 'מחר יש מבחן במתמטיקה', channel: 'app' }, sql);
     assert.equal(sql.find('INTO facts').length, 1);
     assert.equal(sql.find('INTO intake_outcomes').length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// שלב 8.2א-3 (docs/08-chapter8/47, "8.2א-3"): התראה מאוגדת. שליחה לתור אחרי העיבוד, רק להודעה שהועברה שנרשמה. "קריטריון N" = קריטריון הקבלה N בטבלת 8.2א-3.
+// ---------------------------------------------------------------------------
+describe('intake: התראה מאוגדת לתור (שלב 8.2א-3)', () => {
+  const SRC_ID = '22222222-2222-4222-8222-222222222222';
+  const SATURDAY = new Date('2026-10-10T08:00:00Z');
+  const db = () => fakeSql((text) => (text.includes('INTO sources') ? [{ id: SRC_ID, received_at: SATURDAY }] : []));
+  const recorded = async () => ({ status: 'recorded', reply: 'נרשם · בדיקה' });
+  // תור מדומה: רושם כל שליחה.
+  const fakeQueue = (behavior) => {
+    const sendQueue = async (...args) => { sendQueue.calls.push(args); if (behavior) return behavior(); };
+    sendQueue.calls = [];
+    return sendQueue;
+  };
+  const NOW = new Date(1792000090 * 1000); // בתוך החלון שמתחיל ב-1792000080
+  const send = (fields, extra = {}) => handle(formRequest(fields, { headers: H }), { sql: db(), secret: FAKE_SECRET, now: () => NOW, ...extra });
+
+  test('קריטריון 3: הודעה שהועברה שנכתבה לה בועת "נרשם": נשלחת הודעת notify אחת לנושא daily-slots, עם מפתח אידמפוטנטיות לפי החלון', async () => {
+    const sendQueue = fakeQueue();
+    const res = await send({ text: 'הודעה מומצאת' }, { processor: recorded, sendQueue });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), 'נרשם · בדיקה');
+    assert.equal(sendQueue.calls.length, 1);
+    const [topic, message, options] = sendQueue.calls[0];
+    assert.equal(topic, 'daily-slots');
+    assert.deepEqual(message, { kind: 'notify', slotKey: 'notify-1792000080', targetAt: new Date(1792000205 * 1000).toISOString() });
+    assert.deepEqual(options, { delaySeconds: 115, retentionSeconds: 115 + 86400, idempotencyKey: 'notify-1792000080' });
+  });
+  test('קריטריון 1: שלוש הודעות באותו חלון: אותו slotKey ואותו מפתח אידמפוטנטיות; הודעה בחלון הבא: מפתח חדש', async () => {
+    const sendQueue = fakeQueue();
+    for (const sec of [1792000081, 1792000100, 1792000199]) await send({ text: 'א' }, { processor: recorded, sendQueue, now: () => new Date(sec * 1000) });
+    assert.equal(sendQueue.calls.length, 3);
+    assert.deepEqual([...new Set(sendQueue.calls.map(([, m]) => m.slotKey))], ['notify-1792000080']);
+    assert.deepEqual([...new Set(sendQueue.calls.map(([, , o]) => o.idempotencyKey))], ['notify-1792000080']);
+    await send({ text: 'ב' }, { processor: recorded, sendQueue, now: () => new Date(1792000200 * 1000) });
+    assert.equal(sendQueue.calls[3][1].slotKey, 'notify-1792000200');
+  });
+  test('קריטריון 3: הודעה מוקלדת (app) לעולם לא נשלחת לתור, גם כשנרשמה', async () => {
+    const sendQueue = fakeQueue();
+    const res = await send({ text: 'הודעה מומצאת', channel: 'app' }, { processor: recorded, sendQueue });
+    assert.equal(res.status, 200);
+    assert.equal(sendQueue.calls.length, 0);
+  });
+  test('סטטוסים אחרים של הקיצור לא נשלחים לתור: unclassified, duplicate, skipped, כשל, תקיעה, בלי תוצאה', async (t) => {
+    captureConsole(t);
+    const processors = [
+      async () => ({ status: 'unclassified', reply: 'התקבל' }),
+      async () => ({ status: 'duplicate', reply: 'כבר קיבלתי' }),
+      async () => ({ status: 'skipped', reply: 'התקבל' }),
+      async () => undefined,
+      async () => { throw new Error('x'); },
+      async () => { throw Object.assign(new Error('t'), { name: 'TimeoutError' }); },
+    ];
+    for (const processor of processors) {
+      const sendQueue = fakeQueue();
+      const res = await send({ text: 'הודעה מומצאת' }, { processor, sendQueue });
+      assert.equal(res.status, 200);
+      assert.equal(sendQueue.calls.length, 0);
+    }
+  });
+  test('דרך הצינור האמיתי: הודעה שהועברה ונרשמה נשלחת לתור; מוקלדת שנרשמה לא', async (t) => {
+    captureConsole(t);
+    const forwarded = fakeQueue();
+    const resA = await send({ text: 'מחר יש מבחן במתמטיקה' }, { sendQueue: forwarded });
+    assert.equal(await resA.text(), 'נרשם · מבחן · מתמטיקה · ראשון 11.10');
+    assert.equal(forwarded.calls.length, 1);
+    const typed = fakeQueue();
+    const resB = await send({ text: 'מחר יש מבחן במתמטיקה', channel: 'app' }, { sendQueue: typed });
+    assert.equal(await resB.text(), 'נרשם · מבחן · מתמטיקה · ראשון 11.10');
+    assert.equal(typed.calls.length, 0);
+  });
+  test('קריטריון 4: כשל בשליחה לתור (זריקה, דחייה או זריקה סינכרונית) לא משנה את התשובה לקיצור תו בתו, והשגיאה נרשמת בשמה בלבד', async (t) => {
+    const logged = captureConsole(t);
+    const ok = await send({ text: 'הודעה מומצאת' }, { processor: recorded, sendQueue: fakeQueue() });
+    const okBody = await ok.text();
+    const failures = [
+      () => { throw Object.assign(new Error('סוד-בהודעת-שגיאה'), { name: 'QueueDownError' }); },
+      () => Promise.reject(Object.assign(new Error('סוד-בהודעת-שגיאה'), { name: 'QueueDownError' })),
+    ];
+    for (const failure of failures) {
+      const res = await send({ text: 'הודעה מומצאת' }, { processor: recorded, sendQueue: fakeQueue(failure) });
+      assert.equal(res.status, ok.status);
+      assert.equal(res.headers.get('content-type'), ok.headers.get('content-type'));
+      assert.equal(await res.text(), okBody);
+    }
+    const syncThrow = await send({ text: 'הודעה מומצאת' }, { processor: recorded, sendQueue: () => { throw new Error('sync'); } });
+    assert.equal(await syncThrow.text(), okBody);
+    assert.match(logged.text(), /QueueDownError/);
+    assert.doesNotMatch(logged.text(), /סוד-בהודעת-שגיאה|הודעה מומצאת/);
+  });
+  test('כשל בתור לא מפריע לרישום תוצאת העיבוד (intake_outcomes נכתב לפני השליחה)', async (t) => {
+    captureConsole(t);
+    const order = [];
+    const tracking = fakeSql((text) => {
+      if (text.includes('INTO intake_outcomes')) order.push('outcome');
+      return text.includes('INTO sources') ? [{ id: SRC_ID, received_at: SATURDAY }] : [];
+    });
+    await handle(formRequest({ text: 'הודעה מומצאת' }, { headers: H }), {
+      sql: tracking, secret: FAKE_SECRET, now: () => NOW, processor: recorded,
+      sendQueue: async () => { order.push('queue'); throw new Error('x'); },
+    });
+    assert.deepEqual(order, ['outcome', 'queue']);
   });
 });
