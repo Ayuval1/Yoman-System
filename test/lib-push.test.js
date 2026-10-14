@@ -91,13 +91,13 @@ describe('lib/push: buildPayload', () => {
     assert.deepEqual(parse(r), { web_push: DECLARATIVE_MAGIC, notification: { title: 'שלום', navigate: 'https://yoman-system.vercel.app/' } });
     assert.equal(DECLARATIVE_MAGIC, 8030);
   });
-  test('כולל body ו-app_badge כמחרוזת', () => {
+  test('כולל body ו-app_badge כמספר (ניסוי 14.10.2026)', () => {
     const n = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף', app_badge: 3 })).notification;
     assert.equal(n.body, 'גוף');
-    assert.equal(n.app_badge, '3');
+    assert.equal(n.app_badge, 3);
   });
   test('app_badge: ערכים חוקיים', () => {
-    for (const [input, out] of [[0, '0'], ['0', '0'], [9999, '9999'], ['12', '12'], ['007', '7']]) {
+    for (const [input, out] of [[0, 0], ['0', 0], [9999, 9999], ['12', 12], ['007', 7]]) {
       assert.equal(parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: input })).notification.app_badge, out, String(input));
     }
   });
