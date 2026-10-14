@@ -10,7 +10,10 @@ import { createHash } from 'node:crypto';
 import { processSource, pendingQuestion, answerQuestion, TYPE_FIELD, RECORD_CANDIDATE_RULES, MAX_PROCESSABLE_LENGTH } from '../lib/intake-process.js';
 import { RECEIVED_REPLY, DUPLICATE_REPLY, UNKNOWN_BUTTON } from '../lib/intake-questions.js';
 import { UNKNOWN_VALUE } from '../lib/intake-facts.js';
-import { handle } from '../api/intake.js';
+import { handle as handleReal } from '../api/intake.js';
+// שלב 8.2א-3: ברירת המחדל של handle היא שליחה אמיתית לתור; הבדיקות הישנות לא נוגעות בו, ולכן כאן תור מדומה שאינו עושה כלום.
+const handle = (request, deps) => handleReal(request, { sendQueue: async () => {}, ...deps });
+
 import { fakeSql, captureConsole, formRequest, FAKE_SECRET } from './helpers.js';
 
 const H = { 'x-intake-secret': FAKE_SECRET };
