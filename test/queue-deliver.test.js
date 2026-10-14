@@ -83,29 +83,29 @@ describe('queue-deliver: handleDelivery', () => {
 
 // ---------------------------------------------------------------------------
 // שלב 8.2א-3 (docs/08-chapter8/47, "8.2א-3"): סוג ההודעה notify. "קריטריון N" = קריטריון הקבלה N בטבלת 8.2א-3.
-// חלונות של 120 שניות לפי epoch: 1792000080 = 14,933,334 * 120 (מתחלק ב-120). כל הנתונים מומצאים.
+// חלונות של 30 שניות לפי epoch (במפרט 120; קוצר ב-14.10.2026): 1792000080 = 59,733,336 * 30 (מתחלק ב-30). כל הנתונים מומצאים.
 // ---------------------------------------------------------------------------
 const W0 = 1792000080; // תחילת חלון
-const WINDOW_MS = 120_000;
+const WINDOW_MS = 30_000;
 const atSec = (sec) => new Date(sec * 1000);
 
 describe('message-slots: planNotify (קריטריון 1)', () => {
   test('שלוש הודעות באותו חלון = אותו slotKey, אותו יעד (הודעת תור אחת)', () => {
-    const plans = [W0, W0 + 59.5, W0 + 119.999].map((sec) => planNotify(atSec(sec)));
+    const plans = [W0, W0 + 15.5, W0 + 29.999].map((sec) => planNotify(atSec(sec)));
     assert.equal(new Set(plans.map((p) => p.slotKey)).size, 1);
     assert.equal(new Set(plans.map((p) => p.targetAt)).size, 1);
     assert.equal(plans[0].kind, 'notify');
     assert.equal(plans[0].slotKey, `notify-${W0}`);
   });
   test('היעד הוא סוף החלון ועוד 5 שניות', () => {
-    assert.equal(planNotify(atSec(W0 + 10)).targetAt, atSec(W0 + 125).toISOString());
+    assert.equal(planNotify(atSec(W0 + 10)).targetAt, atSec(W0 + 35).toISOString());
   });
   test('ההשהיה היא מה שנשאר עד היעד (לא שלילית, מעוגל כלפי מעלה), וה-retention ארוכה ממנה ועד 7 ימים', () => {
-    assert.equal(planNotify(atSec(W0)).delaySeconds, 125);
-    assert.equal(planNotify(atSec(W0 + 10)).delaySeconds, 115);
-    assert.equal(planNotify(atSec(W0 + 10.2)).delaySeconds, 115); // 114.8 -> 115
-    assert.equal(planNotify(atSec(W0 + 119.999)).delaySeconds, 6); // 5.001 -> 6
-    for (const sec of [W0, W0 + 70, W0 + 119.999]) {
+    assert.equal(planNotify(atSec(W0)).delaySeconds, 35);
+    assert.equal(planNotify(atSec(W0 + 10)).delaySeconds, 25);
+    assert.equal(planNotify(atSec(W0 + 10.2)).delaySeconds, 25); // 24.8 -> 25
+    assert.equal(planNotify(atSec(W0 + 29.999)).delaySeconds, 6); // 5.001 -> 6
+    for (const sec of [W0, W0 + 17, W0 + 29.999]) {
       const plan = planNotify(atSec(sec));
       assert.ok(plan.delaySeconds >= 0);
       assert.equal(plan.retentionSeconds, plan.delaySeconds + 86400);
@@ -116,14 +116,14 @@ describe('message-slots: planNotify (קריטריון 1)', () => {
     const last = planNotify(new Date(W0 * 1000 + WINDOW_MS - 1));
     const next = planNotify(new Date(W0 * 1000 + WINDOW_MS));
     assert.equal(last.slotKey, `notify-${W0}`);
-    assert.equal(next.slotKey, `notify-${W0 + 120}`);
+    assert.equal(next.slotKey, `notify-${W0 + 30}`);
   });
   test('הודעה אחרי המסירה של חלון קודם = חלון חדש (המסירה בסוף החלון + 5 שניות)', () => {
-    const first = planNotify(atSec(W0 + 30));
+    const first = planNotify(atSec(W0 + 10));
     const deliveredAt = new Date(first.targetAt);
     const after = planNotify(deliveredAt);
     assert.notEqual(after.slotKey, first.slotKey);
-    assert.equal(after.slotKey, `notify-${W0 + 120}`);
+    assert.equal(after.slotKey, `notify-${W0 + 30}`);
     assert.ok(Date.parse(after.targetAt) > deliveredAt.getTime());
   });
   test('בלי "עכשיו": ברירת מחדל תקינה', () => {
@@ -136,7 +136,7 @@ describe('message-slots: planNotify (קריטריון 1)', () => {
 });
 
 describe('message-slots: parseSlotMessage עם notify', () => {
-  const NOTIFY = { kind: 'notify', slotKey: `notify-${W0}`, targetAt: atSec(W0 + 125).toISOString() };
+  const NOTIFY = { kind: 'notify', slotKey: `notify-${W0}`, targetAt: atSec(W0 + 35).toISOString() };
   test('הודעת notify תקינה (בדיוק כפי ש-planNotify מייצרת)', () => {
     assert.deepEqual(parseSlotMessage(NOTIFY), { ok: true, ...NOTIFY });
     const plan = planNotify(atSec(W0 + 33));
@@ -158,8 +158,8 @@ describe('message-slots: parseSlotMessage עם notify', () => {
 });
 
 describe('queue-deliver: handleDelivery עם notify', () => {
-  const NOTIFY = { kind: 'notify', slotKey: `notify-${W0}`, targetAt: atSec(W0 + 125).toISOString() };
-  const DELIVERED = atSec(W0 + 125.4);
+  const NOTIFY = { kind: 'notify', slotKey: `notify-${W0}`, targetAt: atSec(W0 + 35).toISOString() };
+  const DELIVERED = atSec(W0 + 35.4);
   // מסד מדומה: שאילתת המצב מחזירה את state, וכל השאר ריק.
   const db = (state = { pending: 1, unread: 0, has_unseen: true }) => fakeSql((text) => (text.includes('has_unseen') ? [state] : []));
   const fakePush = (status = 200) => {
@@ -225,7 +225,7 @@ describe('queue-deliver: handleDelivery עם notify', () => {
     assert.match(probeWrites(sql)[0].values[1], /reason=no-secret/);
   });
   test('איחור של יותר מ-120 שניות נרשם ok=false גם כשהדחיפה נשלחה', async () => {
-    const out = await handleDelivery(NOTIFY, {}, { sql: db(), now: () => atSec(W0 + 125 + 200), pushHandle: fakePush(), secret: FAKE_CRON });
+    const out = await handleDelivery(NOTIFY, {}, { sql: db(), now: () => atSec(W0 + 35 + 200), pushHandle: fakePush(), secret: FAKE_CRON });
     assert.equal(out.sent, true);
     assert.equal(out.ok, false);
   });
