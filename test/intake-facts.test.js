@@ -417,3 +417,40 @@ describe('extractFacts: תיקוני ביקורת 12.10', () => {
     assert.ok(result.missing.includes('date'));
   });
 });
+
+// --- שלב 8.2א-1: חילוץ עם סוג כפוי (docs/08-chapter8/47, תרחיש ג וקריטריון 11) ---
+describe('extractFacts: forcedType (הסוג שנבחר בשאלת "מה זה?")', () => {
+  test('קריטריון 11: "מחר אין שיעור אנגלית" בלי סוג כפוי לא מסווג; עם cancel: מקצוע, תאריך, ושיעור דו-משמעי', () => {
+    assert.equal(extract('מחר אין שיעור אנגלית', SATURDAY).type, null);
+    const result = extract('מחר אין שיעור אנגלית', SATURDAY, { forcedType: 'cancel' });
+    assert.equal(result.type, 'cancel');
+    assert.equal(valueOf(result, 'subject'), 'אנגלית');
+    assert.equal(valueOf(result, 'date'), '2026-10-11');
+    assert.deepEqual(result.ambiguous, [{ field: 'lesson', candidates: ['5', '6'] }]);
+    assert.deepEqual(result.missing, ['lesson']);
+    assert.equal(result.understood, true);
+  });
+  test('טקסט בלי שום מידע: הסוג בלבד, וכל השדות החיוניים חסרים', () => {
+    const result = extract('שלום', SATURDAY, { forcedType: 'exam' });
+    assert.deepEqual({ type: result.type, facts: result.facts, missing: result.missing, understood: result.understood }, {
+      type: 'exam', facts: [], missing: ['subject', 'date', 'topic', 'lesson'], understood: false,
+    });
+  });
+  test('סוג כפוי זהה לסוג שהמילון מצא: אותה תוצאה בדיוק כמו בלי כפייה', () => {
+    for (const text of ['מחר מבחן בהיסטוריה', 'מבחן במתמטיקה ב-12.10 על שברים בשיעור 3', 'מחר יום מקוצר']) {
+      const plain = extract(text, SATURDAY);
+      assert.deepEqual(extract(text, SATURDAY, { forcedType: plain.type }), plain, text);
+    }
+  });
+  test('סוג כפוי שונה מהמילון גובר עליו', () => {
+    const result = extract('מחר מבחן בהיסטוריה', SATURDAY, { forcedType: 'homework' });
+    assert.equal(result.type, 'homework');
+    assert.equal(valueOf(result, 'subject'), 'היסטוריה');
+  });
+  test('null או undefined = בלי כפייה; סוג לא מוכר זורק RangeError; טקסט שאינו מחרוזת לא קורס', () => {
+    assert.equal(extract('מחר אין שיעור אנגלית', SATURDAY, { forcedType: null }).type, null);
+    assert.equal(extract('מחר אין שיעור אנגלית', SATURDAY, { forcedType: undefined }).type, null);
+    assert.throws(() => extract('שלום', SATURDAY, { forcedType: 'party' }), RangeError);
+    assert.equal(extract(null, SATURDAY, { forcedType: 'exam' }).type, 'exam');
+  });
+});

@@ -3,7 +3,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  buildQuestion, applyAnswer, answerPattern, formatReply, UNKNOWN_BUTTON, RECEIVED_REPLY, DUPLICATE_REPLY, TYPE_LABELS,
+  buildQuestion, applyAnswer, answerPattern, formatReply, parseTypeAnswer, UNKNOWN_BUTTON, RECEIVED_REPLY, DUPLICATE_REPLY, TYPE_LABELS,
 } from '../lib/intake-questions.js';
 import { extractFacts, assessFacts, UNKNOWN_VALUE } from '../lib/intake-facts.js';
 import { fellThroughRoots } from '../lib/intake-dictionary.js';
@@ -270,5 +270,41 @@ describe('applyAnswer: טווח שיעורים בתשובה (ביקורת, סע�
   test('מספר מחוץ ל-1 עד 9 או בלי מספר: לא נשמר', () => {
     assert.equal(lessonOf('שיעור 12'), undefined);
     assert.equal(lessonOf('השני'), undefined);
+  });
+});
+
+// --- שלב 8.2א-1: שאלת "מה זה?" (docs/08-chapter8/47, "מה נכנס" סעיף 7 ותרחיש ג; הכרעה ה4) ---
+describe('buildQuestion ו-parseTypeAnswer: שאלת "מה זה?"', () => {
+  test('קריטריון 10: "מה זה?" עם הסוגים בסדר TYPE_LABELS, "לא יודע" אחרון, ותיבת כתיבה', () => {
+    assert.deepEqual(buildQuestion({ field: 'type' }), {
+      field: 'type',
+      text: 'מה זה?',
+      buttons: ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', UNKNOWN_BUTTON],
+      allowFreeText: true,
+    });
+    assert.deepEqual(buildQuestion({ field: 'type' }).buttons.slice(0, -1), Object.values(TYPE_LABELS));
+  });
+  test('מועמדים ומערכת שעות לא משנים את שאלת הסוג', () => {
+    assert.deepEqual(buildQuestion({ field: 'type', candidates: ['x'], timetable: TIMETABLE, date: '2026-10-11' }), buildQuestion({ field: 'type' }));
+  });
+  test('כל תווית כפתור מתפענחת למפתח הסוג, גם עם רווחים ופיסוק', () => {
+    for (const [key, label] of Object.entries(TYPE_LABELS)) {
+      assert.equal(parseTypeAnswer(label), key, label);
+      assert.equal(parseTypeAnswer(`  ${label}. `), key, label);
+    }
+  });
+  test('"לא יודע" (וגם unknown) = unknown', () => {
+    assert.equal(parseTypeAnswer(UNKNOWN_BUTTON), UNKNOWN_VALUE);
+    assert.equal(parseTypeAnswer(' לא  יודע '), UNKNOWN_VALUE);
+    assert.equal(parseTypeAnswer('unknown'), UNKNOWN_VALUE);
+  });
+  test('כל דבר אחר: null (לא ניתן לפענוח)', () => {
+    for (const answer of ['', '   ', 'זה מבחן', 'מבחנים', 'exam', 'משהו', null, undefined, 5]) {
+      assert.equal(parseTypeAnswer(answer), null, String(answer));
+    }
+  });
+  test('applyAnswer על השדה type משתמש באותו פענוח', () => {
+    assert.deepEqual(applyAnswer({ facts: [], field: 'type', answer: 'ביטול' }), [{ field: 'type', value: 'cancel', origin: 'read', extracted_by: 'script' }]);
+    assert.deepEqual(applyAnswer({ facts: [], field: 'type', answer: 'בלה' }), []);
   });
 });

@@ -153,6 +153,7 @@
 | `expires_at` | timestamptz | מתי השאלה מפסיקה להיות רלוונטית |
 | `entity_type`, `entity_id` | text, uuid | על מה השאלה |
 | `attempt` | int | ניסיון בירור מספר כמה |
+| `read_at` | timestamptz | מתי הודעת מערכת הוצגה בצ'אט; ריק = לא נקראה. המספר על האייקון = שאלות פתוחות + בועות `update` יוצאות שלא נקראו (`docs/08-chapter8/47-chapter8-step-8-2a-spec.md`, "איך נשמר מה") |
 
 **בירור פתוח הוא שורה עם `awaiting_reply = true`.** הוא נסגר בתשובה, או כשהנושא חדל להיות רלוונטי (`expires_at`). אין תגובה — נשאר פתוח, והמשימה מסומנת `unknown`.
 
