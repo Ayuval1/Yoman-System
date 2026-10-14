@@ -26,10 +26,64 @@
 
 <link rel="stylesheet" href="/tokens.css">
 <style>
-  /* שלד בלבד. העיצוב המלא נגזר מ-design/mockups/ — ראה README. */
-  .app { display: flex; flex-direction: column; min-height: 100dvh; }
+  /* ============================================================
+     מסך הצ'אט (שלב 8.2א-2). המקור: docs/02-rules/03-design-rules.md
+     וההדמיות ב-docs/04-design/08-design-mockups.md (s_main_light, s_main_dark, states)
+     וב-docs/04-design/09-design-mockups-layer4.md (fwd-tab, buttons).
+     ============================================================ */
+
+  /* ערכים מההדמיות שאין להם טוקן ב-tokens.css. מוגדרים כאן כמשתנים, בהיר וכהה,
+     כדי שמצב כהה לא יישבר בשקט. הערכים הועתקו מההדמיות, לא הומצאו. */
+  :root {
+    --me-grad: linear-gradient(165deg, #1AB455, var(--live));   /* s_main_light .me */
+    --btn-neutral: #EFF1F3;                                     /* buttons.html (א), s_main_light .no */
+    --cnt-text: #fff;                                           /* s_main_light .cnt */
+    --send-bg: var(--deep);                                     /* s_main_light .send */
+    --inputbar-bg: rgba(237, 241, 243, .9);                     /* s_main_light .inputbar */
+    --field-bg: var(--card);                                    /* s_main_light .field */
+    --field-sh: 0 2px 7px rgba(8, 52, 30, .07);                 /* s_main_light .field */
+    --sh-peek3: 0 7px 14px rgba(8, 52, 30, .07);                /* s_main_light .p3 */
+    --accent: var(--deep);                                      /* תוויות ירוקות ("נרשם", "עוד ›") */
+    --r-mini: 18px;                                             /* states.html .mini */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --me-grad: linear-gradient(165deg, #179A47, #12853C);     /* s_main_dark .me */
+      --sh-me: 0 5px 14px rgba(0, 0, 0, .4);
+      --btn-neutral: rgba(235, 245, 238, .10);                  /* s_main_dark .no */
+      --cnt-text: #1A1509;
+      --send-bg: #12803A;
+      --inputbar-bg: rgba(16, 22, 19, .9);
+      --field-bg: var(--card1);
+      --field-sh: 0 2px 8px rgba(0, 0, 0, .4);
+      --sh-peek: 0 8px 16px rgba(0, 0, 0, .45);
+      --sh-peek3: 0 8px 16px rgba(0, 0, 0, .45);
+      --sh-card2: 0 6px 16px rgba(0, 0, 0, .42);
+      --accent: var(--accent-on-dark);                          /* #54CC85, 03-design-rules "מצב כהה" */
+    }
+  }
+  :root[data-theme="dark"] {
+    --me-grad: linear-gradient(165deg, #179A47, #12853C);
+    --sh-me: 0 5px 14px rgba(0, 0, 0, .4);
+    --btn-neutral: rgba(235, 245, 238, .10);
+    --cnt-text: #1A1509;
+    --send-bg: #12803A;
+    --inputbar-bg: rgba(16, 22, 19, .9);
+    --field-bg: var(--card1);
+    --field-sh: 0 2px 8px rgba(0, 0, 0, .4);
+    --sh-peek: 0 8px 16px rgba(0, 0, 0, .45);
+    --sh-peek3: 0 8px 16px rgba(0, 0, 0, .45);
+    --sh-card2: 0 6px 16px rgba(0, 0, 0, .42);
+    --accent: var(--accent-on-dark);
+  }
+
+  [hidden] { display: none !important; }
+
+  /* המסך בגובה החלון: הכותרת והכרטיס הנעוץ למעלה, שורת הכתיבה למטה, וההודעות נגללות ביניהם. */
+  .app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 
   .hero {
+    flex: none;
     position: relative; z-index: 2; color: #fff;
     padding: calc(env(safe-area-inset-top) + 8px) 24px 44px;
     background: linear-gradient(168deg, var(--deep2) 0%, var(--deep) 66%, #096B2F 100%);
@@ -45,17 +99,152 @@
     color: var(--deep); background: #fff; font-weight: var(--fw-med);
   }
 
-  .feed { flex: 1; padding: 0 16px 10px; display: flex; flex-direction: column; gap: 15px; }
+  button { font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:disabled { cursor: default; opacity: .45; }
 
-  .composer {
-    padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+  /* ---------- דרגה 1: שאלות ממתינות, נעוץ מתחת לכותרת ועולה עליה (s_main_light .pinwrap) ---------- */
+  /* הנחה, לא אומת: תקרת גובה לאזור הנעוץ (58% מהמסך) וגלילה בתוכו, כדי ששאלה עם 7 כפתורים לא תדחק את הצ'אט החוצה. */
+  .pinwrap {
+    flex: none; position: relative; z-index: 50;
+    margin-top: -30px; padding: 0 14px 14px;
+    max-height: 58dvh; overflow-y: auto; overscroll-behavior: contain;
+  }
+  .pinwrap.expanded { margin-top: 14px; }   /* states.html, "ערימה פתוחה" */
+
+  .card1 {
+    position: relative; z-index: 3; background: var(--card1);
+    border-radius: var(--r-card1); overflow: hidden; box-shadow: var(--sh-card1);
+  }
+  .chead { display: flex; align-items: center; gap: 8px; padding: 13px 18px; background: var(--amberbg); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: none; }
+  .clbl { font-size: 13px; font-weight: var(--fw-bold); color: var(--amber); }
+  .cnt {
+    margin-inline-start: auto; font-size: 12px; font-weight: var(--fw-bold);
+    color: var(--cnt-text); background: var(--amber); border-radius: var(--r-pill); padding: 2px 10px;
+  }
+  .ctxt { font-size: 17px; line-height: 1.42; color: var(--label); padding: 17px 18px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .expanded .ctxt { padding-top: 18px; }
+  /* הנחה, לא אומת: המראה של שורת "לא הבנתי" / "לא נשלח" בתוך הכרטיס. אין לה הדמיה; ענבר = "דורש אותך". */
+  .cnote { font-size: 14px; line-height: 1.4; color: var(--amber); padding: 8px 18px 0; }
+
+  /* כפתורים זה מתחת לזה, ברוחב מלא (buttons.html, אפשרות א'; 03-design-rules "שאלות עם כפתורים") */
+  .opts { display: flex; flex-direction: column; gap: 8px; padding: 15px 18px 0; }
+  .opt {
+    border: 0; text-align: center; padding: 12px 0; border-radius: var(--r-pill);
+    font-size: 16px; font-weight: var(--fw-med); background: var(--btn-neutral); color: var(--label);
+  }
+
+  /* תיבת הכתיבה שבתוך הכרטיס (D2, אלמנט חדש שאושר 13.10.2026).
+     הנחה, לא אומת: המראה לא נקבע. נבחר: קפסולה באותו צבע כמו הכפתורים שמעליה, עם עיגול השליחה של שורת הכתיבה. */
+  .qfield {
     display: flex; align-items: center; gap: 10px;
+    margin: 8px 18px 17px; padding: 6px; padding-inline-start: 16px;
+    background: var(--btn-neutral); border-radius: var(--r-pill);
   }
-  .composer input {
-    flex: 1; border: 0; background: var(--card);
-    border-radius: var(--r-pill); padding: 12px 18px;
-    font: inherit; color: var(--label); box-shadow: var(--sh-card3);
+  .opts:empty + .qfield { margin-top: 15px; }
+
+  /* הערימה (03-design-rules "הערימה"; s_main_light .peek/.more; states.html "ערימה פתוחה") */
+  .peek { background: var(--card); border-radius: var(--r-card1); height: 26px; position: relative; }
+  .p2 { margin: -16px 12px 0; z-index: 2; box-shadow: var(--sh-peek); }
+  .p3 { margin: -16px 26px 0; z-index: 1; box-shadow: var(--sh-peek3); opacity: .9; }
+  .more {
+    display: block; width: 100%; border: 0; background: none; text-align: center;
+    font-size: 13.5px; font-weight: var(--fw-bold); color: var(--accent); padding: 15px 0 0;
   }
+  .exhead { display: flex; align-items: center; gap: 8px; padding: 0 6px 9px; }
+  .exlbl, .excnt { font-size: 13px; font-weight: var(--fw-bold); color: var(--amber); }
+  .excnt { margin-inline-start: auto; }
+  .mini {
+    width: 100%; border: 0; text-align: start; background: var(--card1);
+    border-radius: var(--r-mini); padding: 14px 16px; display: flex; align-items: center; gap: 11px;
+    box-shadow: var(--sh-bubble); margin-top: 9px;
+  }
+  .mini .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+  .mini .t { flex: 1; min-width: 0; font-size: 16px; color: var(--label); line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini .ch { margin-inline-start: auto; color: var(--label3); font-size: 20px; flex: none; }
+  .close { display: block; width: 100%; border: 0; background: none; text-align: center; font-size: 13.5px; font-weight: var(--fw-bold); color: var(--label2); padding: 16px 0 0; }
+
+  /* ---------- ההודעות (s_main_light .feed) ---------- */
+  .feed {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 16px 16px 10px; display: flex; flex-direction: column; gap: 15px;
+  }
+  /* ההודעות יושבות למטה, ליד שורת הכתיבה (בהדמיה: justify-content:flex-end; כאן margin, כדי שהגלילה למעלה לא תיחסם) */
+  .feed > :first-child { margin-top: auto; }
+  /* פריט בצ'אט לא מתכווץ כשהרשימה ארוכה מהמסך (בלי זה בועה עם overflow:hidden מתכווצת לגובה 0) */
+  .feed > * { flex-shrink: 0; }
+
+  /* הבועה של יובל: ירוקה, משמאל (03-design-rules "צדדים בצ'אט") */
+  .me {
+    align-self: flex-end; max-width: 76%; background: var(--me-grad); color: #fff;
+    border-radius: var(--r-card2); padding: 11px 17px; font-size: 17px; line-height: 1.3; box-shadow: var(--sh-me);
+  }
+  /* הודעה שהועברה: רצועת "הועבר" שנמוגה (fwd-tab.html, אפשרות ב'). #0A7A36 = var(--deep) בבהיר. */
+  .me.fwd { max-width: 80%; padding: 0; overflow: hidden; line-height: 1.4; }
+  .fade {
+    background: linear-gradient(270deg, var(--deep) 0%, var(--deep) 22%, transparent 62%);
+    padding: 7px 17px; font-size: 12.5px; font-weight: var(--fw-bold);
+    display: flex; align-items: center; gap: 5px; color: rgba(255, 255, 255, .95);
+  }
+  .fwd .bd { padding: 9px 17px 12px; }
+  .metime { align-self: flex-end; font-size: 11.5px; color: var(--label3); margin: -11px 8px 0; }
+
+  /* בועת המערכת: לבנה (כהה במצב כהה), מימין, תווית ירוקה בראשה ושעה ב-LTR בתחתית (03-design-rules "הצורה נגזרת מהתוכן") */
+  .sysb {
+    align-self: flex-start; max-width: 80%; background: var(--card1); border-radius: var(--r-card2);
+    padding: 11px 16px 9px; font-size: 17px; line-height: 1.4; color: var(--label); box-shadow: var(--sh-bubble);
+  }
+  .sysb .sl { display: block; font-size: 12.5px; font-weight: var(--fw-bold); color: var(--accent); margin-bottom: 2px; }
+  .sysb .bt { font-size: 11.5px; color: var(--label3); margin-top: 3px; text-align: left; }
+
+  /* הודעה ארוכה: 6 שורות ראשונות ו"עוד ›" (הכרעת יובל, 35 "לוג פערים", 14.10.2026) */
+  .txt { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .txt.clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden; }
+  /* הנחה, לא אומת: המראה של "עוד ›" בתוך בועה. אין לו הדמיה; נבחר טקסט מודגש קטן בצבע הבועה עצמה. */
+  .more-txt {
+    display: block; margin-top: 4px; border: 0; background: none; padding: 0;
+    font-size: 13.5px; font-weight: var(--fw-bold); color: inherit; opacity: .85;
+  }
+
+  /* היום הראשון: מסך ריק (03-design-rules "היום הראשון"; states.html) */
+  .empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 24px; }
+  .emark { width: 64px; height: 64px; opacity: .22; margin-bottom: 20px; }
+  .etext { font-size: 16px; color: var(--label2); line-height: 1.55; }
+  .ecard { background: var(--card); border-radius: var(--r-card3); box-shadow: var(--sh-card2); margin-top: 26px; width: 100%; overflow: hidden; }
+  .erow { display: flex; align-items: baseline; gap: 12px; padding: 13px 18px; text-align: start; position: relative; }
+  .erow + .erow::before { content: ""; position: absolute; top: 0; right: 18px; left: 18px; height: 1px; background: var(--sep); }
+  .erow .rt { font-size: var(--fs-time); font-weight: var(--fw-bold); color: var(--accent); min-width: 46px; }
+  .erow .rb { font-size: 16px; color: var(--label); }
+
+  /* הנחה, לא אומת: שגיאת טעינה. אין לה הדמיה; טקסט משני ו"נסה שוב" בסגנון "עוד ›". */
+  .loaderr { align-self: center; text-align: center; font-size: 15px; color: var(--label2); padding: 8px 0; }
+  .loaderr .more { padding-top: 6px; }
+  .feed > .loaderr:only-child { margin: auto 0; }
+
+  /* ---------- שורת הכתיבה (s_main_light .inputbar/.field/.send; 03-design-rules: "כפתור השליחה יושב בתוך הקפסולה") ---------- */
+  .composer {
+    flex: none; position: relative; z-index: 3;
+    padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+    background: var(--inputbar-bg);
+    -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  }
+  .field {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--field-bg); border-radius: var(--r-pill);
+    padding: 7px; padding-inline-start: 18px; box-shadow: var(--field-sh);
+  }
+  .field input, .qfield input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font: inherit; font-size: 17px; color: var(--label); padding: 4px 0;
+  }
+  .qfield input { font-size: 16px; }
+  .field input::placeholder, .qfield input::placeholder { color: var(--label3); }
+  .send {
+    width: 32px; height: 32px; border-radius: 50%; border: 0; background: var(--send-bg);
+    flex: none; display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  /* הנחה, לא אומת: מקום ומראה של שגיאת שליחה מעל שורת הכתיבה. אין לה הדמיה. */
+  .composer-note { font-size: 13px; color: var(--amber); padding: 0 8px 7px; }
 </style>
 </head>
 <body>
@@ -67,17 +256,24 @@
       <button type="button" id="connectGoogle" class="push-btn">חבר Google</button>
     </header>
 
+    <section class="pinwrap" id="pin" hidden aria-label="ממתין לתשובה"></section>
+
     <main class="feed" id="feed" aria-live="polite"></main>
 
     <form class="composer" id="composer">
-      <input id="msg" placeholder="הודעה" autocomplete="off" enterkeyhint="send">
+      <p class="composer-note" id="composerNote" role="status" hidden></p>
+      <div class="field">
+        <input id="msg" placeholder="הודעה" autocomplete="off" enterkeyhint="send">
+        <button type="submit" class="send" id="sendBtn" aria-label="שלח"></button>
+      </div>
     </form>
   </div>
 
 <script type="module">
 // ============================================================
-// שלד לפרק 7. אין פה לוגיקה עסקית — רק מה שצריך כדי שה-PWA
-// יתקין, ירשם לדחיפה, וידע לעדכן את המספר על האייקון.
+// דף האפליקציה. פרק 7: התקנה, דחיפה והמספר על האייקון. שלב 8.2א-2: מסך הצ'אט.
+// הדף רק מצייר: כל ההחלטות (מה מוצג, אילו כפתורים, המספר) מגיעות מהשרת (api/chat.js, lib/chat-view.js).
+// אבטחה: טקסט מהשרת נכנס לדף רק כטקסט (textContent). innerHTML משמש רק לסמלי SVG קבועים שבקוד הזה.
 // ============================================================
 
 const DAYS = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -109,13 +305,39 @@ export async function setBadge(count) {
   }
 }
 
+// --- הסוד (D1 ב-docs/08-chapter8/35: נשאל פעם אחת לכל מכשיר ונשמר; 401 מוחק ושואל שוב) ---
+// ⚠️ הוכרע לפרק 8 בלבד (35, "הסוד בדף האפליקציה"): prompt ו-localStorage. לא מוטמע בקוד, כי דף ווב חושף כל סוד שמוטמע בו.
+// הסוד לא נכתב ללוג. אותן פונקציות משמשות את כפתור ההתראות, את "חבר Google" ואת הצ'אט.
+// תוספת אחת: כש-localStorage לא זמין, הסוד נשמר בזיכרון עד סגירת הדף, כדי שהצ'אט (שקורא בכל רענון) לא ישאל שוב ושוב.
+const SECRET_STORAGE_KEY = 'yoman_intake_secret';
+let secretInMemory = null;
+
+function readSecret() {
+  try {
+    const stored = localStorage.getItem(SECRET_STORAGE_KEY);
+    if (stored) return stored;
+  } catch { /* אין אחסון */ }
+  return secretInMemory;
+}
+
+// שואל את יובל. מחזיר את הסוד, או null כשלא הוזן.
+function askSecret() {
+  const secret = window.prompt('סוד הקליטה');
+  if (!secret) return null;
+  secretInMemory = secret;
+  try { localStorage.setItem(SECRET_STORAGE_KEY, secret); } catch { /* ממשיכים בלי לשמור */ }
+  return secret;
+}
+
+function forgetSecret() {
+  secretInMemory = null;
+  try { localStorage.removeItem(SECRET_STORAGE_KEY); } catch { /* */ }
+}
+
 // --- הרשמה לדחיפה (בלי שירות-עובד) ---
 // מקור: webkit.org/blog/16535 — "window.pushManager" לניהול מנוי בלי שירות-עובד.
 // ⚠️ לא אומת: שחובה מחווה של משתמש ב-subscribe עצמו (הפוסט לא אומר). מכאן נקראת רק מלחיצה.
 // ⚠️ ב-iOS ההרשאה נדרשת בתוך לחיצה, ורק כשהאפליקציה רצה ממסך הבית.
-// ⚠️ הנחה, ממתין לאישור יובל: הסוד נשאל ב-prompt ונשמר ב-localStorage. לא מוטמע בקוד,
-//    כי דף ווב חושף כל סוד שמוטמע בו. ההכרעה הסופית לא התקבלה.
-const SECRET_STORAGE_KEY = 'yoman_intake_secret';
 
 function urlBase64ToUint8Array(b64) {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -136,13 +358,8 @@ export async function enablePush(vapidPublicKey) {
     applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
   });
 
-  let secret = null;
-  try { secret = localStorage.getItem(SECRET_STORAGE_KEY); } catch { /* אין אחסון */ }
-  if (!secret) {
-    secret = window.prompt('סוד הקליטה');
-    if (!secret) return { ok: false, reason: 'לא הוזן סוד' };
-    try { localStorage.setItem(SECRET_STORAGE_KEY, secret); } catch { /* ממשיכים בלי לשמור */ }
-  }
+  const secret = readSecret() || askSecret();
+  if (!secret) return { ok: false, reason: 'לא הוזן סוד' };
 
   const res = await fetch('/api/push-subscribe', {
     method: 'POST',
@@ -150,7 +367,7 @@ export async function enablePush(vapidPublicKey) {
     body: JSON.stringify(subscription.toJSON()),
   });
   if (res.status === 401) {
-    try { localStorage.removeItem(SECRET_STORAGE_KEY); } catch { /* */ }
+    forgetSecret();
     return { ok: false, reason: 'הסוד לא התקבל' };
   }
   return res.ok ? { ok: true } : { ok: false, reason: 'הרישום נכשל' };
@@ -186,16 +403,11 @@ pushBtn.addEventListener('click', async () => {
 const googleBtn = document.getElementById('connectGoogle');
 googleBtn.addEventListener('click', async () => {
   try {
-    let secret = null;
-    try { secret = localStorage.getItem(SECRET_STORAGE_KEY); } catch { /* אין אחסון */ }
-    if (!secret) {
-      secret = window.prompt('סוד הקליטה');
-      if (!secret) { googleBtn.textContent = 'לא הוזן סוד'; return; }
-      try { localStorage.setItem(SECRET_STORAGE_KEY, secret); } catch { /* ממשיכים בלי לשמור */ }
-    }
+    const secret = readSecret() || askSecret();
+    if (!secret) { googleBtn.textContent = 'לא הוזן סוד'; return; }
     const res = await fetch('/api/google-auth-start', { method: 'POST', headers: { 'x-intake-secret': secret } });
     if (res.status === 401) {
-      try { localStorage.removeItem(SECRET_STORAGE_KEY); } catch { /* */ }
+      forgetSecret();
       googleBtn.textContent = 'לא הצלחתי: הסוד לא התקבל';
       return;
     }
@@ -219,13 +431,445 @@ googleBtn.addEventListener('click', async () => {
 // ⚠️ אין כפתורים בהתראה באייפון — ספארי מתעלמת מ-actions.
 //    ההתראה פותחת את הצ'אט; האישור קורה בתוך האפליקציה.
 
-document.getElementById('composer').addEventListener('submit', e => {
-  e.preventDefault();
-  const input = document.getElementById('msg');
-  if (!input.value.trim()) return;
-  // פרק 8: שליחה לשרת הקליטה.
-  input.value = '';
+// ============================================================
+// הצ'אט (שלב 8.2א-2). מפרט: docs/08-chapter8/47-chapter8-step-8-2a-spec.md, "8.2א-2 המסך".
+//   GET /api/chat                       -> { items, pending, badge }
+//   POST /api/chat {action:'answer'}    -> { status: answered|closed|unclear, ... }
+//   POST /api/chat {action:'read'}      -> { badge }
+//   POST /api/intake (Form: text, channel=app) -> טקסט. הודעה חדשה שיובל מקליד.
+// רענון: בטעינה, כשהדף חוזר לחזית, ואחרי כל פעולה. בלי סקירה מחזורית (47 "מה נכנס" 10).
+// ============================================================
+
+const ERROR_TEXT = 'לא נשלח, נסה שוב.';                         // 47, "שגיאות"
+const TOO_LONG_TEXT = 'ההודעה ארוכה מדי, לא נשלחה.';             // 47, "שגיאות" (נוסח הקיצור)
+const UNCLEAR_TEXT = "לא הבנתי. נסה שוב או בחר 'לא יודע'";       // 47, "מה נכנס" 11
+const LOAD_ERROR_TEXT = 'לא הצלחתי לטעון את ההודעות.';           // הנחה, לא אומת: אין נוסח במסמכים
+
+// סמלים קבועים מההדמיות (לא תוכן מהשרת).
+const ICON_SEND = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>';
+const ICON_FORWARD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6 4 12l6 6"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></svg>';
+const ICON_EMPTY = '<svg class="emark" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M232 176h560c39 0 71 32 71 71v450c0 39-32 71-71 71H398l-118 104c-14 12-36 2-36-17v-87h-12c-39 0-71-32-71-71V247c0-39 32-71 71-71z" opacity=".25"/><rect x="318" y="118" width="46" height="98" rx="23"/><rect x="660" y="118" width="46" height="98" rx="23"/><circle cx="330" cy="470" r="34"/><circle cx="512" cy="470" r="34"/><circle cx="694" cy="470" r="34"/><circle cx="330" cy="600" r="34"/><circle cx="512" cy="600" r="34"/><circle cx="694" cy="600" r="34"/></svg>';
+
+function icon(svgMarkup) {
+  const template = document.createElement('template');
+  template.innerHTML = svgMarkup; // קבוע מהקוד בלבד
+  return template.content.firstElementChild;
+}
+
+// יוצר אלמנט עם טקסט. הטקסט נכנס רק דרך textContent.
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+
+const feedEl = document.getElementById('feed');
+const pinEl = document.getElementById('pin');
+const composer = document.getElementById('composer');
+const msgInput = document.getElementById('msg');
+const sendBtn = document.getElementById('sendBtn');
+const composerNote = document.getElementById('composerNote');
+sendBtn.append(icon(ICON_SEND));
+
+const state = {
+  loaded: false,        // האם GET הצליח לפחות פעם אחת
+  loadError: false,     // GET האחרון נכשל
+  items: [],
+  pending: [],
+  stackOpen: false,     // הערימה במצב מורחב
+  focusId: null,        // השאלה שפתוחה בכרטיס (ברירת מחדל: הוותיקה)
+  notes: new Map(),     // id שאלה -> שורה בכרטיס ("לא הבנתי" / "לא נשלח")
+  drafts: new Map(),    // id שאלה -> מה שהוקלד בתיבה שבכרטיס, כדי שלא יימחק ברענון
+  busy: new Set(),      // שאלות שתשובה עליהן בדרך: הכפתורים נעולים
+  expanded: new Set(),  // בועות ארוכות שנפתחו ב"עוד ›"
+};
+
+// --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
+class NoSecretError extends Error {}
+async function authedFetch(url, init = {}) {
+  let res;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const secret = readSecret() || askSecret();
+    if (!secret) throw new NoSecretError('no secret');
+    res = await fetch(url, { ...init, headers: { ...(init.headers ?? {}), 'x-intake-secret': secret } });
+    if (res.status !== 401) return res;
+    forgetSecret();
+  }
+  return res;
+}
+
+function postChat(body) {
+  return authedFetch('/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+// --- שעה ---
+// הנחה, לא אומת: היום = "09:12"; אתמול = "אתמול 09:12" (כמו states.html "שתיקה"); לפני כן = "13.10 09:12". אין במסמכים פורמט לתאריך ישן יותר.
+const pad2 = (n) => String(n).padStart(2, '0');
+function timeLabel(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  const hm = `${pad2(at.getHours())}:${pad2(at.getMinutes())}`;
+  const today = new Date();
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(at, today)) return hm;
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (sameDay(at, yesterday)) return 'אתמול ' + hm;
+  return `${at.getDate()}.${at.getMonth() + 1} ${hm}`;
+}
+
+function timeNode(className, iso) {
+  const node = el('div', className, timeLabel(iso));
+  node.dir = 'ltr'; // שעה תמיד משמאל לימין
+  node.classList.add('tnum');
+  return node;
+}
+
+// --- טקסט של בועה: עד 6 שורות, ואם יש יותר: "עוד ›" ---
+const clampQueue = [];
+function textBlock(text, key) {
+  const node = el('div', 'txt', text ?? '');
+  if (!state.expanded.has(key)) {
+    node.classList.add('clamp');
+    clampQueue.push({ node, key });
+  }
+  return node;
+}
+
+// נבדק אחרי שהבועות כבר בדף (אחרת אין מידות). רק בועה שבאמת נחתכה מקבלת "עוד ›".
+function applyClamps() {
+  for (const { node, key } of clampQueue.splice(0)) {
+    if (node.scrollHeight <= node.clientHeight + 1) { node.classList.remove('clamp'); continue; }
+    const more = el('button', 'more-txt', 'עוד ›');
+    more.type = 'button';
+    more.addEventListener('click', () => {
+      state.expanded.add(key);
+      node.classList.remove('clamp');
+      more.remove();
+    });
+    node.after(more);
+  }
+}
+
+// --- בועות ---
+function userBubble(item) {
+  const key = 'u:' + item.id;
+  let bubble;
+  if (item.forwarded) {
+    bubble = el('div', 'me fwd');
+    const strip = el('div', 'fade');
+    strip.append(icon(ICON_FORWARD), document.createTextNode('הועבר'));
+    const body = el('div', 'bd');
+    body.append(textBlock(item.text, key));
+    bubble.append(strip, body);
+  } else {
+    bubble = el('div', 'me');
+    bubble.append(textBlock(item.text, key));
+  }
+  return [bubble, timeNode('metime', item.at)];
+}
+
+function systemBubble(item) {
+  const key = 's:' + item.id;
+  const bubble = el('div', 'sysb');
+  let text = item.text ?? '';
+  if (item.tag === 'recorded') {
+    bubble.append(el('span', 'sl', 'נרשם'));
+    text = text.replace(/^נרשם(\s*·\s*)?/, '');
+  }
+  bubble.append(textBlock(text, key), timeNode('bt', item.at));
+  return [bubble];
+}
+
+// --- מצב ריק: "היום הראשון" (03-design-rules; states.html) ---
+function emptyState() {
+  const box = el('div', 'empty');
+  const mark = icon(ICON_EMPTY);
+  mark.style.color = 'var(--deep)';
+  const card = el('div', 'ecard');
+  for (const [time, label] of [['07:30', 'הבריף הראשון מחר בבוקר'], ['21:00', 'הסגירה הראשונה מחר בערב']]) {
+    const row = el('div', 'erow');
+    const t = el('span', 'rt tnum', time);
+    t.dir = 'ltr';
+    row.append(t, el('span', 'rb', label));
+    card.append(row);
+  }
+  box.append(mark, el('p', 'etext', 'שלח לי משהו, או שתף הודעה מווטסאפ'), card);
+  return box;
+}
+
+function loadErrorNode() {
+  const box = el('div', 'loaderr', LOAD_ERROR_TEXT);
+  const retry = el('button', 'more', 'נסה שוב');
+  retry.type = 'button';
+  retry.addEventListener('click', () => refresh());
+  box.append(retry);
+  return box;
+}
+
+function renderFeed() {
+  const nodes = [];
+  for (const item of state.items) nodes.push(...(item.role === 'system' ? systemBubble(item) : userBubble(item)));
+  if (state.loadError) nodes.push(loadErrorNode());
+  else if (state.loaded && state.items.length === 0 && state.pending.length === 0) nodes.push(emptyState());
+  feedEl.replaceChildren(...nodes);
+  applyClamps();
+  feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+// --- שאלות ממתינות: כרטיס נעוץ, ערימה, רשימה מורחבת ---
+function questionCard(question, { withHead, count }) {
+  const card = el('section', 'card1');
+  const busy = state.busy.has(question.id);
+  if (withHead) {
+    const head = el('div', 'chead');
+    head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
+    card.append(head);
+  }
+  card.append(el('div', 'ctxt', question.text ?? ''));
+  const note = state.notes.get(question.id);
+  if (note) {
+    const noteEl = el('div', 'cnote', note);
+    noteEl.setAttribute('role', 'status');
+    card.append(noteEl);
+  }
+
+  // הכפתורים בסדר שהשרת מחזיר ("לא יודע" אחרון).
+  const opts = el('div', 'opts');
+  for (const label of Array.isArray(question.buttons) ? question.buttons : []) {
+    const button = el('button', 'opt', label);
+    button.type = 'button';
+    button.disabled = busy;
+    button.addEventListener('click', () => sendAnswer(question.id, String(label)));
+    opts.append(button);
+  }
+  card.append(opts);
+
+  // תיבת הכתיבה שבכרטיס (D2). מופיעה רק כשהשרת מאשר כתיבה חופשית.
+  if (question.allowFreeText !== false) {
+    const form = el('form', 'qfield');
+    const input = el('input');
+    input.placeholder = 'תשובה'; // הנחה, לא אומת: אין נוסח במסמכים
+    input.autocomplete = 'off';
+    input.setAttribute('enterkeyhint', 'send');
+    input.value = state.drafts.get(question.id) ?? '';
+    input.readOnly = busy;
+    input.addEventListener('input', () => state.drafts.set(question.id, input.value));
+    const send = el('button', 'send');
+    send.type = 'submit';
+    send.disabled = busy;
+    send.setAttribute('aria-label', 'שלח');
+    send.append(icon(ICON_SEND));
+    form.append(input, send);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const answer = input.value.trim();
+      if (!answer) return; // שדה ריק: לא שולחים
+      sendAnswer(question.id, answer);
+    });
+    card.append(form);
+  } else {
+    opts.style.paddingBottom = '17px';
+  }
+  return card;
+}
+
+function renderPending() {
+  const list = state.pending;
+  if (list.length === 0) {
+    pinEl.hidden = true;
+    pinEl.replaceChildren();
+    state.stackOpen = false;
+    return;
+  }
+  pinEl.hidden = false;
+  const current = list.find((q) => q.id === state.focusId) ?? list[0];
+  const others = list.filter((q) => q !== current);
+  if (others.length === 0) state.stackOpen = false;
+  pinEl.classList.toggle('expanded', state.stackOpen);
+
+  const nodes = [];
+  if (state.stackOpen) {
+    // מורחב (states.html "ערימה פתוחה"): הכרטיס הראשון מלא, השאר שורה אחת עם נקודת ענבר וחץ, ו"סגור".
+    const head = el('div', 'exhead');
+    head.append(el('span', 'dot'), el('span', 'exlbl', 'ממתין לתשובה'), el('span', 'excnt tnum', list.length));
+    nodes.push(head, questionCard(current, { withHead: false }));
+    for (const question of others) {
+      const row = el('button', 'mini');
+      row.type = 'button';
+      row.append(el('span', 'd'), el('span', 't', question.text ?? ''), el('span', 'ch', '‹'));
+      // הנחה, לא אומת: לחיצה על שורה פותחת את השאלה הזו בכרטיס. המסמכים לא קובעים מה הלחיצה עושה.
+      row.addEventListener('click', () => {
+        state.focusId = question.id;
+        state.stackOpen = false;
+        renderPending();
+      });
+      nodes.push(row);
+    }
+    const close = el('button', 'close', 'סגור');
+    close.type = 'button';
+    close.addEventListener('click', () => { state.stackOpen = false; renderPending(); });
+    nodes.push(close);
+  } else {
+    // סגור (03-design-rules "הערימה"): כרטיס אחד פתוח, השאר נערמים מתחתיו, ו"עוד N ממתינים ›".
+    nodes.push(questionCard(current, { withHead: true, count: list.length }));
+    if (others.length > 0) {
+      nodes.push(el('div', 'peek p2'));
+      if (others.length > 1) nodes.push(el('div', 'peek p3'));
+      // הנחה, לא אומת: ביחיד "עוד 1 ממתין" (המפרט כותב "עוד N ממתינים").
+      const more = el('button', 'more', others.length === 1 ? 'עוד 1 ממתין ›' : `עוד ${others.length} ממתינים ›`);
+      more.type = 'button';
+      more.addEventListener('click', () => { state.stackOpen = true; renderPending(); });
+      nodes.push(more);
+    }
+  }
+  pinEl.replaceChildren(...nodes);
+}
+
+function render() {
+  renderPending();
+  renderFeed();
+}
+
+// --- רענון: GET, ציור, המספר, ואז "נקרא" על מה שהוצג ---
+let refreshing = null;
+let refreshAgain = false;
+function refresh() {
+  if (refreshing) { refreshAgain = true; return refreshing; }
+  refreshing = (async () => {
+    try {
+      do { refreshAgain = false; await loadOnce(); } while (refreshAgain);
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+async function loadOnce() {
+  let data;
+  try {
+    const res = await authedFetch('/api/chat', { cache: 'no-store' });
+    if (!res.ok) throw new Error('chat ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] טעינת הצ\'אט נכשלה', err?.name);
+    state.loadError = true;
+    renderFeed();
+    return;
+  }
+  state.loaded = true;
+  state.loadError = false;
+  state.items = Array.isArray(data?.items) ? data.items : [];
+  state.pending = Array.isArray(data?.pending) ? data.pending : [];
+  const pendingIds = new Set(state.pending.map((q) => q.id));
+  for (const id of [...state.notes.keys()]) if (!pendingIds.has(id)) state.notes.delete(id);
+  for (const id of [...state.drafts.keys()]) if (!pendingIds.has(id)) state.drafts.delete(id);
+  render();
+  await setBadge(Number(data?.badge) || 0);
+  await markShownAsRead();
+}
+
+// "נקרא": רק בועות המערכת שמוצגות עכשיו ועדיין לא נקראו (47, "החוזה"). אחר כך המספר המעודכן.
+async function markShownAsRead() {
+  if (document.visibilityState !== 'visible') return;
+  const ids = state.items.filter((item) => item.role === 'system' && item.unread).map((item) => item.id);
+  if (ids.length === 0) return;
+  try {
+    const res = await postChat({ action: 'read', message_ids: ids });
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const item of state.items) if (ids.includes(item.id)) item.unread = false;
+    await setBadge(Number(data?.badge) || 0);
+  } catch (err) {
+    console.warn('[app] סימון נקרא נכשל', err?.name);
+  }
+}
+
+// --- תשובה לשאלה (כפתור או כתיבה) ---
+async function sendAnswer(messageId, answer) {
+  if (state.busy.has(messageId)) return; // לחיצה כפולה: התשובה הראשונה עוד בדרך
+  state.busy.add(messageId);
+  state.notes.delete(messageId);
+  renderPending();
+  let status = null;
+  try {
+    const res = await postChat({ action: 'answer', message_id: messageId, answer });
+    if (!res.ok) throw new Error('answer ' + res.status);
+    const data = await res.json();
+    status = data?.status;
+    if (Number.isFinite(data?.badge)) setBadge(data.badge);
+  } catch (err) {
+    console.warn('[app] שליחת תשובה נכשלה', err?.name);
+  }
+  state.busy.delete(messageId);
+
+  if (status === 'unclear') {
+    // הכרטיס נשאר, בלי בועה (47 "מה נכנס" 11).
+    state.notes.set(messageId, UNCLEAR_TEXT);
+    renderPending();
+  } else if (status === 'answered' || status === 'closed') {
+    // answered: הבחירה הופכת לבועה והשאלה יורדת (D3). closed: השאלה כבר נסגרה, והכרטיס נעלם ברענון.
+    state.drafts.delete(messageId);
+    if (state.focusId === messageId) state.focusId = null;
+    await refresh();
+  } else {
+    state.notes.set(messageId, ERROR_TEXT);
+    renderPending();
+  }
+}
+
+// --- שורת הכתיבה למטה: הודעה חדשה (D2), נשלחת לנקודת הקליטה עם channel=app ---
+let sending = false;
+function showComposerNote(text) {
+  composerNote.textContent = text;
+  composerNote.hidden = !text;
+}
+msgInput.addEventListener('input', () => showComposerNote(''));
+
+composer.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (sending) return; // הכפתור נעול עד שהשליחה מסתיימת, כדי שלחיצה כפולה לא תרשום הודעה פעמיים (35 "לוג פערים", 14.10.2026)
+  const text = msgInput.value.trim();
+  if (!text) return; // שדה ריק: לא שולחים
+  sending = true;
+  sendBtn.disabled = true;
+  msgInput.readOnly = true;
+  showComposerNote('');
+  try {
+    const res = await authedFetch('/api/intake', {
+      method: 'POST',
+      body: new URLSearchParams({ text, channel: 'app' }),
+    });
+    if (res.status === 413) {
+      showComposerNote(TOO_LONG_TEXT);
+    } else if (!res.ok) {
+      showComposerNote(ERROR_TEXT);
+    } else {
+      msgInput.value = '';
+      await refresh();
+    }
+  } catch (err) {
+    // אין רשת, או שלא הוזן סוד: הטקסט נשאר בתיבה.
+    console.warn('[app] שליחת הודעה נכשלה', err?.name);
+    showComposerNote(ERROR_TEXT);
+  } finally {
+    sending = false;
+    sendBtn.disabled = false;
+    msgInput.readOnly = false;
+  }
 });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') refresh();
+});
+
+refresh();
 </script>
 </body>
 </html>
