@@ -221,6 +221,37 @@
   .loaderr .more { padding-top: 6px; }
   .feed > .loaderr:only-child { margin: auto 0; }
 
+  /* ---------- סיכום היום (M.2, 57 סעיפים 2 ו-11). אלמנט חדש: המבנה אושר, המראה הסופי באישור צילום מסך.
+     הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות (card1, opt, mini, more, cnote, txt). ---------- */
+  .txt.clamp.clamp2 { -webkit-line-clamp: 2; line-clamp: 2; }
+  .rvscreen {
+    position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+  }
+  .rvhead {
+    flex: none; display: flex; align-items: center; gap: 8px;
+    padding: calc(env(safe-area-inset-top) + 12px) 18px 12px;
+  }
+  .rvhead h2 { font-size: 22px; font-weight: var(--fw-bold); color: var(--label); }
+  .rvhead .more { width: auto; margin-inline-start: auto; padding: 10px 0 10px 12px; }
+  .rvbody {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    padding: 4px 14px calc(env(safe-area-inset-bottom) + 24px); display: flex; flex-direction: column; gap: 12px;
+  }
+  .rvbody > * { flex-shrink: 0; }
+  .rvsec { font-size: 13px; font-weight: var(--fw-bold); color: var(--amber); padding: 8px 6px 0; }
+  .rvempty { text-align: center; font-size: 16px; color: var(--label2); padding: 18px 0; }
+  .rvrow { background: var(--card1); border-radius: var(--r-card2); box-shadow: var(--sh-bubble); padding: 14px 16px; }
+  .rvres { font-size: 15px; font-weight: var(--fw-bold); color: var(--accent); margin-bottom: 4px; }
+  .rvrow .txt { font-size: 16px; line-height: 1.4; color: var(--label); }
+  .rvrow .more-txt { color: var(--accent); opacity: 1; }
+  .rvrow .cnote { padding: 0 0 4px; }
+  .rvrow .opts { flex-direction: row; padding: 12px 0 0; }
+  .rvrow .opts.rvtypes { display: grid; grid-template-columns: 1fr 1fr; }
+  .rvrow .opts .opt { flex: 1; }
+  .rvmark { display: flex; align-items: baseline; gap: 6px; margin-top: 10px; font-size: 14px; color: var(--label2); }
+  .rvmark .more-txt { margin-top: 0; }
+
   /* ---------- שורת הכתיבה (s_main_light .inputbar/.field/.send; 03-design-rules: "כפתור השליחה יושב בתוך הקפסולה") ---------- */
   .composer {
     flex: none; position: relative; z-index: 3;
@@ -268,6 +299,15 @@
       </div>
     </form>
   </div>
+
+  <!-- סיכום היום: מסך מלא (M.2). נבנה ב-JS מטקסט בלבד. -->
+  <section class="rvscreen" id="rv" role="dialog" aria-modal="true" aria-label="סיכום היום" hidden>
+    <header class="rvhead">
+      <h2>סיכום היום</h2>
+      <button type="button" class="more" id="rvClose">סגור</button>
+    </header>
+    <div class="rvbody" id="rvBody"></div>
+  </section>
 
 <script type="module">
 // ============================================================
@@ -436,6 +476,7 @@ googleBtn.addEventListener('click', async () => {
 //   GET /api/chat                       -> { items, pending, badge }
 //   POST /api/chat {action:'answer'}    -> { status: answered|closed|unclear, ... }
 //   POST /api/chat {action:'read'}      -> { badge }
+//   GET נושא גם review (סיכום היום, M.2: { total, items }); POST {action:'check'} -> { status: checked|closed, review, badge }
 //   POST /api/intake (Form: text, channel=app) -> טקסט. הודעה חדשה שיובל מקליד.
 // רענון: בטעינה, כשהדף חוזר לחזית, ואחרי כל פעולה. בלי סקירה מחזורית (47 "מה נכנס" 10).
 // ============================================================
@@ -483,6 +524,15 @@ const state = {
   drafts: new Map(),    // id שאלה -> מה שהוקלד בתיבה שבכרטיס, כדי שלא יימחק ברענון
   busy: new Set(),      // שאלות שתשובה עליהן בדרך: הכפתורים נעולים
   expanded: new Set(),  // בועות ארוכות שנפתחו ב"עוד ›"
+  review: { total: 0, items: [] }, // סיכום היום (M.2): הממתינים לסימון, כפי שהשרת החזיר
+  rvOpen: false,        // המסך המלא פתוח
+  rvRows: [],           // השורות שמוצגות בו: הממתינים, ועוד מה שסומן בזמן שהוא פתוח (נעלם בסגירה או ברענון)
+  rvMarks: new Map(),   // outcome_id -> { verdict, event_type } של הסימון האחרון בזמן שהמסך פתוח
+  rvPicking: new Set(), // שורות "לא נתפסו" ששישה סוגי האירוע פתוחים בהן
+  rvEditing: new Set(), // שורות מסומנות ש"שינוי" פתח בהן את הכפתורים מחדש
+  rvSeq: 0,             // [הנחה] סימון שהושלם מקדם את המונה; תשובת GET שיצאה לפניו מיושנת ולא דורסת את הסיכום ואת המספר
+  rvBusy: new Set(),    // שורות שסימון עליהן בדרך: הכפתורים נעולים
+  rvNotes: new Map(),   // outcome_id -> "לא נשלח, נסה שוב."
 };
 
 // --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
@@ -532,20 +582,22 @@ function timeNode(className, iso) {
 
 // --- טקסט של בועה: עד 6 שורות, ואם יש יותר: "עוד ›" ---
 const clampQueue = [];
-function textBlock(text, key) {
+// lines=2 ו-label: לסיכום היום (57, Q2): שתי שורות ו"הצג הכול ›". ברירת המחדל: 6 שורות ו"עוד ›".
+function textBlock(text, key, { lines, label } = {}) {
   const node = el('div', 'txt', text ?? '');
   if (!state.expanded.has(key)) {
     node.classList.add('clamp');
-    clampQueue.push({ node, key });
+    if (lines === 2) node.classList.add('clamp2');
+    clampQueue.push({ node, key, label });
   }
   return node;
 }
 
 // נבדק אחרי שהבועות כבר בדף (אחרת אין מידות). רק בועה שבאמת נחתכה מקבלת "עוד ›".
 function applyClamps() {
-  for (const { node, key } of clampQueue.splice(0)) {
+  for (const { node, key, label } of clampQueue.splice(0)) {
     if (node.scrollHeight <= node.clientHeight + 1) { node.classList.remove('clamp'); continue; }
-    const more = el('button', 'more-txt', 'עוד ›');
+    const more = el('button', 'more-txt', label ?? 'עוד ›');
     more.type = 'button';
     more.addEventListener('click', () => {
       state.expanded.add(key);
@@ -681,13 +733,21 @@ function questionCard(question, { withHead, count }) {
 
 function renderPending() {
   const list = state.pending;
-  if (list.length === 0) {
+  const hasReview = state.review.total > 0;
+  if (list.length === 0 && !hasReview) {
     pinEl.hidden = true;
     pinEl.replaceChildren();
     state.stackOpen = false;
     return;
   }
   pinEl.hidden = false;
+  if (list.length === 0) {
+    // רק הפס של סיכום היום, בלי שאלות פתוחות.
+    state.stackOpen = false;
+    pinEl.classList.remove('expanded');
+    pinEl.replaceChildren(reviewStrip());
+    return;
+  }
   const current = list.find((q) => q.id === state.focusId) ?? list[0];
   const others = list.filter((q) => q !== current);
   if (others.length === 0) state.stackOpen = false;
@@ -728,12 +788,181 @@ function renderPending() {
       nodes.push(more);
     }
   }
+  if (hasReview) nodes.push(reviewStrip()); // מתחת לכרטיסי השאלות (57, תרחיש א)
   pinEl.replaceChildren(...nodes);
+}
+
+// --- סיכום היום (M.2, 57): פס בראש הצ'אט ורשימה במסך מלא. הדף רק מצייר; מה ממתין, ומה חוקי, נקבע בשרת. ---
+const VERDICT_LABEL = { right: 'נכון', wrong: 'לא נכון', not_event: 'לא אירוע', was_event: 'אירוע' };
+const EVENT_TYPES = [
+  ['short_day', 'יום מקוצר'], ['cancel', 'ביטול'], ['move', 'הזזה'],
+  ['exam', 'מבחן'], ['homework', 'שיעורי בית'], ['room', 'חדר'],
+];
+const EVENT_TYPE_LABEL = Object.fromEntries(EVENT_TYPES);
+const rvEl = document.getElementById('rv');
+const rvBodyEl = document.getElementById('rvBody');
+const rvCloseBtn = document.getElementById('rvClose');
+
+function reviewStrip() {
+  const total = state.review.total;
+  const row = el('button', 'mini');
+  row.type = 'button';
+  // הנחה, לא אומת: ביחיד "הודעה אחת ממתינה לסימון" (57 כותב רק את הרבים).
+  const label = total === 1 ? 'סיכום היום · הודעה אחת ממתינה לסימון' : `סיכום היום · ${total} הודעות ממתינות לסימון`;
+  row.append(el('span', 'd'), el('span', 't', label), el('span', 'ch', '‹'));
+  row.addEventListener('click', openReview);
+  return row;
+}
+
+function openReview() {
+  state.rvOpen = true;
+  state.rvRows = [...state.review.items];
+  state.rvMarks.clear(); state.rvPicking.clear(); state.rvEditing.clear(); state.rvNotes.clear();
+  rvEl.hidden = false;
+  rvBodyEl.scrollTop = 0;
+  renderReview();
+  rvCloseBtn.focus();
+}
+
+function closeReview() {
+  // סגירה מוחקת את השורות המסומנות מהדף (57, תרחיש ב): אי אפשר לשנות אחרי זה.
+  state.rvOpen = false;
+  state.rvRows = [];
+  state.rvMarks.clear(); state.rvPicking.clear(); state.rvEditing.clear(); state.rvNotes.clear();
+  rvEl.hidden = true;
+  rvBodyEl.replaceChildren();
+  renderPending();
+}
+rvCloseBtn.addEventListener('click', closeReview);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && state.rvOpen) closeReview(); });
+
+// מקבל review מהשרת (GET או תשובת check). בזמן שהמסך פתוח: שורות שסומנו נשארות, ושורות חדשות מצטרפות בסוף.
+function applyReview(review) {
+  const items = Array.isArray(review?.items) ? review.items : [];
+  state.review = { total: Number.isFinite(review?.total) ? review.total : items.length, items };
+  if (!state.rvOpen) return;
+  const fresh = new Map(items.map((item) => [item.outcome_id, item]));
+  const kept = [];
+  for (const old of state.rvRows) {
+    const current = fresh.get(old.outcome_id);
+    if (current) { kept.push(current); fresh.delete(old.outcome_id); }
+    else if (state.rvMarks.has(old.outcome_id)) kept.push(old);
+  }
+  state.rvRows = [...kept, ...fresh.values()];
+}
+
+function reviewButton(label, onClick, busy) {
+  const button = el('button', 'opt', label);
+  button.type = 'button';
+  button.disabled = busy;
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function reviewRow(item) {
+  const id = item.outcome_id;
+  const row = el('div', 'rvrow');
+  const busy = state.rvBusy.has(id);
+  if (item.view === 'recorded') {
+    if (item.result) row.append(el('div', 'rvres', item.result));
+    if (Array.isArray(item.missing) && item.missing.length > 0) row.append(el('div', 'cnote', 'חסר: ' + item.missing.join(', ')));
+  }
+  row.append(textBlock(item.text, 'rv:' + id, { lines: 2, label: 'הצג הכול ›' }));
+
+  const mark = state.rvMarks.get(id);
+  if (mark && !state.rvEditing.has(id)) {
+    // סומן: שורה אחת, ו"שינוי" פותח את הכפתורים מחדש (תרחיש ב; סימון חדש הוא שורה נוספת בשרת, האחרון קובע).
+    const type = mark.verdict === 'was_event' && EVENT_TYPE_LABEL[mark.event_type] ? ' · ' + EVENT_TYPE_LABEL[mark.event_type] : '';
+    const line = el('div', 'rvmark');
+    const change = el('button', 'more-txt', 'שינוי');
+    change.type = 'button';
+    change.addEventListener('click', () => { state.rvEditing.add(id); state.rvNotes.delete(id); renderReview(); });
+    line.append(el('span', null, `סומן: ${VERDICT_LABEL[mark.verdict] ?? ''}${type} ·`), change);
+    row.append(line);
+    return row;
+  }
+
+  const opts = el('div', 'opts');
+  if (item.view === 'missed' && state.rvPicking.has(id)) {
+    opts.classList.add('rvtypes');
+    for (const [type, label] of EVENT_TYPES) opts.append(reviewButton(label, () => sendCheck(id, 'was_event', type), busy));
+    const cancel = reviewButton('חזרה', () => { state.rvPicking.delete(id); renderReview(); }, busy);
+    cancel.style.gridColumn = '1 / -1';
+    opts.append(cancel);
+  } else if (item.view === 'missed') {
+    opts.append(
+      reviewButton('לא אירוע', () => sendCheck(id, 'not_event'), busy),
+      reviewButton('זה אירוע', () => { state.rvPicking.add(id); renderReview(); }, busy),
+    );
+  } else {
+    opts.append(
+      reviewButton('נכון', () => sendCheck(id, 'right'), busy),
+      reviewButton('לא נכון', () => sendCheck(id, 'wrong'), busy),
+    );
+  }
+  row.append(opts);
+  const note = state.rvNotes.get(id);
+  if (note) {
+    const noteEl = el('div', 'cnote', note);
+    noteEl.style.paddingTop = '8px';
+    noteEl.setAttribute('role', 'status');
+    row.append(noteEl);
+  }
+  return row;
+}
+
+function renderReview() {
+  if (!state.rvOpen) return;
+  const scroll = rvBodyEl.scrollTop;
+  const nodes = [];
+  if (state.review.total === 0) nodes.push(el('p', 'rvempty', 'אין עוד הודעות לסימון'));
+  for (const [view, title] of [['missed', 'לא נתפסו'], ['recorded', 'נרשמו']]) {
+    const rows = state.rvRows.filter((item) => item.view === view);
+    if (rows.length === 0) continue;
+    const waiting = rows.filter((item) => !state.rvMarks.has(item.outcome_id)).length;
+    nodes.push(el('h3', 'rvsec', `${title} (${waiting})`));
+    for (const item of rows) nodes.push(reviewRow(item));
+  }
+  rvBodyEl.replaceChildren(...nodes);
+  applyClamps(); // אחרי שהשורות בדף: המסך המלא כבר גלוי, אחרת אין מידות
+  rvBodyEl.scrollTop = scroll;
+}
+
+// סימון: POST check. checked = נכתבה שורה; closed = לא ניתן לסימון עכשיו (פקע, תצוגה השתנתה...), בלי כתיבה: רק מתרענן מהתשובה.
+async function sendCheck(outcomeId, verdict, eventType) {
+  if (state.rvBusy.has(outcomeId)) return; // לחיצה כפולה
+  state.rvBusy.add(outcomeId);
+  state.rvNotes.delete(outcomeId);
+  renderReview();
+  const body = { action: 'check', outcome_id: outcomeId, verdict };
+  if (verdict === 'was_event') body.event_type = eventType;
+  let data = null;
+  try {
+    const res = await postChat(body);
+    if (!res.ok) throw new Error('check ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] סימון נכשל', err?.name); // בלי טקסט ההודעה
+  }
+  state.rvBusy.delete(outcomeId);
+  if (data?.status === 'checked' || data?.status === 'closed') {
+    if (data.status === 'checked') state.rvMarks.set(outcomeId, { verdict, event_type: eventType });
+    state.rvPicking.delete(outcomeId);
+    state.rvEditing.delete(outcomeId);
+    state.rvSeq += 1;
+    applyReview(data.review);
+    if (Number.isFinite(data.badge)) setBadge(data.badge);
+    renderPending();
+  } else {
+    state.rvNotes.set(outcomeId, ERROR_TEXT);
+  }
+  renderReview();
 }
 
 function render() {
   renderPending();
   renderFeed();
+  renderReview();
 }
 
 // --- רענון: GET, ציור, המספר, ואז "נקרא" על מה שהוצג ---
@@ -752,6 +981,7 @@ function refresh() {
 }
 
 async function loadOnce() {
+  const rvSeqAtStart = state.rvSeq;
   let data;
   try {
     const res = await authedFetch('/api/chat', { cache: 'no-store' });
@@ -767,11 +997,13 @@ async function loadOnce() {
   state.loadError = false;
   state.items = Array.isArray(data?.items) ? data.items : [];
   state.pending = Array.isArray(data?.pending) ? data.pending : [];
+  const reviewStale = state.rvSeq !== rvSeqAtStart;
+  if (!reviewStale) applyReview(data?.review);
   const pendingIds = new Set(state.pending.map((q) => q.id));
   for (const id of [...state.notes.keys()]) if (!pendingIds.has(id)) state.notes.delete(id);
   for (const id of [...state.drafts.keys()]) if (!pendingIds.has(id)) state.drafts.delete(id);
   render();
-  await setBadge(Number(data?.badge) || 0);
+  if (!reviewStale) await setBadge(Number(data?.badge) || 0);
   await markShownAsRead();
 }
 

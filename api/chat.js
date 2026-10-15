@@ -1,17 +1,19 @@
 // נקודת הצ'אט (שלב 8.2א-1). מקור: docs/08-chapter8/47-chapter8-step-8-2a-spec.md, "החוזה של נקודת הצ'אט החדשה"; 35, D1-D4 ו"גבולות" (chat.js אושר ב-8.2א).
 // הצרכן היחיד: דף האפליקציה (שלב 8.2א-2). הודעה חדשה שיובל מקליד לא נשלחת לכאן אלא ל-api/intake.js עם channel=app.
 //
-//   GET                                               -> { items, pending, badge }
+//   GET                                               -> { items, pending, badge, review }   (review = סיכום היום, M.2: { total, items }; ראו lib/review-view.js ו-57)
 //   POST { action: 'answer', message_id, answer }     -> { status, items, pending, badge }   (items = רק מה שנוצר בתשובה הזו)
 //   POST { action: 'read', message_ids }              -> { badge }                          (מסמן רק בועות update יוצאות שלא נקראו, מתוך המזהים שנשלחו)
+//   POST { action: 'check', outcome_id, verdict, event_type? } -> { status: 'checked' | 'closed', review, badge }   (M.2: שורה אחת ב-intake_checks; closed = לא ניתן לסימון עכשיו, לא נכתב דבר)
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
-// פרטיות: אין טקסט הודעות בלוגים (רק שם שגיאה), ואין קריאת מודל או רשת. הלוגיקה שנבדקת יושבת ב-lib/chat-view.js.
+// פרטיות: אין טקסט הודעות בלוגים (רק שם שגיאה), ואין קריאת מודל או רשת. ה-GET מחזיר את טקסט ההודעות לסיכום היום (57 T11), לתצוגה באפליקציה בלבד. הלוגיקה שנבדקת יושבת ב-lib/chat-view.js.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
 import { loadTimetable } from '../lib/timetable.js';
+import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, pendingFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 
 const SECRET_HEADER = 'x-intake-secret';
@@ -90,14 +92,16 @@ async function loadPending(sql, timetable) {
   return pendingFromRows({ questions, facts, timetable: table });
 }
 
-// המספר על האייקון (D4): שאלות פתוחות + בועות update יוצאות שלא נקראו. נספר בשאילתה נפרדת, לא מתוך 50 הפריטים.
-async function loadBadge(sql) {
+// המספר על האייקון (D4): שאלות פתוחות + בועות update יוצאות שלא נקראו, ובנוסף סיכום היום כפריט ממתין אחד כשיש הודעות לסימון (57 T8).
+// נספר בשאילתות נפרדות, לא מתוך 50 הפריטים. הסיכום נספר ב-countReviewDue, אותה פונקציה כמו ב-lib/chat-notify.js (המספר חייב להיות זהה).
+async function loadBadge(sql, now) {
   const [row] = rowsOf(await sql`
     SELECT
       (SELECT count(*) FROM messages WHERE kind = 'question' AND awaiting_reply = true)::int AS pending,
       (SELECT count(*) FROM messages WHERE direction = 'out' AND kind = 'update' AND read_at IS NULL)::int AS unread
   `);
-  return badgeFrom(row ?? {});
+  const review = await countReviewDue(sql, now);
+  return badgeFrom({ ...(row ?? {}), review });
 }
 
 // סימון כנקראו: רק בועות update יוצאות שעדיין לא נקראו, ורק מתוך המזהים שנשלחו (47 קריטריון 13). המזהים עוברים כ-JSON ומפורקים ב-SQL.
@@ -111,7 +115,7 @@ async function markRead(sql, messageIds) {
 }
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable } = {}) {
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date() } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -137,18 +141,26 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     if (action === null) {
       const items = await loadItems(sql);
       const pending = await loadPending(sql, timetable);
-      const badge = await loadBadge(sql);
-      return json({ items, pending, badge });
+      const review = await loadReview(sql, now());
+      const badge = await loadBadge(sql, now());
+      return json({ items, pending, badge, review });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);
-      return json({ badge: await loadBadge(sql) });
+      return json({ badge: await loadBadge(sql, now()) });
+    }
+    if (action.action === 'check') {
+      // פקודת כתיבה אחת (או כלום). closed = ה-outcome אינו ניתן לסימון עכשיו (פקע, חדש מדי, כפילות, תצוגה אחרת, נציג אחר או לא קיים). 57 T6.
+      const written = await writeCheck(sql, { outcomeId: action.outcomeId, verdict: action.verdict, eventType: action.eventType }, now());
+      const review = await loadReview(sql, now());
+      const badge = await loadBadge(sql, now());
+      return json({ status: written ? 'checked' : 'closed', review, badge });
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable });
     const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created ?? {}) : [];
     const pending = await loadPending(sql, timetable);
-    const badge = await loadBadge(sql);
+    const badge = await loadBadge(sql, now());
     return json({ status: result.status, items, pending, badge });
   } catch (error) {
     // רק שם השגיאה: לא message (עלול לכלול ערכים מהמסד) ולא טקסט הודעה.

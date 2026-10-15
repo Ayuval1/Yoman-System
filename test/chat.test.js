@@ -5,8 +5,10 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { handle } from '../api/chat.js';
+import { badgeFrom } from '../lib/chat-view.js';
+import { loadNotifyState } from '../lib/chat-notify.js';
 import { UNKNOWN_BUTTON } from '../lib/intake-questions.js';
-import { fakeSql, captureConsole, jsonRequest, req, FAKE_SECRET } from './helpers.js';
+import { fakeSql, captureConsole, jsonRequest, req, FAKE_SECRET, REVIEW_NOW, reviewRow, uuidOf } from './helpers.js';
 
 const H = { 'x-intake-secret': FAKE_SECRET };
 const URL_CHAT = 'https://x.test/api/chat';
@@ -27,10 +29,16 @@ function chatDb({
   message = { id: MSG_ID, kind: 'question', awaiting_reply: true, entity_type: 'source', entity_id: SRC_ID, attempt: 1 },
   src = { id: SRC_ID, channel: 'app', raw_content: 'מחר אין שיעור אנגלית', content_hash: null, received_at: SUNDAY_EVENING },
   facts = [], written = [{ closed: 1, answer_source_id: ANSWER_SRC_ID, bubble_id: BUBBLE_ID, question_id: NEXT_Q_ID }],
-  created = [], fail = null,
+  created = [], fail = null, failDetail = 'מחר אין שיעור אנגלית',
+  // סיכום היום (M.2): שורות מועמד, עובדות, מקורות עם שאלה פתוחה, ותוצאת פקודת הכתיבה של check.
+  review = [], reviewFacts = [], reviewOpen = [], checkWritten = [{ id: uuid(9000) }],
 } = {}) {
   return fakeSql((text, values) => {
-    if (fail && fail(text)) throw Object.assign(new Error('db down מחר אין שיעור אנגלית'), { name: 'NeonDbError' });
+    if (fail && fail(text)) throw Object.assign(new Error(`db down ${failDetail}`), { name: 'NeonDbError' });
+    if (text.startsWith('INSERT INTO intake_checks')) return checkWritten;
+    if (text.includes('FROM intake_outcomes o JOIN sources s') && text.startsWith('SELECT')) return review;
+    if (text.includes('JOIN facts f ON')) return reviewFacts;
+    if (text.includes('JOIN messages m ON')) return reviewOpen;
     if (text.includes("SELECT 'user' AS role, 0 AS rank")) return items;
     if (text.startsWith("SELECT 'user' AS role, s.id")) return created;
     if (text.includes('FROM messages m LEFT JOIN sources s')) return questions;
@@ -45,8 +53,8 @@ function chatDb({
     return [];
   });
 }
-const get = (sql, headers = H) => handle(req(URL_CHAT, { method: 'GET', headers }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE });
-const post = (sql, body, headers = H) => handle(jsonRequest(body, { url: URL_CHAT, headers: { ...headers, 'content-type': 'application/json' } }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE });
+const get = (sql, headers = H) => handle(req(URL_CHAT, { method: 'GET', headers }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE, now: () => REVIEW_NOW });
+const post = (sql, body, headers = H) => handle(jsonRequest(body, { url: URL_CHAT, headers: { ...headers, 'content-type': 'application/json' } }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE, now: () => REVIEW_NOW });
 const writesOf = (sql) => sql.calls.filter((call) => /\b(INSERT|UPDATE|DELETE)\b/.test(call.text));
 
 describe('chat: שיטות, סוד ובקשות פגומות (קריטריון 1)', () => {
@@ -60,7 +68,7 @@ describe('chat: שיטות, סוד ובקשות פגומות (קריטריון 1
   }
   test('קריטריון 1: בלי סוד, סוד שגוי, או סוד שמשתנה באות אחת: 401 ושום קריאה למסד', async () => {
     for (const headers of [{}, { 'x-intake-secret': 'wrong' }, { 'x-intake-secret': FAKE_SECRET.slice(0, -1) + 'X' }, { 'x-intake-secret': '' }]) {
-      for (const run of [(sql) => get(sql, headers), (sql) => post(sql, { action: 'read', message_ids: [] }, headers)]) {
+      for (const run of [(sql) => get(sql, headers), (sql) => post(sql, { action: 'read', message_ids: [] }, headers), (sql) => post(sql, { action: 'check', outcome_id: MSG_ID, verdict: 'right' }, headers)]) {
         const sql = chatDb();
         const res = await run(sql);
         assert.equal(res.status, 401);
@@ -87,6 +95,11 @@ describe('chat: שיטות, סוד ובקשות פגומות (קריטריון 1
       JSON.stringify({ action: 'answer', message_id: MSG_ID, answer: 'א'.repeat(1001) }),
       JSON.stringify({ action: 'read', message_ids: Array.from({ length: 101 }, (_, k) => uuid(k)) }),
       JSON.stringify({ action: 'read', message_ids: ['x'] }),
+      JSON.stringify({ action: 'check', outcome_id: 'x', verdict: 'right' }),
+      JSON.stringify({ action: 'check', outcome_id: MSG_ID, verdict: 'maybe' }),
+      JSON.stringify({ action: 'check', outcome_id: MSG_ID, verdict: 'was_event' }),
+      JSON.stringify({ action: 'check', outcome_id: MSG_ID, verdict: 'was_event', event_type: 'party' }),
+      JSON.stringify({ action: 'check', outcome_id: MSG_ID, verdict: 'right', event_type: 'exam' }),
       JSON.stringify({ action: 'answer', message_id: MSG_ID, answer: 'x', pad: 'א'.repeat(20_000) }),
     ];
     for (const body of bodies) {
@@ -280,18 +293,18 @@ describe('chat: POST read', () => {
 describe('chat: בלי מודל, בלי רשת ובלי מחיקה', () => {
   const root = new URL('../', import.meta.url);
   const codeOf = (file) => readFileSync(new URL(file, root), 'utf8').split(/\r?\n/).map((line) => line.replace(/\/\/.*$/, '')).join('\n');
-  for (const file of ['api/chat.js', 'lib/chat-view.js']) {
+  for (const file of ['api/chat.js', 'lib/chat-view.js', 'lib/review-view.js']) {
     test(`${file}: אין fetch(, anthropic, gemini, openai`, () => {
       assert.doesNotMatch(codeOf(file).replace(/^[ \t]*fetch\(request\) \{$/m, ''), /fetch\(|anthropic|gemini|openai/i);
     });
   }
   test('אין DELETE, DROP, TRUNCATE או ALTER TABLE בקבצים של השלב (מחוץ להערות)', () => {
-    for (const file of ['api/chat.js', 'lib/chat-view.js', 'api/intake.js', 'lib/intake-process.js', 'lib/intake-questions.js', 'lib/intake-facts.js']) {
+    for (const file of ['api/chat.js', 'lib/chat-view.js', 'lib/review-view.js', 'api/intake.js', 'lib/intake-process.js', 'lib/intake-questions.js', 'lib/intake-facts.js']) {
       assert.doesNotMatch(codeOf(file), /\b(DELETE|DROP|TRUNCATE)\b|ALTER\s+TABLE/, file);
     }
   });
   test('הייבואים: רק קבצים מקומיים, node: והדרייבר של Neon', () => {
-    for (const file of ['api/chat.js', 'lib/chat-view.js']) {
+    for (const file of ['api/chat.js', 'lib/chat-view.js', 'lib/review-view.js']) {
       for (const match of readFileSync(new URL(file, root), 'utf8').matchAll(/^import .* from '([^']+)';$/gm)) {
         assert.match(match[1], /^(\.\/|\.\.\/|node:|@neondatabase\/serverless$)/, `${file}: ${match[1]}`);
       }
@@ -303,5 +316,186 @@ describe('chat: בלי מודל, בלי רשת ובלי מחיקה', () => {
     for (const column of ['id', 'direction', 'body', 'kind', 'sent_at', 'awaiting_reply', 'entity_type', 'entity_id', 'read_at']) assert.ok(columns('messages').includes(column), `messages.${column}`);
     for (const column of ['id', 'channel', 'raw_content', 'content_hash', 'received_at']) assert.ok(columns('sources').includes(column), `sources.${column}`);
     for (const column of ['source_id', 'field', 'value', 'origin']) assert.ok(columns('facts').includes(column), `facts.${column}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// שלב M.2 (docs/09-security/57): סיכום היום ב-GET, ופעולת check. "קריטריון N" = קריטריון הקבלה N בסעיף 8 של 57. כל הטקסטים מומצאים.
+// REVIEW_NOW = 21:00 בישראל ב-16.10.2026: החלון (13.10 21:00, 16.10 21:00], ובלי מה שלפני 15.10.
+// ---------------------------------------------------------------------------
+describe('chat: GET review (סעיף 6 ב-57)', () => {
+  const MISSED_TEXT = 'טקסט מומצא של הודעה שלא נתפסה';
+  const RECORDED_TEXT = 'טקסט מומצא של הודעה שנרשמה';
+  const rows = [
+    reviewRow(1, { text: RECORDED_TEXT, received_at: new Date('2026-10-16T08:00:00Z') }),
+    reviewRow(2, { text: MISSED_TEXT, status: 'unclassified', received_at: new Date('2026-10-16T09:00:00Z') }),
+  ];
+  const facts = [
+    { source_id: uuidOf(1001), field: 'type', value: 'exam' }, { source_id: uuidOf(1001), field: 'subject', value: 'מתמטיקה' },
+    { source_id: uuidOf(1001), field: 'date', value: '2026-10-20' },
+  ];
+
+  test('review בתשובה: missed קודם, ואז recorded; text, result, missing ו-at; total; ובלי כתיבה', async () => {
+    const sql = chatDb({ review: rows, reviewFacts: facts, reviewOpen: [{ source_id: uuidOf(1001) }], badge: { pending: 1, unread: 2 } });
+    const res = await get(sql);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'items', 'pending', 'review']);
+    assert.deepEqual(body.review, {
+      total: 2,
+      items: [
+        { outcome_id: uuidOf(2), view: 'missed', text: MISSED_TEXT, result: null, missing: [], at: '2026-10-16T09:00:00.000Z' },
+        { outcome_id: uuidOf(1), view: 'recorded', text: RECORDED_TEXT, result: 'מבחן · מתמטיקה · שלישי 20.10', missing: ['נושא', 'שיעור'], at: '2026-10-16T08:00:00.000Z' },
+      ],
+    });
+    assert.equal(body.badge, 4, 'שאלה אחת + שתי בועות + הסיכום כפריט אחד');
+    assert.equal(writesOf(sql).length, 0, 'GET לא כותב');
+  });
+  test('אין הודעות לסימון: review ריק והמספר ללא תוספת, ושאילתה אחת בלבד לסיכום', async () => {
+    const sql = chatDb({ badge: { pending: 1, unread: 2 } });
+    const body = await (await get(sql)).json();
+    assert.deepEqual(body.review, { total: 0, items: [] });
+    assert.equal(body.badge, 3);
+    assert.equal(sql.find('intake_outcomes').length, 2, 'אחת לרשימה ואחת לספירת המספר');
+    assert.equal(sql.find('JOIN facts f ON').length, 0);
+  });
+  test('קריטריון 2: שורה מחוץ לחלון (אחרי B, או שפקעה) לא מופיעה גם אם השאילתה החזירה אותה', async () => {
+    const outside = [
+      reviewRow(3, { recorded_at: new Date('2026-10-16T18:00:01Z') }),
+      reviewRow(4, { recorded_at: new Date('2026-10-13T10:00:00Z'), received_at: new Date('2026-10-13T09:00:00Z') }),
+    ];
+    const body = await (await get(chatDb({ review: [...outside, reviewRow(5)] }))).json();
+    assert.deepEqual(body.review.items.map((item) => item.outcome_id), [uuidOf(5)]);
+    assert.equal(body.badge, 1);
+  });
+  test('השאילתה: shortcut בלבד, בלי duplicate, חלון הזמן כפרמטרים, ובלי חישוב תאריכים ב-SQL', async () => {
+    const sql = chatDb({ review: rows });
+    await get(sql);
+    const [call] = sql.calls.filter((c) => c.text.includes('FROM intake_outcomes o') && c.text.includes('s.raw_content AS text'));
+    assert.match(call.text, /s\.channel = 'shortcut' AND o\.status <> 'duplicate'/);
+    assert.deepEqual(call.values, ['2026-10-13T18:00:00.000Z', '2026-10-16T18:00:00.000Z', '2026-10-14T21:00:00.000Z', '2026-10-14T21:00:00.000Z', '2026-10-29T19:00:00.000Z']);
+  });
+  test('קריטריון 9: המספר ב-GET, ב-read וב-check זהה, ושווה למספר של loadNotifyState על אותו מצב', async () => {
+    const make = () => chatDb({ review: [reviewRow(1), reviewRow(2)], badge: { pending: 2, unread: 1 } });
+    const fromGet = (await (await get(make())).json()).badge;
+    const fromRead = (await (await post(make(), { action: 'read', message_ids: [] })).json()).badge;
+    const fromCheck = (await (await post(make(), { action: 'check', outcome_id: uuidOf(1), verdict: 'right' })).json()).badge;
+    const stateRows = [reviewRow(1), reviewRow(2)];
+    const notifySql = fakeSql((text) => (text.includes('has_unseen') ? [{ pending: 2, unread: 1, has_unseen: true }] : stateRows));
+    const fromNotify = badgeFrom(await loadNotifyState(notifySql, REVIEW_NOW));
+    assert.deepEqual([fromGet, fromRead, fromCheck], [4, 4, 4], '2 שאלות + בועה אחת + הסיכום');
+    assert.equal(fromNotify, 4);
+  });
+  test('קריטריון 9: כשהכול סומן, הסיכום יורד מהמספר', async () => {
+    const body = await (await get(chatDb({ review: [reviewRow(1, { checked: true })], badge: { pending: 0, unread: 0 } }))).json();
+    assert.equal(body.badge, 0);
+    assert.deepEqual(body.review, { total: 0, items: [] });
+  });
+  test('קריטריון 11: כשל מסד בשאילתת הסיכום: 500, והלוג רק עם שם השגיאה (בלי הטקסט שבהודעת השגיאה)', async (t) => {
+    const cap = captureConsole(t);
+    const res = await get(chatDb({ review: rows, fail: (text) => text.includes('FROM intake_outcomes o') && text.includes('s.raw_content AS text') }));
+    assert.equal(res.status, 500);
+    assert.deepEqual(cap.lines, ['chat: פעולה נכשלה: NeonDbError']);
+    assert.ok(!cap.text().includes('אין שיעור אנגלית'));
+  });
+  test('קריטריון 11: כשל מסד אחרי שהטקסט כבר נקרא (שאילתת העובדות): הלוג בלי טקסט ההודעות', async (t) => {
+    const cap = captureConsole(t);
+    // הודעת השגיאה עצמה מכילה את טקסטי ההודעות: אם הקוד היה מדפיס אותה, הבדיקה הייתה נכשלת.
+    const res = await get(chatDb({ review: rows, fail: (text) => text.includes('JOIN facts f ON'), failDetail: `${MISSED_TEXT} ${RECORDED_TEXT}` }));
+    assert.equal(res.status, 500);
+    assert.deepEqual(cap.lines, ['chat: פעולה נכשלה: NeonDbError']);
+    assert.ok(!cap.text().includes(MISSED_TEXT) && !cap.text().includes(RECORDED_TEXT));
+  });
+});
+
+describe('chat: POST check (קריטריונים 7 ו-8)', () => {
+  const TEXT = 'טקסט מומצא שלא אמור להיכתב לשום מקום';
+  // מסד עם מצב: כתיבה מסמנת את ה-outcome, והשאילתות הבאות רואות אותו כמסומן. writeResult: false = הפקודה לא כתבה (closed).
+  function reviewDb({ writeResult = true, rows = [reviewRow(1, { text: TEXT }), reviewRow(2, { text: TEXT, status: 'unclassified' })] } = {}) {
+    const checked = new Set();
+    const sql = fakeSql((text, values) => {
+      if (text.startsWith('INSERT INTO intake_checks')) {
+        if (!writeResult) return [];
+        checked.add(values[7]);
+        return [{ id: uuid(9000) }];
+      }
+      if (text.includes('FROM intake_outcomes o JOIN sources s') && text.startsWith('SELECT')) return rows.map((row) => ({ ...row, checked: checked.has(row.id) }));
+      if (text.includes('AS unread')) return [{ pending: 0, unread: 0 }];
+      return [];
+    });
+    return sql;
+  }
+
+  test('checked: שורה אחת בפקודה אחת, התשובה כוללת review עדכני (בלי המסומן) ו-badge, ואין טקסט הודעה בפרמטרים', async () => {
+    const sql = reviewDb();
+    const res = await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict: 'right' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, 'checked');
+    assert.deepEqual(body.review.items.map((item) => item.outcome_id), [uuidOf(2)]);
+    assert.equal(body.review.total, 1);
+    assert.equal(body.badge, 1);
+    const writes = writesOf(sql);
+    assert.equal(writes.length, 1);
+    assert.match(writes[0].text, /^INSERT INTO intake_checks \(outcome_id, verdict, event_type\) SELECT/);
+    assert.ok(!JSON.stringify(writes[0].values).includes(TEXT));
+    assert.ok(!writes[0].text.includes('raw_content'));
+  });
+  test('"זה אירוע" עם סוג: verdict ו-event_type נכתבים; "לא אירוע" בלי סוג', async () => {
+    const sqlA = reviewDb();
+    const bodyA = await (await post(sqlA, { action: 'check', outcome_id: uuidOf(2), verdict: 'was_event', event_type: 'homework' })).json();
+    assert.equal(bodyA.status, 'checked');
+    assert.deepEqual(writesOf(sqlA)[0].values.slice(0, 2), ['was_event', 'homework']);
+    assert.equal(writesOf(sqlA)[0].values.at(-1), false, 'תצוגת "לא נתפס"');
+    const sqlB = reviewDb();
+    await post(sqlB, { action: 'check', outcome_id: uuidOf(2), verdict: 'not_event' });
+    assert.deepEqual(writesOf(sqlB)[0].values.slice(0, 2), ['not_event', null]);
+  });
+  test('closed: הפקודה לא כתבה (פקע, תצוגה אחרת, נציג אחר או כפילות): הסטטוס closed, הרשימה העדכנית חוזרת, ושום כתיבה נוספת', async () => {
+    const sql = reviewDb({ writeResult: false });
+    const body = await (await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict: 'right' })).json();
+    assert.equal(body.status, 'closed');
+    assert.equal(body.review.total, 2);
+    assert.equal(typeof body.badge, 'number');
+    assert.equal(writesOf(sql).length, 1, 'רק ניסיון הכתיבה עצמו');
+  });
+  test('קריטריון 8: סימון חוזר על outcome שכבר סומן נכתב כשורה נוספת (אין UPDATE), והפקודה אינה בודקת "לא סומן"', async () => {
+    const sql = reviewDb({ rows: [reviewRow(1, { checked: true })] });
+    const first = await (await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict: 'right' })).json();
+    const second = await (await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict: 'wrong' })).json();
+    assert.deepEqual([first.status, second.status], ['checked', 'checked']);
+    const writes = writesOf(sql);
+    assert.equal(writes.length, 2);
+    assert.ok(writes.every((w) => w.text.startsWith('INSERT INTO intake_checks') && !/\bUPDATE\b|\bDELETE\b/.test(w.text)));
+    assert.deepEqual(writes.map((w) => w.values[0]), ['right', 'wrong']);
+  });
+  test('כל ארבעת ה-verdict (עם סוג רק ל-was_event) מקבלים 200 ו-checked', async () => {
+    for (const [verdict, eventType] of [['right'], ['wrong'], ['was_event', 'short_day'], ['not_event']]) {
+      const sql = reviewDb();
+      const body = await (await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict, ...(eventType ? { event_type: eventType } : {}) })).json();
+      assert.equal(body.status, 'checked', verdict);
+    }
+  });
+  test('קריטריון 11: כשל מסד בכתיבה: 500 "לא נשלח, נסה שוב.", ניסיון כתיבה אחד, והלוג רק עם שם השגיאה', async (t) => {
+    const cap = captureConsole(t);
+    const sql = chatDb({ review: [reviewRow(1, { text: TEXT })], fail: (text) => text.startsWith('INSERT INTO intake_checks') });
+    const res = await post(sql, { action: 'check', outcome_id: uuidOf(1), verdict: 'right' });
+    assert.equal(res.status, 500);
+    assert.equal(await res.text(), 'לא נשלח, נסה שוב.');
+    assert.equal(writesOf(sql).length, 1);
+    assert.deepEqual(cap.lines, ['chat: פעולה נכשלה: NeonDbError']);
+    assert.ok(!cap.text().includes(TEXT));
+  });
+  test('גוף check פגום: 400 ושום קריאה למסד (גם outcome_id שאינו uuid, גם צירוף verdict ו-event_type לא חוקי)', async () => {
+    for (const body of [
+      { action: 'check', verdict: 'right' }, { action: 'check', outcome_id: 'x', verdict: 'right' }, { action: 'check', outcome_id: uuidOf(1), verdict: 'was_event' },
+      { action: 'check', outcome_id: uuidOf(1), verdict: 'right', event_type: 'exam' }, { action: 'check', outcome_id: uuidOf(1), verdict: 'was_event', event_type: 'x' },
+    ]) {
+      const sql = reviewDb();
+      const res = await post(sql, body);
+      assert.equal(res.status, 400, JSON.stringify(body));
+      assert.equal(await res.text(), 'לא נשלח, נסה שוב.');
+      assert.equal(sql.calls.length, 0);
+    }
   });
 });

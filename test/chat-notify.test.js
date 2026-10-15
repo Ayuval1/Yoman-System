@@ -2,13 +2,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { notifyText, loadNotifyState, sendChatNotification, PUSH_TITLE, SITE_ORIGIN } from '../lib/chat-notify.js';
-import { fakeSql, captureConsole, FAKE_CRON } from './helpers.js';
+import { notifyText, loadNotifyState, sendChatNotification, sendReviewNotification, PUSH_TITLE, SITE_ORIGIN, REVIEW_PUSH_BODY } from '../lib/chat-notify.js';
+import { fakeSql, captureConsole, FAKE_CRON, REVIEW_NOW, reviewRow } from './helpers.js';
 
 const SLOT = 'notify-1792000080';
 
-// מסד מדומה: שאילתת המצב מחזירה שורה אחת.
-const stateSql = ({ pending = 0, unread = 0, hasUnseen = false } = {}) => fakeSql(() => [{ pending, unread, has_unseen: hasUnseen }]);
+// מסד מדומה: שאילתת המצב מחזירה שורה אחת, ושאילתת סיכום היום (M.2) מחזירה את due (שורות מועמד מ-reviewRow; ברירת מחדל: אין).
+const stateSql = ({ pending = 0, unread = 0, hasUnseen = false, due = [] } = {}) => fakeSql((text) => (text.includes('FROM intake_outcomes o') ? due : [{ pending, unread, has_unseen: hasUnseen }]));
 
 // handle מזויף של push-send: רושם את הבקשה ומחזיר סטטוס.
 function fakePush(status = 200) {
@@ -45,19 +45,28 @@ describe('chat-notify: notifyText', () => {
 });
 
 describe('chat-notify: loadNotifyState', () => {
-  test('קורא ספירות ו-hasUnseen בשאילתה אחת, באותם תנאים כמו המספר על האייקון', async () => {
+  test('קורא ספירות ו-hasUnseen בשאילתה אחת, באותם תנאים כמו המספר על האייקון, ואחריה ספירת סיכום היום (M.2)', async () => {
     const sql = stateSql({ pending: 2, unread: 3, hasUnseen: true });
-    assert.deepEqual(await loadNotifyState(sql), { pending: 2, unread: 3, hasUnseen: true });
-    assert.equal(sql.calls.length, 1);
+    assert.deepEqual(await loadNotifyState(sql, REVIEW_NOW), { pending: 2, unread: 3, review: 0, hasUnseen: true });
+    assert.equal(sql.calls.length, 2);
     const { text } = sql.calls[0];
     assert.match(text, /kind = 'question' AND awaiting_reply = true/);
     assert.match(text, /direction = 'out' AND kind = 'update' AND read_at IS NULL/);
     assert.match(text, /EXISTS/);
-    assert.doesNotMatch(text, /body|raw_content/, 'לא קורא תוכן הודעות');
+    assert.ok(sql.calls.every((c) => !/\bbody\b|raw_content/.test(c.text)), 'לא קורא תוכן הודעות, גם לא בספירת הסיכום');
   });
   test('שורה חסרה או ערכים לא תקינים: אפסים ו-false', async () => {
-    assert.deepEqual(await loadNotifyState(fakeSql(() => [])), { pending: 0, unread: 0, hasUnseen: false });
-    assert.deepEqual(await loadNotifyState(fakeSql(() => [{ pending: null, unread: 'x', has_unseen: 'true' }])), { pending: 0, unread: 0, hasUnseen: false });
+    assert.deepEqual(await loadNotifyState(fakeSql(() => []), REVIEW_NOW), { pending: 0, unread: 0, review: 0, hasUnseen: false });
+    const invalid = fakeSql((text) => (text.includes('FROM intake_outcomes o') ? [] : [{ pending: null, unread: 'x', has_unseen: 'true' }]));
+    assert.deepEqual(await loadNotifyState(invalid, REVIEW_NOW), { pending: 0, unread: 0, review: 0, hasUnseen: false });
+  });
+  test('קריטריון 9: review הוא 1 כשיש לפחות הודעה אחת לסימון (גם כשיש כמה), 0 כשהכול סומן או מחוץ לחלון', async () => {
+    const many = await loadNotifyState(stateSql({ due: [reviewRow(1), reviewRow(2), reviewRow(3)] }), REVIEW_NOW);
+    assert.equal(many.review, 1);
+    const checked = await loadNotifyState(stateSql({ due: [reviewRow(1, { checked: true })] }), REVIEW_NOW);
+    assert.equal(checked.review, 0);
+    const expired = await loadNotifyState(stateSql({ due: [reviewRow(1, { recorded_at: new Date('2026-10-13T10:00:00Z'), received_at: new Date('2026-10-13T09:00:00Z') })] }), REVIEW_NOW);
+    assert.equal(expired.review, 0);
   });
   test('כשל מסד נזרק', async () => {
     await assert.rejects(() => loadNotifyState(fakeSql(() => { throw new Error('db down'); })), /db down/);
@@ -134,6 +143,19 @@ describe('chat-notify: sendChatNotification (קריטריון 2)', () => {
     assert.match(logged.text(), /BoomError/);
     assert.doesNotMatch(logged.text(), new RegExp(FAKE_CRON));
   });
+  test('קריטריון 9: הסיכום נכנס למספר (badge) אבל לא ל-hasUnseen: סיכום בלבד לא מפעיל התראת notify רגילה', async () => {
+    const push = fakePush();
+    const sql = stateSql({ pending: 0, unread: 0, hasUnseen: false, due: [reviewRow(1)] });
+    const out = await sendChatNotification({ sql, slotKey: SLOT, pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: false, reason: 'nothing-unseen', badge: 1 });
+    assert.equal(push.seen.length, 0);
+  });
+  test('קריטריון 9: כשיש גם שאלה ממתינה, ה-app_badge של notify כולל את הסיכום (המספר המלא), והנוסח לא משתנה', async () => {
+    const push = fakePush();
+    await sendChatNotification({ sql: stateSql({ pending: 1, unread: 0, hasUnseen: true, due: [reviewRow(1)] }), slotKey: SLOT, pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW });
+    assert.equal(push.seen[0].body.app_badge, 2);
+    assert.equal(push.seen[0].body.body, 'שאלה אחת ממתינה');
+  });
   test('כשל מסד בקריאת המצב נזרק (התור ינסה שוב)', async () => {
     const push = fakePush();
     await assert.rejects(() => sendChatNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: SLOT, pushHandle: push, secret: FAKE_CRON }), /db down/);
@@ -146,5 +168,47 @@ describe('chat-notify: קבצי הדחיפה לא שונו ובקובץ אין �
     const text = readFileSync(new URL('../lib/chat-notify.js', import.meta.url), 'utf8');
     assert.match(text, /import \{ handle as pushSendHandle \} from '\.\.\/api\/push-send\.js'/);
     assert.doesNotMatch(text.split(/\r?\n/).map((l) => l.replace(/\/\/.*$/, '')).join('\n'), /fetch\(|process\.env/);
+  });
+});
+
+describe('chat-notify: sendReviewNotification (קריטריון 10, 57 T10)', () => {
+  const dueSql = (extra = {}) => stateSql({ due: [reviewRow(1, { text: 'טקסט-מזהה-שלא-אמור-לצאת' }), reviewRow(2)], ...extra });
+  test('יש הודעות לסימון: בקשה אחת עם הכותרת, גוף קבוע, navigate, app_badge מלא ו-dedupe_key של המשבצת; בלי שום טקסט הודעה', async () => {
+    const push = fakePush();
+    const sql = dueSql({ pending: 1, unread: 2 });
+    const out = await sendReviewNotification({ sql, slotKey: 'close-2026-10-16', pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: true, status: 200, badge: 4 });
+    assert.equal(push.seen.length, 1);
+    const { request, deps, body } = push.seen[0];
+    assert.equal(request.url, 'https://yoman-system.vercel.app/api/push-send');
+    assert.equal(request.headers.get('authorization'), `Bearer ${FAKE_CRON}`);
+    assert.deepEqual(body, { title: 'מערכת יומן', body: 'סיכום היום מחכה לסימון', navigate: '/', app_badge: 4, dedupe_key: 'close-2026-10-16' });
+    assert.equal(REVIEW_PUSH_BODY, 'סיכום היום מחכה לסימון');
+    assert.equal(deps.sql, sql);
+    assert.ok(!JSON.stringify(body).includes('טקסט-מזהה'), 'בלי תוכן הודעה');
+    assert.ok(sql.calls.every((c) => !/raw_content|\bbody\b/.test(c.text)), 'שום שאילתה לא קוראת טקסט הודעה');
+  });
+  test('אין הודעות לסימון: לא נשלח כלום (גם כשיש שאלות ממתינות)', async () => {
+    const push = fakePush();
+    const out = await sendReviewNotification({ sql: stateSql({ pending: 3, unread: 1, hasUnseen: true }), slotKey: 'close-2026-10-16', pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: false, reason: 'review-zero', badge: 4 });
+    assert.equal(push.seen.length, 0);
+  });
+  test('app_badge נחתך ל-9999', async () => {
+    const push = fakePush();
+    await sendReviewNotification({ sql: dueSql({ unread: 20000 }), slotKey: 'close-2026-10-16', pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW });
+    assert.equal(push.seen[0].body.app_badge, 9999);
+  });
+  test('בלי סוד: no-secret. סטטוס לא 2xx: push-status. דחיפה זורקת: push-error ושם השגיאה בלבד בלוג', async (t) => {
+    const logged = captureConsole(t);
+    assert.deepEqual(await sendReviewNotification({ sql: dueSql(), slotKey: 'close-2026-10-16', pushHandle: fakePush(), secret: '', now: REVIEW_NOW }), { sent: false, reason: 'no-secret', badge: 1 });
+    assert.deepEqual(await sendReviewNotification({ sql: dueSql(), slotKey: 'close-2026-10-16', pushHandle: fakePush(500), secret: FAKE_CRON, now: REVIEW_NOW }), { sent: false, reason: 'push-status', status: 500, badge: 1 });
+    const boom = fakePush(() => { throw Object.assign(new Error(`secret ${FAKE_CRON} טקסט-מזהה`), { name: 'BoomError' }); });
+    assert.deepEqual(await sendReviewNotification({ sql: dueSql(), slotKey: 'close-2026-10-16', pushHandle: boom, secret: FAKE_CRON, now: REVIEW_NOW }), { sent: false, reason: 'push-error', status: null, badge: 1 });
+    assert.match(logged.text(), /BoomError/);
+    assert.doesNotMatch(logged.text(), new RegExp(`${FAKE_CRON}|טקסט-מזהה`));
+  });
+  test('כשל מסד נזרק (הצרכן תופס)', async () => {
+    await assert.rejects(() => sendReviewNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: 'close-2026-10-16', pushHandle: fakePush(), secret: FAKE_CRON, now: REVIEW_NOW }), /db down/);
   });
 });

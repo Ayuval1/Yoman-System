@@ -3,7 +3,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { handleDelivery } from '../api/queues/deliver.js';
 import { planSlot, planNotify, parseSlotMessage, SLOT_TOPIC } from '../lib/message-slots.js';
-import { fakeSql, captureConsole, FAKE_CRON } from './helpers.js';
+import { fakeSql, captureConsole, FAKE_CRON, reviewRow } from './helpers.js';
 
 const MSG = { kind: 'brief', slotKey: 'brief-2026-10-09', targetAt: '2026-10-09T04:30:00.000Z' };
 const at = (iso) => () => new Date(iso);
@@ -247,16 +247,14 @@ describe('queue-deliver: handleDelivery עם notify', () => {
     assert.doesNotMatch(detail, /bearer|authorization/i);
     assert.match(detail, /^slot=notify-\d+; target_utc=[\dT:.\-Z]+; delivered_utc=[\dT:.\-Z]+; late_s=[\d.]+; delivery_count=2; badge=5; sent=true$/);
   });
-  test('brief ו-close: אין שאילתת מצב, אין דחיפה, והרישום כמו קודם (probe message-slot)', async () => {
-    for (const message of [MSG, { kind: 'close', slotKey: 'close-2026-10-09', targetAt: '2026-10-09T18:00:00.000Z' }]) {
-      const sql = fakeSql();
-      const push = fakePush();
-      const out = await handleDelivery(message, {}, { sql, now: at(message.targetAt), pushHandle: push, secret: FAKE_CRON });
-      assert.equal(out.stored, true);
-      assert.equal(push.seen.length, 0);
-      assert.equal(sql.calls.length, 1);
-      assert.match(sql.calls[0].text, /SELECT 'message-slot'/);
-    }
+  test('brief: אין שאילתת מצב, אין דחיפה, והרישום כמו קודם (probe message-slot)', async () => {
+    const sql = fakeSql();
+    const push = fakePush();
+    const out = await handleDelivery(MSG, {}, { sql, now: at(MSG.targetAt), pushHandle: push, secret: FAKE_CRON });
+    assert.equal(out.stored, true);
+    assert.equal(push.seen.length, 0);
+    assert.equal(sql.calls.length, 1);
+    assert.match(sql.calls[0].text, /SELECT 'message-slot'/);
   });
   test('הודעת notify פגומה: לא נכתב כלום ולא נשלחת דחיפה', async (t) => {
     captureConsole(t);
@@ -265,6 +263,143 @@ describe('queue-deliver: handleDelivery עם notify', () => {
     const out = await handleDelivery({ ...NOTIFY, targetAt: atSec(W0 + 120).toISOString() }, {}, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON });
     assert.equal(out.stored, false);
     assert.equal(sql.calls.length, 0);
+    assert.equal(push.seen.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// שלב M.2 (docs/09-security/57, T10): משבצת close: אחרי שורת message-slot הקיימת, התראה אחת על סיכום היום אם יש הודעות לסימון.
+// 21:00 בישראל ב-16.10.2026 = 18:00Z (UTC+3). שורות המועמד מ-reviewRow בתוך החלון של אותו רגע. כל הטקסטים מומצאים.
+// ---------------------------------------------------------------------------
+describe('queue-deliver: משבצת close והתראת הסיכום (קריטריון 10)', () => {
+  const CLOSE = { kind: 'close', slotKey: 'close-2026-10-16', targetAt: '2026-10-16T18:00:00.000Z' };
+  const DELIVERED = new Date('2026-10-16T18:00:00.900Z');
+  const SECRET_TEXT = 'טקסט-מזהה-של-הודעה-מומצאת';
+  // sql מדומה: שאילתת הספירה של הסיכום (FROM intake_outcomes o) מחזירה את due; שאילתת המצב מחזירה state; כל השאר ריק. failOn: טקסט שגורם לזריקה.
+  const db = ({ due = [reviewRow(1, { text: SECRET_TEXT }), reviewRow(2)], state = { pending: 1, unread: 0, has_unseen: true }, failOn } = {}) => fakeSql((text) => {
+    if (failOn && text.includes(failOn)) throw Object.assign(new Error(`db down ${SECRET_TEXT}`), { name: 'NeonDbError' });
+    if (text.includes('FROM intake_outcomes o')) return due;
+    return text.includes('has_unseen') ? [state] : [];
+  });
+  const fakePush = (status = 200) => {
+    const handle = async (request) => { handle.seen.push({ request, body: JSON.parse(await request.clone().text()) }); return new Response('ok', { status }); };
+    handle.seen = [];
+    return handle;
+  };
+  const writesTo = (sql, probe) => sql.calls.filter((c) => c.text.includes('INSERT INTO probe_log') && c.text.includes(`'${probe}'`));
+  const run = (sql, push, extra = {}) => handleDelivery(CLOSE, { deliveryCount: 1 }, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON, ...extra });
+
+  test('יש הודעות לסימון: שורת message-slot קודם (ללא שינוי), ואז דחיפה אחת עם הנוסח הקבוע, app_badge מלא ו-dedupe_key של המשבצת, ורישום chat-notify', async () => {
+    const sql = db();
+    const push = fakePush();
+    const out = await run(sql, push);
+    assert.deepEqual({ stored: out.stored, slotKey: out.slotKey, lateSeconds: out.lateSeconds, ok: out.ok }, { stored: true, slotKey: CLOSE.slotKey, lateSeconds: 0.9, ok: true });
+    assert.match(sql.calls[0].text, /INSERT INTO probe_log \(probe, ok, detail\) SELECT 'message-slot', \?, \? WHERE NOT EXISTS/, 'הרישום הקיים הוא הראשון');
+    assert.equal(sql.calls[0].values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1`);
+    assert.equal(push.seen.length, 1);
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: 'סיכום היום מחכה לסימון', navigate: '/', app_badge: 2, dedupe_key: CLOSE.slotKey });
+    const [notifyWrite] = writesTo(sql, 'chat-notify');
+    assert.match(notifyWrite.text, /SELECT 'chat-notify', \?, \? WHERE NOT EXISTS \(SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE \?\)/);
+    assert.equal(notifyWrite.values[0], true);
+    assert.equal(notifyWrite.values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1; badge=2; sent=true`);
+    assert.equal(notifyWrite.values[2], `slot=${CLOSE.slotKey};%`);
+    assert.ok(sql.calls.indexOf(notifyWrite) > 0);
+  });
+  test('הזמן לספירה הוא targetAt, לא רגע ההגעה: הודעה שנקלטה אחרי targetAt שייכת לסיכום הבא גם כשההתראה הגיעה מאוחר', async () => {
+    const push = fakePush();
+    await run(db(), push, { now: () => new Date('2026-10-16T18:05:00Z') });
+    assert.equal(push.seen.length, 1, 'ההודעות נקלטו לפני targetAt, ולכן בחלון');
+    const sqlLate = db({ due: [reviewRow(1, { recorded_at: new Date('2026-10-16T18:03:00Z'), received_at: new Date('2026-10-16T18:02:00Z') })] });
+    const pushLate = fakePush();
+    await run(sqlLate, pushLate, { now: () => new Date('2026-10-16T18:05:00Z') });
+    assert.equal(pushLate.seen.length, 0);
+  });
+  test('אין הודעות לסימון: אין דחיפה, שורת message-slot נכתבת כרגיל, ונרשם chat-notify עם הסיבה (ok=true)', async () => {
+    const sql = db({ due: [] });
+    const push = fakePush();
+    const out = await run(sql, push);
+    assert.equal(push.seen.length, 0);
+    assert.equal(out.ok, true);
+    assert.equal(writesTo(sql, 'message-slot').length, 1);
+    const [notifyWrite] = writesTo(sql, 'chat-notify');
+    assert.equal(notifyWrite.values[0], true);
+    assert.match(notifyWrite.values[1], /badge=1; sent=false; reason=review-zero$/);
+  });
+  test('בלי תוכן הודעה בגוף הדחיפה, בפרמטרים של הרישום ובקונסול', async (t) => {
+    const cap = captureConsole(t);
+    const sql = db();
+    const push = fakePush();
+    await run(sql, push);
+    assert.ok(!JSON.stringify(push.seen[0].body).includes(SECRET_TEXT));
+    assert.ok(!JSON.stringify(sql.calls.map((c) => c.values)).includes(SECRET_TEXT));
+    assert.ok(sql.calls.every((c) => !c.text.includes('raw_content')), 'ההתראה לא קוראת טקסט הודעה בכלל');
+    assert.equal(cap.lines.length, 0);
+  });
+  test('כשל דחיפה (סטטוס או זריקה) לא נזרק ולא משנה את שורת message-slot: chat-notify נרשם ok=false', async (t) => {
+    captureConsole(t);
+    const sqlA = db();
+    const outA = await run(sqlA, fakePush(500));
+    assert.equal(outA.stored, true);
+    assert.equal(writesTo(sqlA, 'message-slot').length, 1);
+    assert.equal(writesTo(sqlA, 'chat-notify')[0].values[0], false);
+    assert.match(writesTo(sqlA, 'chat-notify')[0].values[1], /sent=false; reason=push-status; push_status=500$/);
+    const sqlB = db();
+    await run(sqlB, async () => { throw new Error('boom'); });
+    assert.match(writesTo(sqlB, 'chat-notify')[0].values[1], /reason=push-error/);
+  });
+  test('בלי סוד: לא נשלח, נרשם reason=no-secret ו-ok=false', async () => {
+    const sql = db();
+    const push = fakePush();
+    await run(sql, push, { secret: '' });
+    assert.equal(push.seen.length, 0);
+    assert.match(writesTo(sql, 'chat-notify')[0].values[1], /reason=no-secret/);
+    assert.equal(writesTo(sql, 'chat-notify')[0].values[0], false);
+  });
+  test('כשל מסד בספירה: לא נזרק, שורת message-slot כבר נכתבה, נרשם reason=error בלי טקסט, והקונסול רק עם שם השגיאה', async (t) => {
+    const cap = captureConsole(t);
+    const sql = db({ failOn: 'has_unseen' });
+    const push = fakePush();
+    const out = await run(sql, push);
+    assert.equal(out.stored, true);
+    assert.equal(push.seen.length, 0);
+    assert.equal(writesTo(sql, 'message-slot').length, 1);
+    const [notifyWrite] = writesTo(sql, 'chat-notify');
+    assert.equal(notifyWrite.values[0], false);
+    assert.match(notifyWrite.values[1], /badge=null; sent=false; reason=error$/);
+    assert.deepEqual(cap.lines, ['queue-deliver: התראת הסיכום נכשלה: NeonDbError']);
+    assert.ok(!cap.text().includes(SECRET_TEXT));
+  });
+  test('כשל מסד גם ברישום chat-notify: לא נזרק (שורת message-slot כבר נכתבה), בקונסול שם השגיאה בלבד', async (t) => {
+    const cap = captureConsole(t);
+    const sql = db({ failOn: "SELECT 'chat-notify'" });
+    const out = await run(sql, fakePush());
+    assert.equal(out.stored, true);
+    assert.deepEqual(cap.lines, ['queue-deliver: רישום התראת הסיכום נכשל: NeonDbError']);
+    assert.ok(!cap.text().includes(SECRET_TEXT));
+  });
+  test('כשל בכתיבת message-slot עצמה עדיין נזרק (ניסיון חוזר של התור), ולא נשלחת התראה', async () => {
+    const sql = db({ failOn: "SELECT 'message-slot'" });
+    const push = fakePush();
+    await assert.rejects(() => run(sql, push), /db down/);
+    assert.equal(push.seen.length, 0);
+  });
+  test('הגעה כפולה: אותו dedupe_key בשתי הדחיפות (push-send מסנן), והרישומים מוגנים ב-WHERE NOT EXISTS לפי המשבצת', async () => {
+    const push = fakePush();
+    await run(db(), push);
+    await run(db(), push);
+    assert.equal(push.seen.length, 2);
+    assert.equal(new Set(push.seen.map((s) => s.body.dedupe_key)).size, 1);
+    assert.equal(push.seen[0].body.dedupe_key, CLOSE.slotKey);
+    const sql = db();
+    await run(sql, push);
+    assert.match(writesTo(sql, 'chat-notify')[0].text, /WHERE NOT EXISTS/);
+    assert.match(writesTo(sql, 'message-slot')[0].text, /WHERE NOT EXISTS/);
+  });
+  test('brief לא נגע: אין שאילתת סיכום ואין דחיפה', async () => {
+    const sql = db();
+    const push = fakePush();
+    await handleDelivery(MSG, {}, { sql, now: at(MSG.targetAt), pushHandle: push, secret: FAKE_CRON });
+    assert.equal(sql.find('FROM intake_outcomes').length, 0);
     assert.equal(push.seen.length, 0);
   });
 });

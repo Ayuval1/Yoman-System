@@ -74,4 +74,18 @@ export async function bodyOf(response) {
   return response.text();
 }
 
+// ---------------------------------------------------------------------------
+// סיכום היום (M.2, lib/review-view.js): נתונים מומצאים משותפים לבדיקות. כל הטקסטים מומצאים, בלי שמות.
+// REVIEW_NOW = 21:00 בישראל ב-16.10.2026 (UTC+3): הגבול B שווה לרגע הזה, והחלון הוא (13.10 21:00, 16.10 21:00], ובלי מה שלפני תחילת 15.10.
+// ---------------------------------------------------------------------------
+export const REVIEW_NOW = new Date('2026-10-16T18:00:00.000Z');
+export const uuidOf = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+// שורת מועמד כפי שהשאילתה מחזירה: outcome n בתוך החלון של REVIEW_NOW. text רק בשאילתת הרשימה (לא בספירה).
+export function reviewRow(n, overrides = {}) {
+  return {
+    id: uuidOf(n), status: 'recorded', recorded_at: new Date('2026-10-16T10:00:00.000Z'), source_id: uuidOf(1000 + n),
+    text: `הודעה מומצאת מספר ${n}`, received_at: new Date('2026-10-16T09:59:00.000Z'), content_hash: `hash-${n}`, checked: false, ...overrides,
+  };
+}
+
 export { mock };

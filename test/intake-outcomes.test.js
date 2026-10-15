@@ -252,7 +252,8 @@ describe('intake_outcomes: כתיבה אחת, ושורה אחת לכל מקור'
       if (code.includes('intake_outcomes')) touching.push(file);
       assert.doesNotMatch(code, /\b(UPDATE|DELETE\s+FROM|TRUNCATE(\s+TABLE)?|DROP\s+TABLE)\s+(ONLY\s+)?intake_outcomes\b/i, file);
     }
-    assert.deepEqual(touching.sort(), ['api/intake.js', 'lib/ops/daily-check.js'], 'רק הקליטה כותבת והספירה היומית קוראת');
+    // M.2 (57): lib/review-view.js קורא את intake_outcomes לסיכום היום (קריאה בלבד: אין UPDATE ו-DELETE, נבדק למעלה); intake_checks הוא מה שנכתב שם.
+    assert.deepEqual(touching.sort(), ['api/intake.js', 'lib/ops/daily-check.js', 'lib/review-view.js'], 'רק הקליטה כותבת; הספירה היומית וסיכום היום קוראים');
   });
 });
 

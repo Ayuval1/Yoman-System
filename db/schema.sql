@@ -428,3 +428,16 @@ CREATE TABLE IF NOT EXISTS intake_outcomes (
   reason      text,                                                -- error / timeout; מלא רק כש-status הוא failed
   recorded_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- intake_checks — סימון של יובל על תוצאת עיבוד, בסיכום היומי (שלב M.2 של 46; מפרט: 57). שורה אחת לכל סימון.
+-- append-only: סימון חוזר הוא שורה נוספת, והאחרון קובע (D5, D17.5). אין UPDATE ואין DELETE. בלי טקסט הודעה ובלי שמות (D7).
+-- 46 קובע רק שמות וסוגים; NOT NULL ו-DEFAULT הם הצעה של Claude (57, סעיף 5), מאושרת בסשן התכנון ב-15.10.2026.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS intake_checks (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  outcome_id uuid        NOT NULL REFERENCES intake_outcomes(id),
+  verdict    text        NOT NULL,   -- right / wrong / was_event / not_event. בלי CHECK, כמו status ב-intake_outcomes
+  event_type text,                   -- מלא רק כש-verdict = was_event: short_day / cancel / move / exam / homework / room (D14)
+  checked_at timestamptz NOT NULL DEFAULT now()
+);

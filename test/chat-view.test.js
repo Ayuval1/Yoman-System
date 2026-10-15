@@ -124,8 +124,16 @@ describe('badgeFrom: המספר על האייקון (D4)', () => {
     assert.equal(badgeFrom({ pending: '4', unread: '1' }), 5, 'count() של Postgres יכול לחזור כטקסט');
   });
   test('ערכים חסרים או לא תקינים נספרים 0', () => {
-    for (const value of [undefined, null, -1, 1.5, 'x', NaN]) assert.equal(badgeFrom({ pending: value, unread: value }), 0, String(value));
+    for (const value of [undefined, null, -1, 1.5, 'x', NaN]) assert.equal(badgeFrom({ pending: value, unread: value, review: value }), 0, String(value));
     assert.equal(badgeFrom(), 0);
+  });
+  test('קריטריון 9 (M.2, T8): קלט שלישי review (0 או 1) מוסיף פריט ממתין אחד, ורק אחד גם כשהערך גדול', () => {
+    assert.equal(badgeFrom({ pending: 2, unread: 3, review: 1 }), 6);
+    assert.equal(badgeFrom({ pending: 0, unread: 0, review: 1 }), 1);
+    assert.equal(badgeFrom({ pending: 2, unread: 3, review: 0 }), 5);
+    assert.equal(badgeFrom({ pending: 2, unread: 3 }), 5, 'בלי review: כמו קודם');
+    assert.equal(badgeFrom({ review: 7 }), 1, 'הסיכום נספר פריט אחד, לא לפי מספר ההודעות');
+    assert.equal(badgeFrom({ review: '1' }), 1);
   });
 });
 
@@ -169,6 +177,45 @@ describe('parseChatAction: בדיקת גוף POST (קריטריון 1, 400)', ()
     for (const body of [null, undefined, 'answer', 5, [], [{ action: 'read', message_ids: [] }], {}, { action: 'delete' }, { action: 'ANSWER', message_id: ID, answer: 'x' }]) {
       assert.deepEqual(parseChatAction(body), { ok: false }, JSON.stringify(body));
     }
+  });
+  test('קריטריון 7 (M.2): check תקין: כל הצירופים של verdict ו-event_type לפי 57 סעיף 6, ושאר הצירופים נדחים', () => {
+    const verdicts = ['right', 'wrong', 'was_event', 'not_event'];
+    const types = ['short_day', 'cancel', 'move', 'exam', 'homework', 'room'];
+    for (const verdict of verdicts) {
+      assert.deepEqual(
+        parseChatAction({ action: 'check', outcome_id: ID, verdict }),
+        verdict === 'was_event' ? { ok: false } : { ok: true, action: 'check', outcomeId: ID, verdict, eventType: null },
+        `${verdict} בלי event_type`,
+      );
+      for (const type of types) {
+        assert.deepEqual(
+          parseChatAction({ action: 'check', outcome_id: ID, verdict, event_type: type }),
+          verdict === 'was_event' ? { ok: true, action: 'check', outcomeId: ID, verdict, eventType: type } : { ok: false },
+          `${verdict} + ${type}`,
+        );
+      }
+    }
+  });
+  test('קריטריון 7 (M.2): check פגום: uuid, verdict, event_type לא מוכר או ריק, ושדות מהסוג הלא נכון', () => {
+    const bad = [
+      { action: 'check', verdict: 'right' },
+      { action: 'check', outcome_id: 'x', verdict: 'right' },
+      { action: 'check', outcome_id: `${ID}x`, verdict: 'right' },
+      { action: 'check', outcome_id: ID },
+      { action: 'check', outcome_id: ID, verdict: 'RIGHT' },
+      { action: 'check', outcome_id: ID, verdict: 'maybe' },
+      { action: 'check', outcome_id: ID, verdict: 5 },
+      { action: 'check', outcome_id: ID, verdict: 'was_event', event_type: 'party' },
+      { action: 'check', outcome_id: ID, verdict: 'was_event', event_type: '' },
+      { action: 'check', outcome_id: ID, verdict: 'was_event', event_type: 5 },
+      { action: 'check', outcome_id: ID, verdict: 'right', event_type: '' },
+      { action: 'check', outcome_id: ID, verdict: 'not_event', event_type: 'exam' },
+    ];
+    for (const body of bad) assert.deepEqual(parseChatAction(body), { ok: false }, JSON.stringify(body));
+  });
+  test('check: event_type ריק (null) נחשב כמו חסר [הנחה, לא אומת]', () => {
+    assert.deepEqual(parseChatAction({ action: 'check', outcome_id: ID, verdict: 'right', event_type: null }), { ok: true, action: 'check', outcomeId: ID, verdict: 'right', eventType: null });
+    assert.deepEqual(parseChatAction({ action: 'check', outcome_id: ID, verdict: 'was_event', event_type: null }), { ok: false });
   });
   test('isUuid ו-ERROR_TEXT', () => {
     assert.equal(isUuid(ID), true);
