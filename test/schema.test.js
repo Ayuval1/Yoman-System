@@ -16,16 +16,28 @@ const NEW = [
   'candidate_rules', 'static_loads', 'timetable_slots', 'calendar_exceptions',
 ];
 // טבלת המדידה של הקליטה (docs/09-security/46, שלב M.1).
-const MEASUREMENT = ['intake_outcomes'];
+const MEASUREMENT = ['intake_outcomes', 'intake_checks'];
 
 // כל CREATE TABLE, עם הגוף עד ');' שבתחילת שורה.
 const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\n\);/gi)]
   .map((m) => ({ ifNotExists: Boolean(m[1]), name: m[2], body: m[3] }));
 
 describe('db/schema.sql', () => {
-  test('בדיוק 24 הטבלאות הצפויות', () => {
+  test('בדיוק 25 הטבלאות הצפויות', () => {
     assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT].sort());
-    assert.equal(tables.length, 24);
+    assert.equal(tables.length, 25);
+  });
+
+  test('intake_checks: בדיוק חמש העמודות של 46, outcome_id מפנה ל-intake_outcomes, ובלי עמודת טקסט או שם', () => {
+    const t = tables.find((x) => x.name === 'intake_checks');
+    const columns = t.body.split('\n').map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`);
+    assert.deepEqual(columns, ['id uuid', 'outcome_id uuid', 'verdict text', 'event_type text', 'checked_at timestamptz']);
+    assert.match(t.body, /^\s*id\s+uuid\s+PRIMARY KEY DEFAULT gen_random_uuid\(\)/m);
+    assert.match(t.body, /^\s*outcome_id\s+uuid\s+NOT NULL REFERENCES intake_outcomes\(id\)/m);
+    assert.doesNotMatch(t.body, /\bUNIQUE\b/i); // סימון חוזר מוסיף שורה (D17.5)
+    assert.match(t.body, /^\s*verdict\s+text\s+NOT NULL/m);
+    assert.match(t.body, /^\s*event_type\s+text\s*,/m); // nullable: מלא רק כש-verdict = was_event
+    assert.match(t.body, /^\s*checked_at\s+timestamptz\s+NOT NULL DEFAULT now\(\)/m);
   });
 
   test('intake_outcomes: בדיוק חמש העמודות של 46, source_id ייחודי ומפנה ל-sources, ובלי עמודת טקסט או שם', () => {

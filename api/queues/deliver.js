@@ -7,13 +7,13 @@
 import { neon } from '@neondatabase/serverless';
 import { QueueClient } from '@vercel/queue';
 import { parseSlotMessage } from '../../lib/message-slots.js';
-import { sendChatNotification } from '../../lib/chat-notify.js';
+import { sendChatNotification, sendReviewNotification } from '../../lib/chat-notify.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
 
 // handleDelivery מקבל את המסד והשעון מבחוץ כדי שאפשר לבדוק בלי מסד אמיתי ובלי תור.
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
-// ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief ו-close נשארו בלי שינוי: רישום בלבד.
+// ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief נשאר רישום בלבד. close (שלב M.2, docs/09-security/57 T10): אחרי הרישום הקיים, התראה אחת על סיכום היום אם יש הודעות לסימון.
 export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET }) {
   const parsed = parseSlotMessage(message);
   if (!parsed.ok) {
@@ -45,7 +45,32 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
     SELECT 'message-slot', ${ok}, ${detail}
     WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'message-slot' AND detail LIKE ${`slot=${parsed.slotKey};%`})
   `;
+  // M.2 (57 T10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), התראה אחת על סיכום היום. הזמן לספירה הוא targetAt (21:00 של המשבצת), לא רגע ההגעה.
+  // כל כשל כאן (ספירה, דחיפה, רישום) נתפס ולא נזרק: זריקה הייתה גורמת לניסיון חוזר של התור, והשורה הקיימת כבר נכתבה.
+  if (parsed.kind === 'close') await notifyReview({ sql, parsed, detail, ok, pushHandle, secret });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
+}
+
+// התראת סיכום היום במשבצת close. נרשמת ב-probe_log כ-chat-notify (שורה אחת למשבצת). לא זורקת אף פעם.
+async function notifyReview({ sql, parsed, detail, ok, pushHandle, secret }) {
+  let outcome;
+  try {
+    outcome = await sendReviewNotification({ sql, slotKey: parsed.slotKey, now: new Date(parsed.targetAt), pushHandle, secret });
+  } catch (error) {
+    console.error('queue-deliver: התראת הסיכום נכשלה:', error?.name); // רק שם השגיאה
+    outcome = { sent: false, reason: 'error', badge: null };
+  }
+  const sentOk = outcome.sent || outcome.reason === 'review-zero'; // "אין הודעות לסימון" תקין; כשל בדחיפה, סוד חסר או שגיאה אינם
+  const reviewDetail = `${detail}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  try {
+    await sql`
+      INSERT INTO probe_log (probe, ok, detail)
+      SELECT 'chat-notify', ${ok && sentOk}, ${reviewDetail}
+      WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+    `;
+  } catch (error) {
+    console.error('queue-deliver: רישום התראת הסיכום נכשל:', error?.name);
+  }
 }
 
 // נוצר בעצלות: בדיקות שמייבאות את הקובץ לא יוצרות לקוח תור.
