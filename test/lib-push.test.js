@@ -92,13 +92,25 @@ describe('lib/push: buildPayload', () => {
     assert.equal(DECLARATIVE_MAGIC, 8030);
   });
   test('כולל body ו-app_badge כמחרוזת', () => {
-    const n = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף', app_badge: 3 })).notification;
-    assert.equal(n.body, 'גוף');
-    assert.equal(n.app_badge, '3');
+    const p = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף', app_badge: 3 }));
+    assert.equal(p.notification.body, 'גוף');
+    assert.equal(p.app_badge, '3');
+    assert.equal('app_badge' in p.notification, false);
+  });
+  test('צורת ה-JSON המלאה: app_badge ברמה העליונה, בין web_push ל-notification', () => {
+    const r = buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף', app_badge: 3 });
+    assert.deepEqual(parse(r), {
+      web_push: DECLARATIVE_MAGIC,
+      app_badge: '3',
+      notification: { title: 't', navigate: 'https://yoman-system.vercel.app/x', body: 'גוף' },
+    });
+    assert.deepEqual(Object.keys(parse(r)), ['web_push', 'app_badge', 'notification']);
   });
   test('app_badge: ערכים חוקיים', () => {
     for (const [input, out] of [[0, '0'], ['0', '0'], [9999, '9999'], ['12', '12'], ['007', '7']]) {
-      assert.equal(parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: input })).notification.app_badge, out, String(input));
+      const p = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: input }));
+      assert.equal(p.app_badge, out, String(input));
+      assert.equal('app_badge' in p.notification, false);
     }
   });
   test('app_badge: ערכים לא חוקיים', () => {
@@ -108,7 +120,9 @@ describe('lib/push: buildPayload', () => {
   });
   test('app_badge null/undefined - מתעלמים', () => {
     for (const v of [null, undefined]) {
-      assert.equal('app_badge' in parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: v })).notification, false);
+      const p = parse(buildPayload({ title: 't', navigate: 'https://yoman-system.vercel.app/', app_badge: v }));
+      assert.equal('app_badge' in p, false);
+      assert.equal('app_badge' in p.notification, false);
     }
   });
   test('title חסר / ריק / רווחים / לא מחרוזת / ארוך מ-120', () => {
