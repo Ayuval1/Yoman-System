@@ -17,15 +17,36 @@ const NEW = [
 ];
 // טבלת המדידה של הקליטה (docs/09-security/46, שלב M.1).
 const MEASUREMENT = ['intake_outcomes', 'intake_checks'];
+// שאלת שיעורי הבית (שלב 8.6-1, docs/08-chapter8/60).
+const HOMEWORK = ['lesson_asks'];
 
 // כל CREATE TABLE, עם הגוף עד ');' שבתחילת שורה.
 const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\n\);/gi)]
   .map((m) => ({ ifNotExists: Boolean(m[1]), name: m[2], body: m[3] }));
 
 describe('db/schema.sql', () => {
-  test('בדיוק 25 הטבלאות הצפויות', () => {
-    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT].sort());
-    assert.equal(tables.length, 25);
+  test('בדיוק 26 הטבלאות הצפויות', () => {
+    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT, ...HOMEWORK].sort());
+    assert.equal(tables.length, 26);
+  });
+
+  test('lesson_asks: תשע העמודות כפי שיובל הריץ ב-Neon, UNIQUE על (subject, lesson_date, seq_start_period), ו-task_id מפנה ל-tasks', () => {
+    const t = tables.find((x) => x.name === 'lesson_asks');
+    const columns = t.body.split(/\r?\n/).map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`).filter((c) => !c.startsWith('UNIQUE'));
+    assert.deepEqual(columns, ['id uuid', 'subject text', 'lesson_date date', 'seq_start_period integer', 'seq_end_at timestamptz', 'topic text', 'had_homework boolean', 'task_id uuid', 'status text']);
+    assert.match(t.body, /^\s*subject\s+text\s+NOT NULL/m);
+    assert.match(t.body, /^\s*lesson_date\s+date\s+NOT NULL/m);
+    assert.match(t.body, /^\s*seq_start_period\s+integer\s+NOT NULL/m);
+    assert.match(t.body, /^\s*task_id\s+uuid\s+REFERENCES tasks\(id\)/m);
+    assert.match(t.body, /^\s*status\s+text\s+NOT NULL DEFAULT 'asked'/m);
+    assert.match(t.body, /UNIQUE \(subject, lesson_date, seq_start_period\)/);
+  });
+
+  test('העמודות החדשות של 8.6-1: tasks.subject, tasks.created_at (DEFAULT now()), media.task_id (מפנה ל-tasks)', () => {
+    const tasks = tables.find((x) => x.name === 'tasks').body;
+    assert.match(tasks, /^\s*subject\s+text\s*,/m);
+    assert.match(tasks, /^\s*created_at\s+timestamptz DEFAULT now\(\)/m);
+    assert.match(tables.find((x) => x.name === 'media').body, /^\s*task_id\s+uuid\s+REFERENCES tasks\(id\)/m);
   });
 
   test('intake_checks: בדיוק חמש העמודות של 46, outcome_id מפנה ל-intake_outcomes, ובלי עמודת טקסט או שם', () => {

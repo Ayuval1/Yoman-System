@@ -8,7 +8,9 @@ import { fakeSql, captureConsole, req, FAKE_CRON } from './helpers.js';
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
 const FIXED = () => new Date('2026-10-07T05:00:00.000Z');
 const fakeSend = () => { const calls = []; const fn = async (...args) => { calls.push(args); return { messageId: 'm1' }; }; fn.calls = calls; return fn; };
-const run = (r, deps = {}) => handle(r, { sql: fakeSql(), secret: FAKE_CRON, now: FIXED, send: fakeSend(), ...deps });
+// 8.6-1: ב-slot=1 ה-Cron קורא גם מערכת שעות (לשאלות שיעורי הבית). כאן מערכת ריקה, כדי שהבדיקות הקיימות לא יראו קריאת מסד נוספת ולא כשל טעינה.
+const NO_LESSONS = { slots: [] };
+const run = (r, deps = {}) => handle(r, { sql: fakeSql(), secret: FAKE_CRON, now: FIXED, send: fakeSend(), timetable: NO_LESSONS, ...deps });
 
 describe('cron-plan: שיטות ואימות', () => {
   for (const method of ['POST', 'PUT', 'DELETE']) {
@@ -86,7 +88,7 @@ describe('cron-plan: תוכן שורת ה-probe_log', () => {
   test('הזמן מוזרק ונרשם ב-UTC גם סביב מעבר שעון הקיץ בישראל (2026-10-25)', async () => {
     for (const iso of ['2026-10-24T22:59:59.000Z', '2026-10-24T23:00:00.000Z', '2026-10-25T00:00:00.000Z', '2026-10-25T05:00:00.000Z']) {
       const sql = fakeSql();
-      await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(iso) });
+      await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(iso), timetable: NO_LESSONS });
       assert.ok(sql.calls[0].values[1].includes(`invoked_utc=${iso}`), iso);
     }
   });
@@ -115,7 +117,7 @@ describe('cron-plan: תזמון משבצות לתור', () => {
   const sendAt = async (slot, iso) => {
     const send = fakeSend();
     const sql = fakeSql();
-    const res = await handle(req(`https://x.test/api/cron-plan?slot=${slot}`, { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(iso), send });
+    const res = await handle(req(`https://x.test/api/cron-plan?slot=${slot}`, { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(iso), send, timetable: NO_LESSONS });
     return { res, send, sql };
   };
   test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם daily-check ו-gate-probe?from=0 (כולם דרך /api/ops)', () => {
@@ -177,7 +179,7 @@ describe('cron-plan: תזמון משבצות לתור', () => {
     const cap = captureConsole(t);
     const sql = fakeSql();
     const send = async () => { throw Object.assign(new Error('boom ' + FAKE_CRON), { name: 'QueueError' }); };
-    const res = await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: FIXED, send });
+    const res = await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: FIXED, send, timetable: NO_LESSONS });
     assert.equal(res.status, 500);
     assert.equal(sql.calls.length, 1);
     assert.equal(sql.calls[0].values[0], false);

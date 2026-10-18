@@ -210,21 +210,6 @@ CREATE INDEX IF NOT EXISTS google_watch_channels_calendar_idx ON google_watch_ch
 -- ===========================================================================
 
 -- ---------------------------------------------------------------------------
--- media — תמונות שהתקבלו. 06 שורות 28-42. השורה נשארת גם אחרי שהקובץ נמחק מ-Blob: status = deleted (06:42, 216).
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS media (
-  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_id    uuid        REFERENCES sources(id),   -- השיתוף שבו הגיעה (06:33)
-  blob_path    text,                                 -- המיקום ב-Vercel Blob, אחסון פרטי (06:34)
-  content_type text,                                 -- למשל image/jpeg (06:35)
-  bytes        integer,                              -- 06:36 "int"
-  received_at  timestamptz,                          -- התאריך שנשמר עם התמונה (06:37)
-  subject      text,                                 -- המקצוע, כשידוע. ריק כשלא ידוע; לא ממציאים (06:38)
-  status       text,                                 -- stored / deleted (06:39). הנחה, לא אומת: בלי CHECK ובלי ברירת מחדל
-  deleted_at   timestamptz                           -- מתי הקובץ נמחק מ-Blob (06:40)
-);
-
--- ---------------------------------------------------------------------------
 -- facts — עובדות שחולצו ממקור. 06 שורות 44-56. נשמרות לתמיד.
 -- origin ו-haiku_confidence אינן ב-06: נוספו לפי docs/02-rules/03-intake-rules.md:80,82 ו-docs/02-rules/03-brain-module-rules.md:74
 -- ובדרישת docs/08-chapter8/35-chapter8-plan.md:36. הנחה, לא אומת: שמות העמודות וערכיהן הם הצעה שלי; 06 שותק.
@@ -288,8 +273,51 @@ CREATE TABLE IF NOT EXISTS tasks (
   domain            text,
   status            text,                            -- open / scheduled / done / cancelled / unknown (06:85)
   scheduled_at      timestamptz,                     -- מתי המערכת שיבצה אותה בפועל (06:86)
-  source_event_id   uuid        REFERENCES events(id) -- השיעור שממנו נולדה, אם רלוונטי (06:87)
+  source_event_id   uuid        REFERENCES events(id), -- השיעור שממנו נולדה, אם רלוונטי (06:87)
+  -- subject (שלב 8.6-1, מפרט 60 "איך נשמר מה"): המקצוע של שיעורי בית; ל-tasks לא הייתה עמודת מקצוע. ריק למשימה אישית. הנחה, לא אומת: שם העמודה.
+  subject           text,
+  -- created_at (שלב 8.6-1): מתי נוצרה, לסדר יציב ברשימת "פתוחות" (אחרי due_at). הנחה, לא אומת: שם העמודה. במסד החי נוספה ב-ALTER עם DEFAULT now(); שורות ישנות מקבלות את רגע ההרצה.
+  created_at        timestamptz DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- lesson_asks — שאלת "היו שיעורי בית?" אחת לרצף שיעורים. שלב 8.6-1, docs/08-chapter8/60 "איך נשמר מה". אין מבנה ב-06-db-schema.md.
+-- הנחה, לא אומת: כל שמות העמודות והערכים (status: asked / answered) הם הצעה; 06 שותק. UNIQUE (subject, lesson_date, seq_start_period) מונע שאלה כפולה לאותו רצף.
+-- had_homework ריק עד תשובה. task_id מצביע על המשימה שנוצרה כשהתשובה "היו". seq_end_at = סוף השיעור האחרון ברצף (השאלה נשלחת 3 דקות אחריו).
+-- במסד החי הטבלה נוצרה ב-CREATE TABLE שיובל הריץ (docs/08-chapter8/60 "שינויי סכמה ש-יובל מריץ בעצמו").
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS lesson_asks (
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  subject          text        NOT NULL,
+  lesson_date      date        NOT NULL,
+  seq_start_period integer     NOT NULL,
+  seq_end_at       timestamptz,
+  topic            text,
+  had_homework     boolean,
+  task_id          uuid        REFERENCES tasks(id),
+  status           text        NOT NULL DEFAULT 'asked',
+  UNIQUE (subject, lesson_date, seq_start_period)
+);
+
+-- ---------------------------------------------------------------------------
+-- media — תמונות שהתקבלו. 06 שורות 28-42. השורה נשארת גם אחרי שהקובץ נמחק מ-Blob: status = deleted (06:42, 216).
+-- שלב 8.6-1: הטבלה הועברה לכאן, אחרי tasks, כי נוספה לה עמודה שמפנה ל-tasks (כלל "מפתח זר מפנה רק לטבלה שנוצרה קודם"); שאר העמודות ללא שינוי.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS media (
+  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_id    uuid        REFERENCES sources(id),   -- השיתוף שבו הגיעה (06:33)
+  blob_path    text,                                 -- המיקום ב-Vercel Blob, אחסון פרטי (06:34)
+  content_type text,                                 -- למשל image/jpeg (06:35)
+  bytes        integer,                              -- 06:36 "int"
+  received_at  timestamptz,                          -- התאריך שנשמר עם התמונה (06:37)
+  subject      text,                                 -- המקצוע, כשידוע. ריק כשלא ידוע; לא ממציאים (06:38)
+  status       text,                                 -- stored / deleted (06:39). הנחה, לא אומת: בלי CHECK ובלי ברירת מחדל
+  deleted_at   timestamptz,                          -- מתי הקובץ נמחק מ-Blob (06:40)
+  -- task_id (שלב 8.6-1, docs/08-chapter8/60 "איך נשמר מה"): המשימה שהתמונה מצורפת אליה. ריק לתמונה שאינה של משימה. הנחה, לא אומת: שם העמודה, ו-06 שותק.
+  -- במסד החי היא נוספת בפקודת ALTER נפרדת שיובל מריץ (ADD COLUMN IF NOT EXISTS), לא מהקובץ הזה, כמו messages.read_at.
+  task_id      uuid        REFERENCES tasks(id)
+);
+
 
 -- ---------------------------------------------------------------------------
 -- links — קשרים בין ישויות. 06 שורות 102-108. הפניות פולימורפיות: בלי מפתח זר.

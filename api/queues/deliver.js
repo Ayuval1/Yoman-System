@@ -1,20 +1,25 @@
 // צרכן התור של משבצות ההודעה (בלוק 3, 8.10.2026): מקבל את ההודעה המושהית ברגע היעד ורושם ב-probe_log מתי הגיעה בפועל.
 // כאן ייכנס בפרקים 8-9 בניית הבריף/הסגירה ושליחתם; עד אז brief ו-close הן תשתית התזמון בלבד: בלי הודעה אל יובל.
 // מאז שלב 8.2א-3 יש סוג שלישי, notify: התראה מאוגדת על הודעת מערכת שנוצרה מהודעה שהועברה (lib/chat-notify.js), באותו נושא ובלי שינוי ב-vercel.json.
+// שלב 8.6-1 (docs/08-chapter8/60): סוג רביעי, homework: שאלת "היו שיעורי בית?" אחת לרצף שיעורים (נוצרת ב-cron-plan של 01:00 UTC, מגיעה 3 דקות אחרי סוף הרצף). ראו deliverHomework למטה.
 // התור הוא בטא (queue/v2beta). המסירה at-least-once, ולכן הכתיבה אידמפוטנטית: אותה משבצת נרשמת פעם אחת.
 // ההנחה: ש-@vercel/queue עובד מקובץ api פשוט נבדקה בפריסת ניסוי ב-8.10.2026 (הגיעה 0.8 שניות אחרי היעד).
 // פורמט ה-handler כאן הוא (req, res) של handleNodeCallback ולא export default { fetch }; ראו test/queue-deliver.test.js.
 import { neon } from '@neondatabase/serverless';
 import { QueueClient } from '@vercel/queue';
-import { parseSlotMessage } from '../../lib/message-slots.js';
+import { parseSlotMessage, planNotify } from '../../lib/message-slots.js';
 import { sendChatNotification, sendReviewNotification } from '../../lib/chat-notify.js';
+import { loadTimetable } from '../../lib/timetable.js';
+import { sequenceFromKey } from '../../lib/homework-schedule.js';
+import { createLessonAsk } from '../../lib/homework-view.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
 
 // handleDelivery מקבל את המסד והשעון מבחוץ כדי שאפשר לבדוק בלי מסד אמיתי ובלי תור.
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
 // ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief נשאר רישום בלבד. close (שלב M.2, docs/09-security/57 T10): אחרי הרישום הקיים, התראה אחת על סיכום היום אם יש הודעות לסימון.
-export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET }) {
+// homework (שלב 8.6-1, docs/08-chapter8/60 סעיפים 3-5): אחרי הרישום הקיים, יוצר את שאלת שיעורי הבית של הרצף ושולח התראה כללית אחת. timetable (אופציונלי, לבדיקות): במקום טעינה מהמסד.
+export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable }) {
   const parsed = parseSlotMessage(message);
   if (!parsed.ok) {
     // הודעה פגומה לא תתתקן בניסיון חוזר: רושמים ומאשרים (לא זורקים), כדי שלא תיכנס ללולאת ניסיונות.
@@ -48,7 +53,53 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   // M.2 (57 T10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), התראה אחת על סיכום היום. הזמן לספירה הוא targetAt (21:00 של המשבצת), לא רגע ההגעה.
   // כל כשל כאן (ספירה, דחיפה, רישום) נתפס ולא נזרק: זריקה הייתה גורמת לניסיון חוזר של התור, והשורה הקיימת כבר נכתבה.
   if (parsed.kind === 'close') await notifyReview({ sql, parsed, detail, ok, pushHandle, secret });
+  if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
+}
+
+// שאלת שיעורי בית (מפרט 60 סעיפים 3-5). השם והתאריך מחושבים ממערכת השעות ומהמפתח, לא מגוף ההודעה.
+// כשל מסד (טעינת הטבלה, יצירת השאלה) נזרק, והתור ינסה שוב: היצירה אידמפוטנטית (UNIQUE + ON CONFLICT DO NOTHING), ולכן ניסיון חוזר לא יוצר כפילות.
+// מערכת שעות שלא נטענה (null) נזרקת לניסיון חוזר; רצף שאין לו שורה בטבלה (המערכת השתנתה, או מקצוע פטור) נרשם ומאושר בלי שאלה.
+// ההתראה נשלחת כשהשאלה נוצרה עכשיו, או כשהיא קיימת אבל לא נרשם ניסיון התראה לרצף (הגעה כפולה אחרי הצלחה לא שולחת שוב), עם מפתח dedupe של חלון האגוד הקיים (30 שניות, planNotify): שתי שאלות בחלון אחד = התראה אחת.
+// הנחה, לא אומת: אם התהליך נופל בין יצירת השאלה לשליחת ההתראה, הניסיון החוזר לא ישלח התראה (השאלה כבר קיימת); המספר על האייקון יתעדכן בפתיחה הבאה.
+// כל כשל בהתראה נתפס ולא נזרק, כדי שלא ייווצר ניסיון חוזר אחרי שהשאלה כבר נוצרה. הנוסח כללי: notifyText (שאלה אחת ממתינה / N ממתינות), בלי מקצוע ובלי תוכן.
+async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable }) {
+  const table = timetable === undefined ? await loadTimetable(sql) : timetable;
+  if (!table) throw new Error('homework: מערכת השעות לא נטענה'); // הודעה קבועה, בלי ערכים; התור ינסה שוב
+  const sequence = sequenceFromKey(table, parsed.slotKey);
+  if (!sequence) {
+    console.error('queue-deliver: אין רצף שיעורי בית למפתח');
+    return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok, created: false, sent: false, reason: 'no-sequence' };
+  }
+  const { created } = await createLessonAsk({ sql, sequence, timetable: table });
+  // סגירת פער הניסיון החוזר: אם השאלה כבר קיימת (created=false) אבל אף ניסיון התראה לא נרשם ב-probe_log (קריסה אחרי היצירה), שולחים עכשיו.
+  // השורה ב-probe_log נכתבת רק אחרי ניסיון, ו-dedupe_key של push-send מונע כפילות. הנחה, לא אומת: ניסיון שנכשל בדחיפה נרשם ולכן לא יישלח שוב.
+  let shouldNotify = created;
+  if (!created) {
+    const found = await sql`SELECT 1 AS found FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`} LIMIT 1`;
+    shouldNotify = !(Array.isArray(found) && found.length > 0);
+  }
+  let outcome = { sent: false, reason: 'exists', badge: null };
+  if (shouldNotify) {
+    try {
+      outcome = await sendChatNotification({ sql, slotKey: planNotify(deliveredAt).slotKey, pushHandle, secret, now: deliveredAt });
+    } catch (error) {
+      console.error('queue-deliver: התראת שיעורי הבית נכשלה:', error?.name); // רק שם השגיאה
+      outcome = { sent: false, reason: 'error', badge: null };
+    }
+  }
+  const sentOk = outcome.sent || !(String(outcome.reason).startsWith('push-') || outcome.reason === 'no-secret' || outcome.reason === 'error');
+  const notifyDetail = `${detail}; created=${created}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  try {
+    await sql`
+      INSERT INTO probe_log (probe, ok, detail)
+      SELECT 'chat-notify', ${ok && sentOk}, ${notifyDetail}
+      WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+    `;
+  } catch (error) {
+    console.error('queue-deliver: רישום התראת שיעורי הבית נכשל:', error?.name);
+  }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, sent: outcome.sent };
 }
 
 // התראת סיכום היום במשבצת close. נרשמת ב-probe_log כ-chat-notify (שורה אחת למשבצת). לא זורקת אף פעם.
