@@ -176,7 +176,7 @@ describe('chat: GET', () => {
     const body = await (await get(sql)).json();
     assert.equal(body.badge, 8, 'אין פריטים בכלל, והמספר עדיין מהספירה');
     const [call] = sql.find('AS unread');
-    assert.ok(call.text.includes("(SELECT count(*) FROM messages WHERE kind = 'question' AND awaiting_reply = true)::int AS pending"));
+    assert.ok(call.text.includes("(SELECT count(*) FROM messages WHERE kind = 'question' AND awaiting_reply = true AND (expires_at IS NULL OR expires_at > ?::timestamptz))::int AS pending")); // 8.6-1: סינון expires_at
     assert.ok(call.text.includes("(SELECT count(*) FROM messages WHERE direction = 'out' AND kind = 'update' AND read_at IS NULL)::int AS unread"));
   });
 
@@ -340,7 +340,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
     const res = await get(sql);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'items', 'pending', 'review']);
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'items', 'open_tasks', 'pending', 'review']); // 8.6-1: נוסף open_tasks
     assert.deepEqual(body.review, {
       total: 2,
       items: [

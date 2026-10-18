@@ -47,7 +47,7 @@ describe('chat-notify: notifyText', () => {
 describe('chat-notify: loadNotifyState', () => {
   test('קורא ספירות ו-hasUnseen בשאילתה אחת, באותם תנאים כמו המספר על האייקון, ואחריה ספירת סיכום היום (M.2)', async () => {
     const sql = stateSql({ pending: 2, unread: 3, hasUnseen: true });
-    assert.deepEqual(await loadNotifyState(sql, REVIEW_NOW), { pending: 2, unread: 3, review: 0, hasUnseen: true });
+    assert.deepEqual(await loadNotifyState(sql, REVIEW_NOW), { pending: 2, unread: 3, review: 0, openTasks: 0, hasUnseen: true });
     assert.equal(sql.calls.length, 2);
     const { text } = sql.calls[0];
     assert.match(text, /kind = 'question' AND awaiting_reply = true/);
@@ -56,9 +56,9 @@ describe('chat-notify: loadNotifyState', () => {
     assert.ok(sql.calls.every((c) => !/\bbody\b|raw_content/.test(c.text)), 'לא קורא תוכן הודעות, גם לא בספירת הסיכום');
   });
   test('שורה חסרה או ערכים לא תקינים: אפסים ו-false', async () => {
-    assert.deepEqual(await loadNotifyState(fakeSql(() => []), REVIEW_NOW), { pending: 0, unread: 0, review: 0, hasUnseen: false });
+    assert.deepEqual(await loadNotifyState(fakeSql(() => []), REVIEW_NOW), { pending: 0, unread: 0, review: 0, openTasks: 0, hasUnseen: false });
     const invalid = fakeSql((text) => (text.includes('FROM intake_outcomes o') ? [] : [{ pending: null, unread: 'x', has_unseen: 'true' }]));
-    assert.deepEqual(await loadNotifyState(invalid, REVIEW_NOW), { pending: 0, unread: 0, review: 0, hasUnseen: false });
+    assert.deepEqual(await loadNotifyState(invalid, REVIEW_NOW), { pending: 0, unread: 0, review: 0, openTasks: 0, hasUnseen: false });
   });
   test('קריטריון 9: review הוא 1 כשיש לפחות הודעה אחת לסימון (גם כשיש כמה), 0 כשהכול סומן או מחוץ לחלון', async () => {
     const many = await loadNotifyState(stateSql({ due: [reviewRow(1), reviewRow(2), reviewRow(3)] }), REVIEW_NOW);

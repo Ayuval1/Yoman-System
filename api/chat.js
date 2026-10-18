@@ -5,6 +5,9 @@
 //   POST { action: 'answer', message_id, answer }     -> { status, items, pending, badge }   (items = רק מה שנוצר בתשובה הזו)
 //   POST { action: 'read', message_ids }              -> { badge }                          (מסמן רק בועות update יוצאות שלא נקראו, מתוך המזהים שנשלחו)
 //   POST { action: 'check', outcome_id, verdict, event_type? } -> { status: 'checked' | 'closed', review, badge }   (M.2: שורה אחת ב-intake_checks; closed = לא ניתן לסימון עכשיו, לא נכתב דבר)
+//   שלב 8.6-1 (docs/08-chapter8/60): GET מחזיר גם open_tasks, ו-pending יכול לכלול פריט { kind: 'homework', ... }.
+//   POST { action: 'homework', message_id, had, topic?, due? } -> { status: 'answered' | 'closed' | 'unclear', task_id, pending, open_tasks, badge }   (task_id רק כשנוצרה משימה; closed = כבר נסגרה, לא נכתב דבר)
+//   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
@@ -13,6 +16,8 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
 import { loadTimetable } from '../lib/timetable.js';
+import { localDateIso } from '../lib/intake-dates.js';
+import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, pendingFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 
@@ -74,12 +79,17 @@ async function loadCreatedItems(sql, { answerSourceId, bubbleId }) {
 }
 
 // השאלות הפתוחות (הוותיקה קודם), עם המקור שלהן, העובדות שלו ומערכת השעות, כדי לגזור כפתורים (pendingQuestion).
-async function loadPending(sql, timetable) {
+// שלב 8.6-1: שאלה ש-expires_at שלה עבר לא מוחזרת (מפרט 60 סעיף 13), ושאלת שיעורי בית (entity_type='lesson_ask') מגיעה עם המקצוע והתאריך מ-lesson_asks.
+// lesson_date::text כדי לקבל YYYY-MM-DD ולא אובייקט Date של הדרייבר.
+async function loadPending(sql, timetable, now) {
+  const nowIso = now.toISOString();
   const questions = rowsOf(await sql`
-    SELECT m.id, m.body, m.sent_at, s.id AS source_id, s.channel, s.raw_content, s.content_hash, s.received_at
+    SELECT m.id, m.body, m.sent_at, m.entity_type, s.id AS source_id, s.channel, s.raw_content, s.content_hash, s.received_at,
+           la.subject AS subject, la.lesson_date::text AS lesson_date
     FROM messages m
     LEFT JOIN sources s ON m.entity_type = 'source' AND s.id = m.entity_id
-    WHERE m.kind = 'question' AND m.awaiting_reply = true
+    LEFT JOIN lesson_asks la ON m.entity_type = 'lesson_ask' AND la.id = m.entity_id
+    WHERE m.kind = 'question' AND m.awaiting_reply = true AND (m.expires_at IS NULL OR m.expires_at > ${nowIso}::timestamptz)
     ORDER BY m.sent_at ASC NULLS LAST, m.id ASC
   `);
   if (questions.length === 0) return [];
@@ -89,19 +99,22 @@ async function loadPending(sql, timetable) {
     WHERE f.source_id IN (SELECT m.entity_id FROM messages m WHERE m.kind = 'question' AND m.awaiting_reply = true AND m.entity_type = 'source')
   `);
   const table = timetable === undefined ? await loadTimetable(sql) : timetable; // loadTimetable לא זורק: כשל = null, והכפתורים בלי מערכת השעות
-  return pendingFromRows({ questions, facts, timetable: table });
+  return pendingFromRows({ questions, facts, timetable: table, today: localDateIso(now, 'Asia/Jerusalem') });
 }
 
-// המספר על האייקון (D4): שאלות פתוחות + בועות update יוצאות שלא נקראו, ובנוסף סיכום היום כפריט ממתין אחד כשיש הודעות לסימון (57 T8).
+// המספר על האייקון (D4): שאלות פתוחות (שלא פגו) + בועות update יוצאות שלא נקראו, ובנוסף סיכום היום כפריט ממתין אחד כשיש הודעות לסימון (57 T8),
+// ופריטים פתוחים (tasks עם status='open', כל אחד 1; שלב 8.6-1, הכרעת יובל 16.10.2026 "ב"). שאלה ש-expires_at שלה עבר לא נספרת (מפרט 60 סעיף 13).
 // נספר בשאילתות נפרדות, לא מתוך 50 הפריטים. הסיכום נספר ב-countReviewDue, אותה פונקציה כמו ב-lib/chat-notify.js (המספר חייב להיות זהה).
 async function loadBadge(sql, now) {
+  const nowIso = now.toISOString();
   const [row] = rowsOf(await sql`
     SELECT
-      (SELECT count(*) FROM messages WHERE kind = 'question' AND awaiting_reply = true)::int AS pending,
-      (SELECT count(*) FROM messages WHERE direction = 'out' AND kind = 'update' AND read_at IS NULL)::int AS unread
+      (SELECT count(*) FROM messages WHERE kind = 'question' AND awaiting_reply = true AND (expires_at IS NULL OR expires_at > ${nowIso}::timestamptz))::int AS pending,
+      (SELECT count(*) FROM messages WHERE direction = 'out' AND kind = 'update' AND read_at IS NULL)::int AS unread,
+      (SELECT count(*) FROM tasks WHERE status = 'open')::int AS open_tasks
   `);
   const review = await countReviewDue(sql, now);
-  return badgeFrom({ ...(row ?? {}), review });
+  return badgeFrom({ pending: row?.pending, unread: row?.unread, openTasks: row?.open_tasks, review });
 }
 
 // סימון כנקראו: רק בועות update יוצאות שעדיין לא נקראו, ורק מתוך המזהים שנשלחו (47 קריטריון 13). המזהים עוברים כ-JSON ומפורקים ב-SQL.
@@ -140,10 +153,11 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   try {
     if (action === null) {
       const items = await loadItems(sql);
-      const pending = await loadPending(sql, timetable);
+      const pending = await loadPending(sql, timetable, now());
       const review = await loadReview(sql, now());
       const badge = await loadBadge(sql, now());
-      return json({ items, pending, badge, review });
+      const openTasks = await loadOpenTasks(sql);
+      return json({ items, pending, badge, review, open_tasks: openTasks });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);
@@ -156,10 +170,24 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const badge = await loadBadge(sql, now());
       return json({ status: written ? 'checked' : 'closed', review, badge });
     }
+    if (action.action === 'homework') {
+      // שאלת שיעורי בית: פקודת כתיבה אחת (או כלום). closed = כבר נסגרה / פגה / לא קיימת; unclear = אי אפשר לחשב תאריך. 60 סעיף 14.
+      const result = await answerHomework({ sql, messageId: action.messageId, had: action.had, topic: action.topic, timetable, now: now() });
+      const pending = await loadPending(sql, timetable, now());
+      const openTasks = await loadOpenTasks(sql);
+      const badge = await loadBadge(sql, now());
+      return json({ status: result.status, task_id: result.taskId, pending, open_tasks: openTasks, badge });
+    }
+    if (action.action === 'task_done') {
+      const done = await markTaskDone(sql, action.taskId);
+      const openTasks = await loadOpenTasks(sql);
+      const badge = await loadBadge(sql, now());
+      return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge });
+    }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable });
     const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created ?? {}) : [];
-    const pending = await loadPending(sql, timetable);
+    const pending = await loadPending(sql, timetable, now());
     const badge = await loadBadge(sql, now());
     return json({ status: result.status, items, pending, badge });
   } catch (error) {
