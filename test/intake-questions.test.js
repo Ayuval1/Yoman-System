@@ -308,3 +308,41 @@ describe('buildQuestion ו-parseTypeAnswer: שאלת "מה זה?"', () => {
     assert.deepEqual(applyAnswer({ facts: [], field: 'type', answer: 'בלה' }), []);
   });
 });
+
+describe('buildQuestion: כפתורי "היום" ו"מחר" בשאלת "לאיזה תאריך?"', () => {
+  const answerOf = (label, receivedAt) => applyAnswer({ facts: [], field: 'date', answer: label, receivedAt })[0]?.value;
+  const FAR_LATER = '2027-03-05T10:00:00Z'; // רחוק מיום ההודעה: התווית חייבת לשאת את התאריך בעצמה
+
+  test('יום רגיל: היום ומחר ראשונים, "לא יודע" אחרון', () => {
+    assert.deepEqual(buildQuestion({ field: 'date', today: '2026-10-19' }).buttons, ['היום · שני 19.10.2026', 'מחר · שלישי 20.10.2026', UNKNOWN_BUTTON]);
+  });
+  test('סוף חודש, סוף שנה ושינוי שעון (25.10.2026): מחר מחושב בימי לוח', () => {
+    const tomorrowOf = (today) => buildQuestion({ field: 'date', today }).buttons[1];
+    assert.equal(tomorrowOf('2026-10-31'), 'מחר · ראשון 1.11.2026');
+    assert.equal(tomorrowOf('2026-12-31'), 'מחר · שישי 1.1.2027');
+    assert.equal(tomorrowOf('2026-10-24'), 'מחר · ראשון 25.10.2026');
+    assert.equal(tomorrowOf('2026-10-25'), 'מחר · שני 26.10.2026');
+  });
+  test('כל תווית נענית ביום אחר ומפוענחת לתאריך הנכון', () => {
+    for (const [today, tomorrow] of [['2026-10-19', '2026-10-20'], ['2026-10-31', '2026-11-01'], ['2026-12-31', '2027-01-01'], ['2026-10-24', '2026-10-25'], ['2026-10-25', '2026-10-26']]) {
+      const [todayButton, tomorrowButton] = buildQuestion({ field: 'date', today }).buttons;
+      assert.equal(answerOf(todayButton, FAR_LATER), today);
+      assert.equal(answerOf(tomorrowButton, FAR_LATER), tomorrow);
+      assert.equal(answerOf(todayButton), today, 'גם בלי חותמת קליטה');
+    }
+  });
+  test('מועמדים נשמרים אחרי היום ומחר; מועמד שזהה להם לא כפול', () => {
+    const question = buildQuestion({ field: 'date', today: '2026-10-19', candidates: ['2026-10-20', '2026-10-27', '2026-11-03'] });
+    assert.deepEqual(question.buttons, ['היום · שני 19.10.2026', 'מחר · שלישי 20.10.2026', 'שלישי 27.10.2026', 'שלישי 3.11.2026', UNKNOWN_BUTTON]);
+    assert.equal(buildQuestion({ field: 'date', today: '2026-10-19', candidates: ['2026-10-19'] }).buttons.length, 3);
+  });
+  test('new_date לא משתנה, וגם שדות אחרים', () => {
+    assert.deepEqual(buildQuestion({ field: 'new_date', today: '2026-10-19' }).buttons, [UNKNOWN_BUTTON]);
+    assert.deepEqual(buildQuestion({ field: 'subject', today: '2026-10-19' }).buttons, [UNKNOWN_BUTTON]);
+  });
+  test('בלי today או עם today לא תקין: ההתנהגות הישנה (רק "לא יודע")', () => {
+    for (const today of [undefined, null, '', 'מחר', '2026-02-31', '2026-10-19T00:00']) {
+      assert.deepEqual(buildQuestion({ field: 'date', today }).buttons, [UNKNOWN_BUTTON], String(today));
+    }
+  });
+});

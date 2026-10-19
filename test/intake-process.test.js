@@ -356,6 +356,21 @@ describe('pendingQuestion', () => {
     assert.equal(question.field, 'date');
   });
 
+  test('שאלת תאריך: כפתורי "היום" ו"מחר" לפי יום ההודעה בישראל (לא לפי UTC), ו"לא יודע" אחרון', () => {
+    // 21:30 UTC ב-10.10.2026 = 00:30 ב-11.10.2026 בישראל (UTC+3): היום = ראשון 11.10
+    const late = pendingQuestion({ source: source('מחר מבחן', { received_at: new Date('2026-10-10T21:30:00Z') }), facts: [fact(TYPE_FIELD, 'exam')], timetable: TIMETABLE });
+    assert.equal(late.field, 'date');
+    assert.deepEqual(late.buttons.slice(0, 2), ['היום · ראשון 11.10.2026', 'מחר · שני 12.10.2026']);
+    assert.equal(late.buttons.at(-1), 'לא יודע');
+  });
+
+  test('שאלת תאריך עם received_at ריק או לא תקין: "לא יודע" בלבד, כמו קודם', () => {
+    for (const received_at of [null, 'לא תאריך']) {
+      const question = pendingQuestion({ source: source('מחר מבחן', { received_at }), facts: [fact(TYPE_FIELD, 'exam')], timetable: TIMETABLE });
+      assert.deepEqual(question.buttons, ['לא יודע']);
+    }
+  });
+
   test('חותמת קליטה לא תקינה במקור: עדיין שואלים על מה שחסר (בלי מועמדים מהחילוץ)', () => {
     const question = pendingQuestion({ source: source('מחר מבחן', { received_at: 'לא תאריך' }), facts: [fact(TYPE_FIELD, 'exam')], timetable: TIMETABLE });
     assert.equal(question.field, 'date');
