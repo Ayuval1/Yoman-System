@@ -330,11 +330,18 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
     }
   });
 
-  test('מתג כבוי (ברירת המחדל): HOMEWORK_ASKS_ENABLED הוא false, ולא נשלחת הודעת homework, אין טעינת מערכת שעות, ו-probe_log בלי תוספת', async () => {
-    assert.equal(HOMEWORK_ASKS_ENABLED, false);
+  test('ברירת המחדל (שלב 8.6-2, המסך נבנה): HOMEWORK_ASKS_ENABLED הוא true, ובלי הזרקה נשלחות הודעות homework', async () => {
+    assert.equal(HOMEWORK_ASKS_ENABLED, true);
+    const send = makeSend();
+    const res = await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql: fakeSql(), secret: FAKE_CRON, now: () => new Date(NOW), send, timetable: TIMETABLE });
+    assert.equal(res.status, 200);
+    assert.equal(send.calls.filter((c) => c[1].kind === 'homework').length, 6);
+  });
+
+  test('מתג כבוי בהזרקה (homeworkEnabled=false): לא נשלחת הודעת homework, אין טעינת מערכת שעות, ו-probe_log בלי תוספת', async () => {
     const send = makeSend();
     const sql = fakeSql();
-    const res = await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(NOW), send });
+    const res = await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql, secret: FAKE_CRON, now: () => new Date(NOW), send, homeworkEnabled: false });
     assert.equal(res.status, 200);
     assert.equal(send.calls.length, 1, 'רק הבריף');
     assert.equal(send.calls[0][1].kind, 'brief');
@@ -342,7 +349,7 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
     assert.doesNotMatch(sql.calls[0].values[1], /homework/);
     // גם כשמעבירים מערכת שעות מלאה, המתג הכבוי גובר
     const send2 = makeSend();
-    await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql: fakeSql(), secret: FAKE_CRON, now: () => new Date(NOW), send: send2, timetable: TIMETABLE });
+    await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql: fakeSql(), secret: FAKE_CRON, now: () => new Date(NOW), send: send2, timetable: TIMETABLE, homeworkEnabled: false });
     assert.equal(send2.calls.filter((c) => c[1].kind === 'homework').length, 0);
   });
 
