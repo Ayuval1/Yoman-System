@@ -194,3 +194,88 @@ describe('cron-plan: תזמון משבצות לתור', () => {
     assert.equal(send.calls.length, 0);
   });
 });
+
+// ניסיונות חוזרים לטעינת מערכת השעות (slot=1): כשל זמני במסד לא אמור לבטל יום שלם של שאלות שיעורי בית.
+// 2026-10-07 הוא יום רביעי (weekday 4). שיעור אחד ב-08:15-09:00, כך שנוצרת שאלה אחת (09:03 מקומי), אחרי רגע ההרצה (08:00 מקומי).
+describe('cron-plan: ניסיון חוזר בטעינת מערכת השעות', () => {
+  const dbRow = { weekday: 4, period: 1, starts_at: '08:15:00', ends_at: '09:00:00', subject: 'מתמטיקה', teacher: null, room: null };
+  // sql מדומה: הקריאה הראשונה/הראשונות למערכת השעות נכשלות (failures פעמים), אחר כך מחזירה שורה. כתיבה ל-probe_log מחזירה [].
+  const flakySql = (failures) => {
+    let timetableCalls = 0;
+    const sql = fakeSql((text) => {
+      if (!text.includes('FROM timetable_slots')) return [];
+      timetableCalls += 1;
+      if (timetableCalls <= failures) throw new Error('connection reset');
+      return [dbRow];
+    });
+    sql.timetableCalls = () => sql.find('FROM timetable_slots').length;
+    return sql;
+  };
+  const NO_WAIT = { retryDelaysMs: [0, 0] };
+  const runSlot1 = (sql, send) => handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }),
+    { sql, secret: FAKE_CRON, now: FIXED, send, timetable: undefined, ...NO_WAIT });
+  const probeDetail = (sql) => sql.find('INSERT INTO probe_log')[0].values[1];
+  const probeOk = (sql) => sql.find('INSERT INTO probe_log')[0].values[0];
+  const kinds = (send) => send.calls.map((c) => c[1].kind);
+
+  test('הצלחה בניסיון השני אחרי כשל אחד: השאלה מתוזמנת, ok=true, 200, והבריף נשלח', async (t) => {
+    captureConsole(t);
+    const sql = flakySql(1);
+    const send = fakeSend();
+    const res = await runSlot1(sql, send);
+    assert.equal(res.status, 200);
+    assert.equal(sql.timetableCalls(), 2);
+    assert.equal(probeOk(sql), true);
+    assert.match(probeDetail(sql), /homework_queued=1/);
+    assert.ok(!probeDetail(sql).includes('homework_failed'));
+    assert.equal(send.calls.filter((c) => c[1].kind === 'brief').length, 1);
+    assert.equal(send.calls.length, 2); // בריף + שאלה אחת
+  });
+
+  test('כשל בכל הניסיונות (3 קריאות): התנהגות הכשל הקיימת - 500, ok=false, homework_failed=no-timetable, והבריף כבר נשלח', async (t) => {
+    const cap = captureConsole(t);
+    const sql = flakySql(99);
+    const send = fakeSend();
+    const res = await runSlot1(sql, send);
+    assert.equal(res.status, 500);
+    assert.equal(sql.timetableCalls(), 3); // ניסיון ראשון + 2 חוזרים
+    assert.equal(probeOk(sql), false);
+    assert.match(probeDetail(sql), /; homework_failed=no-timetable$/);
+    assert.deepEqual(kinds(send), ['brief']);
+    assert.ok(!cap.text().includes('מתמטיקה'));
+    assert.ok(!cap.text().includes(FAKE_CRON));
+  });
+
+  test('הצלחה מהניסיון הראשון: קריאה אחת בלבד, בלי המתנה', async (t) => {
+    captureConsole(t);
+    const sql = flakySql(0);
+    const send = fakeSend();
+    let sleeps = 0;
+    const res = await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }),
+      { sql, secret: FAKE_CRON, now: FIXED, send, timetable: undefined, retryDelaysMs: [400, 1200], sleep: async () => { sleeps += 1; } });
+    assert.equal(res.status, 200);
+    assert.equal(sql.timetableCalls(), 1);
+    assert.equal(sleeps, 0);
+    assert.deepEqual(kinds(send), ['brief', 'homework']);
+  });
+
+  test('מערכת שעות ריקה במסד (בלי שגיאה) היא לא כשל זמני: קריאה אחת, בלי ניסיון חוזר', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql((text) => (text.includes('FROM timetable_slots') ? [] : []));
+    const send = fakeSend();
+    const res = await runSlot1(sql, send);
+    assert.equal(res.status, 500); // כמו קודם: no-timetable
+    assert.equal(sql.find('FROM timetable_slots').length, 1);
+    assert.match(probeDetail(sql), /homework_failed=no-timetable/);
+    assert.deepEqual(kinds(send), ['brief']);
+  });
+
+  test('ההשהיות מועברות ל-sleep לפי הסדר (400ms ואז 1200ms כברירת מחדל מוזרקת)', async (t) => {
+    captureConsole(t);
+    const waits = [];
+    const res = await handle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }),
+      { sql: flakySql(99), secret: FAKE_CRON, now: FIXED, send: fakeSend(), timetable: undefined, retryDelaysMs: [400, 1200], sleep: async (ms) => { waits.push(ms); } });
+    assert.equal(res.status, 500);
+    assert.deepEqual(waits, [400, 1200]);
+  });
+});

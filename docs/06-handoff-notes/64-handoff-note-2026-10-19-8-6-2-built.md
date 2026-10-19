@@ -40,4 +40,10 @@
 
 **נוצרו:** `test/homework-screen.test.js`, פתק זה. **שונו:** `public/index.html` (CSS, `state`, `homeworkCard`, `cardFor`, `openTasksNodes`, `applyServerLists`, `sendHomework`, `sendTaskDone`, `renderPending`, `loadOnce`; הוחלפו שש שורות, לא נמחק קוד), `lib/ops/cron-plan.js` (הדגל), `test/homework-schedule.test.js`, `test/README.md`; **הוספה בלבד:** `35` (שורת סטטוס ושורה בלוג הפערים), `01`, `02`, `05`, `24`. **לא שונו:** `api/*`, `lib/chat-view.js`, `lib/homework-view.js`, `db/schema.sql`, `package.json`, `vercel.json`. **נקראו בלבד:** `60`, פתק 63, `24`. **מסד:** SELECT בלבד (`probe_log`), המתג נשאר דלוק.
 
+## 🔧 תוספת אחרי הסגירה (19.10.2026, אחר הצהריים): חיזוק טעינת מערכת השעות ב-`cron-plan`
+
+- **מה:** `loadTimetable` מקבל `{ rethrowDbError }` (ברירת מחדל זהה להתנהגות הקודמת); `cron-plan` מנסה לטעון את מערכת השעות שוב כשהמסד זורק שגיאה (עד 2 ניסיונות חוזרים, אחרי 400ms ו-1200ms, ניתנים להזרקה בבדיקות). טבלה ריקה או שורה תקולה לא מנוסות שוב. אחרי הניסיונות: אותה התנהגות כמו קודם (`homework_failed=no-timetable`, 500); הבריף נשלח לפני כן ואינו מושפע. 1,462 בדיקות (5 חדשות). `[הנחה, לא אומת]`: סך ההמתנה (עד 1.6 שניות) נכנס ב-`maxDuration` של הפונקציה.
+- **הוכרע (יובל, "א"):** לחזק את הריצה הראשונה עם הדגל הדלוק.
+- **עדיין פתוח:** יום בלי שאלות כשכל הניסיונות נכשלים (אין Cron חוזר); השוואת "תאריך שעבר" ברמת תאריך.
+
 </div>
