@@ -164,6 +164,17 @@
   .mini .ch { margin-inline-start: auto; color: var(--label3); font-size: 20px; flex: none; }
   .close { display: block; width: 100%; border: 0; background: none; text-align: center; font-size: 13.5px; font-weight: var(--fw-bold); color: var(--label2); padding: 16px 0 0; }
 
+  /* ---------- רשימת "פתוחות" (שלב 8.6-2, מפרט 60 סעיף 11) ----------
+     הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות (exhead, mini, dot, cnote, btn-neutral): שורה כמו .mini, עם כפתור "בוצע" בקצה.
+     .openrow הוא div ולא כפתור (הלחיצה היא רק על "בוצע"); .ot עמודת טקסט (כותרת ושורת פרטים); .om שורת הפרטים; .odone כפתור "בוצע". */
+  .openrow { cursor: default; }
+  .openrow .ot { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .openrow .om { font-size: 13px; color: var(--label2); }
+  .odone {
+    flex: none; border: 0; border-radius: var(--r-pill); padding: 7px 14px;
+    font-size: 14px; font-weight: var(--fw-bold); background: var(--btn-neutral); color: var(--accent);
+  }
+
   /* ---------- ההודעות (s_main_light .feed) ---------- */
   .feed {
     flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -478,6 +489,8 @@ googleBtn.addEventListener('click', async () => {
 //   POST /api/chat {action:'read'}      -> { badge }
 //   GET נושא גם review (סיכום היום, M.2: { total, items }); POST {action:'check'} -> { status: checked|closed, review, badge }
 //   POST /api/intake (Form: text, channel=app) -> טקסט. הודעה חדשה שיובל מקליד.
+//   שלב 8.6-2 (docs/08-chapter8/60): GET נושא גם open_tasks ([{ id, title, subject?, due_at?, media_count }]) ו-pending יכול לכלול { kind: 'homework', subject, buttons: [{ due, date }] };
+//   POST {action:'homework', message_id, had, topic?, due?} -> { status: answered|closed|unclear, pending, open_tasks, badge }; POST {action:'task_done', task_id} -> { status: done|closed, open_tasks, badge }.
 // רענון: בטעינה, כשהדף חוזר לחזית, ואחרי כל פעולה. בלי סקירה מחזורית (47 "מה נכנס" 10).
 // ============================================================
 
@@ -533,6 +546,9 @@ const state = {
   rvSeq: 0,             // [הנחה] סימון שהושלם מקדם את המונה; תשובת GET שיצאה לפניו מיושנת ולא דורסת את הסיכום ואת המספר
   rvBusy: new Set(),    // שורות שסימון עליהן בדרך: הכפתורים נעולים
   rvNotes: new Map(),   // outcome_id -> "לא נשלח, נסה שוב."
+  open_tasks: [],       // רשימת "פתוחות" (8.6-2): כפי שהשרת החזיר ב-GET ובתשובות homework ו-task_done
+  dismissed: new Set(), // שאלות שיעורי בית בלי כפתור תאריך שיובל סגר ב"סגור": מוסתרות בדף בלבד, לא נשלח לשרת (השרת פוקע אותן לבד)
+  hwAsk: new Set(),     // כרטיסי שיעורי בית ש"היו שיעורי בית" נלחץ בהם: כפתור התאריך מוצג
 };
 
 // --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
@@ -731,10 +747,160 @@ function questionCard(question, { withHead, count }) {
   return card;
 }
 
+// --- שאלת שיעורי בית (שלב 8.6-2, מפרט 60 "מה אתה רואה" א, סעיפים 6 ו-14) ---
+// כרטיס נפרד מ-questionCard: הכפתורים שלו הם אובייקטים ({ due, date }) ולא טקסט, אין בו "לא יודע" ואין תיבת תשובה חופשית (רק שדה הנושא).
+// התשובה היא פעולת homework בלבד. הטקסט נגזר בדף מהמקצוע שהשרת שלח; לשרת אין body עם מקצוע.
+const HOMEWORK_UNCLEAR_TEXT = 'לא הצלחתי לחשב תאריך. נסה שוב';    // החלטת יובל "א", 19.10.2026 (35 לוג פערים)
+const HOMEWORK_PASSED_TEXT = 'השיעור הבא כבר עבר';                // החלטת יובל "א", 19.10.2026: כרטיס בלי כפתור תאריך
+
+// YYYY-MM-DD -> "22.10" (בלי אפס מוביל). ריק כשהפורמט אחר.
+function ymdLabel(ymd) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd ?? ''));
+  return match ? `${Number(match[3])}.${Number(match[2])}` : '';
+}
+
+// רגע (ISO) -> "22.10" לפי היום בישראל (due_at הוא תחילת שיעור בשעון ישראל, נשמר ב-UTC). ריק כשאינו תאריך.
+function dueLabel(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'numeric' }).formatToParts(at);
+    const pick = (type) => parts.find((part) => part.type === type)?.value;
+    return `${pick('day')}.${pick('month')}`;
+  } catch {
+    return '';
+  }
+}
+
+// הטקסט של שאלה ממתינה, כולל שאלת שיעורי בית (שנגזרת מהמקצוע).
+function questionText(question) {
+  if (question.kind !== 'homework') return question.text ?? '';
+  return question.subject ? `${question.subject}: היו שיעורי בית?` : 'היו שיעורי בית?';
+}
+
+// כפתורי התאריך שהכרטיס מציג: רק due:'next' (כפתור יחיד, הכרעת יובל 16.10.2026).
+const homeworkDates = (question) => (Array.isArray(question.buttons) ? question.buttons : []).filter((b) => b && b.due === 'next');
+
+function homeworkCard(question, { withHead, count }) {
+  const card = el('section', 'card1');
+  const busy = state.busy.has(question.id);
+  if (withHead) {
+    const head = el('div', 'chead');
+    head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
+    card.append(head);
+  }
+  const dates = homeworkDates(question);
+
+  // אין כפתור תאריך (השיעור הבא כבר עבר): טקסט, וכפתור "סגור" שמסתיר את הכרטיס בדף בלבד. השרת פוקע אותו לבד (expires_at). לא שולחים "לא היו".
+  if (dates.length === 0) {
+    card.append(el('div', 'ctxt', question.subject ? `${question.subject}: ${HOMEWORK_PASSED_TEXT}` : HOMEWORK_PASSED_TEXT));
+    const opts = el('div', 'opts');
+    const dismiss = el('button', 'opt', 'סגור');
+    dismiss.type = 'button';
+    dismiss.addEventListener('click', () => {
+      state.dismissed.add(question.id);
+      if (state.focusId === question.id) state.focusId = null;
+      render();
+    });
+    opts.append(dismiss);
+    opts.style.paddingBottom = '17px';
+    card.append(opts);
+    return card;
+  }
+
+  card.append(el('div', 'ctxt', questionText(question)));
+  const note = state.notes.get(question.id);
+  if (note) {
+    const noteEl = el('div', 'cnote', note);
+    noteEl.setAttribute('role', 'status');
+    card.append(noteEl);
+  }
+
+  // שדה הנושא (אופציונלי): נשמר ב-drafts כמו תיבות הכתיבה האחרות, כדי שלא יימחק ברענון.
+  const field = el('div', 'qfield');
+  field.style.marginBottom = '0';
+  const input = el('input');
+  input.placeholder = 'מה למדתם?';
+  input.autocomplete = 'off';
+  input.maxLength = 200; // תקרת השרת (MAX_TOPIC_LENGTH ב-lib/chat-view.js)
+  input.value = state.drafts.get(question.id) ?? '';
+  input.readOnly = busy;
+  input.addEventListener('input', () => state.drafts.set(question.id, input.value));
+  field.append(input);
+  card.append(field);
+
+  // בלי ברירת מחדל מסומנת. שלב ראשון: "לא היו" ו"היו שיעורי בית". אחרי "היו": כפתור התאריך (ו"חזרה").
+  const opts = el('div', 'opts');
+  const button = (label, onClick) => {
+    const node = el('button', 'opt', label);
+    node.type = 'button';
+    node.disabled = busy;
+    node.addEventListener('click', onClick);
+    opts.append(node);
+  };
+  if (!state.hwAsk.has(question.id)) {
+    button('לא היו', () => sendHomework(question.id, false));
+    button('היו שיעורי בית', () => { state.hwAsk.add(question.id); renderPending(); });
+  } else {
+    for (const date of dates) {
+      const label = ymdLabel(date.date);
+      button(label ? `השיעור הבא (${label})` : 'השיעור הבא', () => sendHomework(question.id, true));
+    }
+    // הנחה, לא אומת: "חזרה" (כמו ב-reviewRow) כדי שאפשר יהיה לבחור "לא היו" אחרי לחיצה בטעות. המפרט לא קובע.
+    button('חזרה', () => { state.hwAsk.delete(question.id); renderPending(); });
+  }
+  opts.style.paddingBottom = '17px';
+  card.append(opts);
+  return card;
+}
+
+// הכרטיס הנכון לפי סוג השאלה: שיעורי בית לא עוברים דרך questionCard (כפתורי טקסט וכתיבה חופשית).
+const cardFor = (question, options) => (question.kind === 'homework' ? homeworkCard(question, options) : questionCard(question, options));
+
+// רשימת "פתוחות" (שלב 8.6-2, מפרט 60 סעיף 11 ותרחיש ד): כותרת ושורה לכל פריט, עם "בוצע". ריקה = אין צמתים.
+function openTasksNodes(spaced) {
+  const list = Array.isArray(state.open_tasks) ? state.open_tasks : [];
+  if (list.length === 0) return [];
+  const head = el('div', 'exhead');
+  if (spaced) head.style.paddingTop = '14px';
+  head.append(el('span', 'dot'), el('span', 'exlbl', 'פתוחות'), el('span', 'excnt tnum', list.length));
+  const nodes = [head];
+  for (const task of list) {
+    const busy = state.busy.has(task.id);
+    const row = el('div', 'mini openrow');
+    const text = el('span', 'ot');
+    text.append(el('span', 't', task.title ?? ''));
+    const due = dueLabel(task.due_at);
+    // הנחה, לא אומת: שורת הפרטים ("עד 22.10 · תמונה אחת"). המפרט קובע רק "תמונה אחת"; יותר מתמונה אחת (8.6-3 לא מאפשר) מוצג כמספר.
+    const meta = [];
+    if (due) meta.push('עד ' + due);
+    if (task.media_count === 1) meta.push('תמונה אחת');
+    else if (task.media_count > 1) meta.push(`${task.media_count} תמונות`);
+    if (meta.length > 0) text.append(el('span', 'om', meta.join(' · ')));
+    const note = state.notes.get(task.id);
+    if (note) {
+      const noteEl = el('span', 'om', note);
+      noteEl.style.color = 'var(--amber)';
+      noteEl.setAttribute('role', 'status');
+      text.append(noteEl);
+    }
+    const done = el('button', 'odone', 'בוצע');
+    done.type = 'button';
+    done.disabled = busy;
+    done.addEventListener('click', () => sendTaskDone(task.id));
+    row.append(el('span', 'd'), text, done);
+    nodes.push(row);
+  }
+  return nodes;
+}
+
 function renderPending() {
-  const list = state.pending;
+  // שאלות שיעורי בית שיובל סגר ב"סגור" (בלי כפתור תאריך) מוסתרות בדף בלבד.
+  const list = state.pending.filter((question) => !state.dismissed.has(question.id));
   const hasReview = state.review.total > 0;
-  if (list.length === 0 && !hasReview) {
+  const hasOpen = Array.isArray(state.open_tasks) && state.open_tasks.length > 0;
+  if (list.length === 0 && !hasReview && !hasOpen) {
     pinEl.hidden = true;
     pinEl.replaceChildren();
     state.stackOpen = false;
@@ -742,10 +908,10 @@ function renderPending() {
   }
   pinEl.hidden = false;
   if (list.length === 0) {
-    // רק הפס של סיכום היום, בלי שאלות פתוחות.
+    // בלי שאלות פתוחות: הפס של סיכום היום (אם יש) ורשימת הפתוחות (אם יש).
     state.stackOpen = false;
     pinEl.classList.remove('expanded');
-    pinEl.replaceChildren(reviewStrip());
+    pinEl.replaceChildren(...(hasReview ? [reviewStrip()] : []), ...openTasksNodes(hasReview));
     return;
   }
   const current = list.find((q) => q.id === state.focusId) ?? list[0];
@@ -758,11 +924,11 @@ function renderPending() {
     // מורחב (states.html "ערימה פתוחה"): הכרטיס הראשון מלא, השאר שורה אחת עם נקודת ענבר וחץ, ו"סגור".
     const head = el('div', 'exhead');
     head.append(el('span', 'dot'), el('span', 'exlbl', 'ממתין לתשובה'), el('span', 'excnt tnum', list.length));
-    nodes.push(head, questionCard(current, { withHead: false }));
+    nodes.push(head, cardFor(current, { withHead: false }));
     for (const question of others) {
       const row = el('button', 'mini');
       row.type = 'button';
-      row.append(el('span', 'd'), el('span', 't', question.text ?? ''), el('span', 'ch', '‹'));
+      row.append(el('span', 'd'), el('span', 't', questionText(question)), el('span', 'ch', '‹'));
       // הנחה, לא אומת: לחיצה על שורה פותחת את השאלה הזו בכרטיס. המסמכים לא קובעים מה הלחיצה עושה.
       row.addEventListener('click', () => {
         state.focusId = question.id;
@@ -777,7 +943,7 @@ function renderPending() {
     nodes.push(close);
   } else {
     // סגור (03-design-rules "הערימה"): כרטיס אחד פתוח, השאר נערמים מתחתיו, ו"עוד N ממתינים ›".
-    nodes.push(questionCard(current, { withHead: true, count: list.length }));
+    nodes.push(cardFor(current, { withHead: true, count: list.length }));
     if (others.length > 0) {
       nodes.push(el('div', 'peek p2'));
       if (others.length > 1) nodes.push(el('div', 'peek p3'));
@@ -789,6 +955,7 @@ function renderPending() {
     }
   }
   if (hasReview) nodes.push(reviewStrip()); // מתחת לכרטיסי השאלות (57, תרחיש א)
+  if (hasOpen) nodes.push(...openTasksNodes(true)); // רשימת "פתוחות" מתחת לכרטיסים ולפס הסיכום (60 סעיף 11)
   pinEl.replaceChildren(...nodes);
 }
 
@@ -1002,6 +1169,9 @@ async function loadOnce() {
   const pendingIds = new Set(state.pending.map((q) => q.id));
   for (const id of [...state.notes.keys()]) if (!pendingIds.has(id)) state.notes.delete(id);
   for (const id of [...state.drafts.keys()]) if (!pendingIds.has(id)) state.drafts.delete(id);
+  for (const id of [...state.hwAsk]) if (!pendingIds.has(id)) state.hwAsk.delete(id);
+  for (const id of [...state.dismissed]) if (!pendingIds.has(id)) state.dismissed.delete(id);
+  state.open_tasks = Array.isArray(data?.open_tasks) ? data.open_tasks : []; // 8.6-2: רשימת "פתוחות"
   render();
   if (!reviewStale) await setBadge(Number(data?.badge) || 0);
   await markShownAsRead();
@@ -1054,6 +1224,86 @@ async function sendAnswer(messageId, answer) {
     state.notes.set(messageId, ERROR_TEXT);
     renderPending();
   }
+}
+
+// --- שאלת שיעורי בית (8.6-2): POST homework. התשובה מחזירה pending, open_tasks ו-badge, והדף מצייר מהם בלי GET נוסף. ---
+// מעדכן את הרשימות מתשובת POST (homework / task_done). שדה שחסר בתשובה לא נדרס.
+function applyServerLists(data) {
+  if (Array.isArray(data?.pending)) {
+    state.pending = data.pending;
+    const pendingIds = new Set(state.pending.map((q) => q.id));
+    for (const id of [...state.notes.keys()]) if (!pendingIds.has(id) && !(state.open_tasks ?? []).some((t) => t.id === id)) state.notes.delete(id);
+    for (const id of [...state.drafts.keys()]) if (!pendingIds.has(id)) state.drafts.delete(id);
+    for (const id of [...state.hwAsk]) if (!pendingIds.has(id)) state.hwAsk.delete(id);
+    for (const id of [...state.dismissed]) if (!pendingIds.has(id)) state.dismissed.delete(id);
+  }
+  if (Array.isArray(data?.open_tasks)) state.open_tasks = data.open_tasks;
+  if (Number.isFinite(data?.badge)) setBadge(data.badge);
+}
+
+async function sendHomework(messageId, had) {
+  if (state.busy.has(messageId)) return; // לחיצה כפולה: התשובה הראשונה עוד בדרך
+  state.busy.add(messageId);
+  state.notes.delete(messageId);
+  renderPending();
+  const body = { action: 'homework', message_id: messageId, had };
+  if (had) body.due = 'next';
+  const topic = (state.drafts.get(messageId) ?? '').trim();
+  if (topic) body.topic = topic;
+  let data = null;
+  try {
+    const res = await postChat(body);
+    if (!res.ok) throw new Error('homework ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] שליחת תשובת שיעורי בית נכשלה', err?.name); // בלי הנושא
+  }
+  state.busy.delete(messageId);
+
+  if (data?.status === 'unclear') {
+    // לא ניתן לחשב תאריך: הכרטיס נשאר, ומוצגת שורה (החלטת יובל "א", 19.10.2026).
+    state.notes.set(messageId, HOMEWORK_UNCLEAR_TEXT);
+    renderPending();
+  } else if (data?.status === 'answered' || data?.status === 'closed') {
+    // answered: הכרטיס יורד והמשימה (אם נוצרה) ברשימת הפתוחות. closed: כבר נסגרה, והכרטיס נעלם.
+    state.drafts.delete(messageId);
+    state.hwAsk.delete(messageId);
+    if (state.focusId === messageId) state.focusId = null;
+    applyServerLists(data);
+    state.pending = state.pending.filter((q) => q.id !== messageId); // גם אם התשובה חסרה pending
+    render();
+    refresh(); // GET שיצא לפני התשובה וחזר אחריה לא ישאיר את הכרטיס (כמו ב-sendAnswer)
+  } else {
+    state.notes.set(messageId, ERROR_TEXT);
+    renderPending();
+  }
+}
+
+// --- "בוצע" ברשימת הפתוחות (8.6-2): POST task_done. אין ביטול. ---
+async function sendTaskDone(taskId) {
+  if (state.busy.has(taskId)) return;
+  state.busy.add(taskId);
+  state.notes.delete(taskId);
+  renderPending();
+  let data = null;
+  try {
+    const res = await postChat({ action: 'task_done', task_id: taskId });
+    if (!res.ok) throw new Error('task_done ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] סימון בוצע נכשל', err?.name);
+  }
+  state.busy.delete(taskId);
+  if (data?.status === 'done' || data?.status === 'closed') {
+    // closed: המשימה לא קיימת או כבר לא פתוחה; הרשימה מתעדכנת מהתשובה.
+    applyServerLists(data);
+    state.open_tasks = state.open_tasks.filter((t) => t.id !== taskId); // גם אם התשובה חסרה open_tasks
+    render();
+    refresh(); // כמו ב-sendHomework: מונע ש-GET ישן ישחזר את הפריט
+    return;
+  }
+  state.notes.set(taskId, ERROR_TEXT);
+  render();
 }
 
 // --- שורת הכתיבה למטה: הודעה חדשה (D2), נשלחת לנקודת הקליטה עם channel=app ---
