@@ -35,7 +35,7 @@ describe('review-view: קבועי M.2 (T7)', () => {
   });
   test('קבועי הרשימות', () => {
     assert.deepEqual([...REVIEW_VERDICTS], ['right', 'wrong', 'was_event', 'not_event']);
-    assert.deepEqual([...EVENT_TYPES], ['short_day', 'cancel', 'move', 'exam', 'homework', 'room']);
+    assert.deepEqual([...EVENT_TYPES], ['short_day', 'cancel', 'move', 'exam', 'homework', 'room', 'early_leave', 'personal_event']);
   });
 });
 
@@ -357,7 +357,7 @@ describe('review-view: שאילתות', () => {
           assert.equal(values[0], verdict);
           assert.equal(values[1], eventType);
           assert.equal(values.at(-1), verdict === 'right' || verdict === 'wrong');
-          assert.ok(values.every((v) => v === null || typeof v === 'boolean' || /^(right|wrong|was_event|not_event|short_day|cancel|move|exam|homework|room|\d{4}-\d\d-\d\dT[\d:.]+Z|[0-9a-f-]{36})$/.test(v)), `פרמטר לא צפוי: ${values}`);
+          assert.ok(values.every((v) => v === null || typeof v === 'boolean' || /^(right|wrong|was_event|not_event|short_day|cancel|move|exam|homework|room|early_leave|personal_event|\d{4}-\d\d-\d\dT[\d:.]+Z|[0-9a-f-]{36})$/.test(v)), `פרמטר לא צפוי: ${values}`);
         }
       }
     });

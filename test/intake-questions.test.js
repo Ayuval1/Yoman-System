@@ -244,7 +244,7 @@ describe('קבועים', () => {
   });
   test('תוויות הסוגים', () => {
     assert.deepEqual({ ...TYPE_LABELS }, {
-      homework: 'שיעורי בית', exam: 'מבחן', cancel: 'ביטול', room: 'חדר', move: 'הזזה', short_day: 'יום מקוצר',
+      homework: 'שיעורי בית', exam: 'מבחן', cancel: 'ביטול', room: 'חדר', move: 'הזזה', short_day: 'יום מקוצר', early_leave: 'יציאה מוקדמת', personal_event: 'אירוע אישי',
     });
   });
 });
@@ -279,7 +279,7 @@ describe('buildQuestion ו-parseTypeAnswer: שאלת "מה זה?"', () => {
     assert.deepEqual(buildQuestion({ field: 'type' }), {
       field: 'type',
       text: 'מה זה?',
-      buttons: ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', UNKNOWN_BUTTON],
+      buttons: ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', 'יציאה מוקדמת', 'אירוע אישי', UNKNOWN_BUTTON],
       allowFreeText: true,
     });
     assert.deepEqual(buildQuestion({ field: 'type' }).buttons.slice(0, -1), Object.values(TYPE_LABELS));
