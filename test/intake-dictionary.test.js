@@ -138,8 +138,8 @@ describe('classifyType: עדיפות כשכמה סוגים מופיעים (הנ�
     assert.deepEqual(result.matchedTypes.exam, ['בוחן']);
     assert.deepEqual(result.roots, ['ביטל']);
   });
-  test('הסוגים הם בדיוק ששת הסוגים', () => {
-    assert.deepEqual([...TYPES].sort(), ['cancel', 'exam', 'homework', 'move', 'room', 'short_day']);
+  test('הסוגים הם בדיוק שמונת הסוגים (שלב 8.3-1: early_leave ו-personal_event נוספו)', () => {
+    assert.deepEqual([...TYPES].sort(), ['cancel', 'early_leave', 'exam', 'homework', 'move', 'personal_event', 'room', 'short_day']);
   });
 });
 

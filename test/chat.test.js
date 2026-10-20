@@ -145,7 +145,7 @@ describe('chat: GET', () => {
       { id: uuid(12), role: 'system', text: 'נרשם · מבחן · היסטוריה · שני 12.10', at: at(2).toISOString(), tag: 'recorded', unread: true },
     ]);
     assert.deepEqual(body.pending.map((q) => q.id), [uuid(20), uuid(21)]);
-    assert.deepEqual(body.pending[0].buttons, ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', UNKNOWN_BUTTON]);
+    assert.deepEqual(body.pending[0].buttons, ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', 'יציאה מוקדמת', 'אירוע אישי', UNKNOWN_BUTTON]);
     assert.deepEqual(body.pending[1], { id: uuid(21), text: 'על איזה נושא?', at: at(2).toISOString(), buttons: [UNKNOWN_BUTTON], allowFreeText: true });
     assert.equal(body.badge, 3);
     assert.equal(writesOf(sql).length, 0, 'GET לא כותב');

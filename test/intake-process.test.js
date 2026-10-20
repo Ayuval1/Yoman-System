@@ -1340,7 +1340,7 @@ describe('8.2א-1: answerQuestion: שורת תשובה, בועה ושאלת "מ�
   });
 
   test('pendingQuestion: מוקלדת בלי סוג מקבלת "מה זה?" עם כפתורי הסוגים; הודעה שהועברה ומשימה מוקלדת לא', () => {
-    const typeButtons = ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', UNKNOWN_BUTTON];
+    const typeButtons = ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', 'יציאה מוקדמת', 'אירוע אישי', UNKNOWN_BUTTON];
     assert.deepEqual(pendingQuestion({ source: typedSrc('מחר אין שיעור אנגלית'), facts: [], timetable: TIMETABLE }), { field: TYPE_FIELD, text: 'מה זה?', buttons: typeButtons, allowFreeText: true });
     assert.equal(pendingQuestion({ source: source('מחר אין שיעור אנגלית'), facts: [], timetable: TIMETABLE }), null);
     assert.equal(pendingQuestion({ source: typedSrc('להביא חוברת'), facts: [], timetable: TIMETABLE }), null);

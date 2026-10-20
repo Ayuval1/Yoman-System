@@ -84,7 +84,7 @@ describe('pendingFromRows: השאלות הממתינות', () => {
   });
   test('קריטריון 4: שאלת "מה זה?" של הודעה מוקלדת: כפתורי הסוגים', () => {
     const [kind] = pendingFromRows({ questions: [question(1, 0, 'מה זה?', typed)], facts: [], timetable: TIMETABLE });
-    assert.deepEqual(kind.buttons, ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', UNKNOWN_BUTTON]);
+    assert.deepEqual(kind.buttons, ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', 'יציאה מוקדמת', 'אירוע אישי', UNKNOWN_BUTTON]);
     assert.equal(kind.allowFreeText, true);
   });
   test('קריטריון 4: אין שדה פתוח (pendingQuestion מחזיר null) או אין מקור: "לא יודע" בלבד ותיבת כתיבה', () => {
@@ -180,7 +180,7 @@ describe('parseChatAction: בדיקת גוף POST (קריטריון 1, 400)', ()
   });
   test('קריטריון 7 (M.2): check תקין: כל הצירופים של verdict ו-event_type לפי 57 סעיף 6, ושאר הצירופים נדחים', () => {
     const verdicts = ['right', 'wrong', 'was_event', 'not_event'];
-    const types = ['short_day', 'cancel', 'move', 'exam', 'homework', 'room'];
+    const types = ['short_day', 'cancel', 'move', 'exam', 'homework', 'room', 'early_leave', 'personal_event'];
     for (const verdict of verdicts) {
       assert.deepEqual(
         parseChatAction({ action: 'check', outcome_id: ID, verdict }),
