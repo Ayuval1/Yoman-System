@@ -137,6 +137,24 @@ describe('badgeFrom: המספר על האייקון (D4)', () => {
   });
 });
 
+// שלב B-1 (docs/08-chapter8/68, D10 ה, H10): הודעת הבוקר נוצרת עם read_at מלא, ולכן אינה נספרת כ"לא נקראה" ואינה מגדילה את המספר על האייקון.
+// loadBadge (api/chat.js) סופר unread = בועות update יוצאות עם read_at ריק; כאן אותו כלל על שורות מומצאות, באותו מבנה שההודעה נשמרת בו (queue-deliver.test.js בודק שההכנסה כוללת read_at).
+describe('הודעת בריף עם read_at מלא (B-1)', () => {
+  const briefRow = { role: 'system', id: uuid(900), text: 'בריף · יום שני 26.10\nלפי מערכת השעות, שינויים שנקלטו היום לא מוצגים.', at: '2026-10-26T05:30:00.000Z', channel: null, read_at: '2026-10-26T05:30:00.000Z' };
+  const unreadOf = (rows) => rows.filter((row) => row.role === 'system' && row.read_at == null).length;
+  test("הפריט בצ'אט אינו unread", () => assert.equal(itemFromRow(briefRow).unread, false));
+  test('המספר על האייקון זהה עם ההודעה ובלעדיה (משימות 3 + שאלות 1)', () => {
+    const base = { pending: 1, openTasks: 3 };
+    assert.equal(badgeFrom({ ...base, unread: unreadOf([]) }), 4);
+    assert.equal(badgeFrom({ ...base, unread: unreadOf([briefRow]) }), 4);
+  });
+  test('ביקורת הפוכה: הודעה זהה בלי read_at כן הייתה מגדילה ב-1 (ולכן read_at הכרחי)', () => {
+    const unreadBrief = { ...briefRow, read_at: null };
+    assert.equal(itemFromRow(unreadBrief).unread, true);
+    assert.equal(badgeFrom({ pending: 1, openTasks: 3, unread: unreadOf([unreadBrief]) }), 5);
+  });
+});
+
 describe('parseChatAction: בדיקת גוף POST (קריטריון 1, 400)', () => {
   const ID = uuid(1);
   test('answer תקין', () => {
