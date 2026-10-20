@@ -1,0 +1,164 @@
+{
+  "note": "לוח מבחנים ומבדקים ט6 תשפ\"ז, מקור: data/school-exams-taf-shin-pe-zayin.md (חולץ מצילום; לא אומת מול הלוח הבית-ספרי, H8). makeup=true: שורת \"מועד ב'\" (לכל הכיתות), נשמרת ואינה מוצגת (D14). owner=amat: עמודת עמ\"ט, תמיד של יובל. typeAssumed=true: בקובץ ה-md אין סוג לשורה (רק \"פיזיקה\"), והסוג \"מבחן\" הוא בחירה של הבנייה.",
+  "exams": [
+    {
+      "date": "2026-10-08",
+      "type": "מבדק",
+      "subject": "ספרות",
+      "makeup": false
+    },
+    {
+      "date": "2026-10-12",
+      "type": "מבדק",
+      "subject": "תנ\"ך",
+      "makeup": false
+    },
+    {
+      "date": "2026-10-15",
+      "type": "מבדק",
+      "subject": "היסטוריה",
+      "makeup": false
+    },
+    {
+      "date": "2026-10-20",
+      "type": "מבדק",
+      "subject": "מדעים",
+      "makeup": false
+    },
+    {
+      "date": "2026-10-21",
+      "type": "מועד ב'",
+      "subject": null,
+      "makeup": true
+    },
+    {
+      "date": "2026-10-26",
+      "type": "מבחן",
+      "subject": "מתמטיקה",
+      "makeup": false
+    },
+    {
+      "date": "2026-10-28",
+      "type": "מבדק",
+      "subject": "ערבית",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-02",
+      "type": "מבחן",
+      "subject": "פיזיקה",
+      "makeup": false,
+      "owner": "amat",
+      "typeAssumed": true
+    },
+    {
+      "date": "2026-11-04",
+      "type": "מבדק",
+      "subject": "עברית",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-08",
+      "type": "מבחן",
+      "subject": "אנגלית",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-10",
+      "type": "מועד ב'",
+      "subject": null,
+      "makeup": true
+    },
+    {
+      "date": "2026-11-12",
+      "type": "מבדק",
+      "subject": "מתמטיקה",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-16",
+      "type": "אנסין",
+      "subject": "אנגלית",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-18",
+      "type": "מבחן",
+      "subject": "תנ\"ך",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-22",
+      "type": "מבחן",
+      "subject": "היסטוריה",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-23",
+      "type": "מועד ב'",
+      "subject": null,
+      "makeup": true
+    },
+    {
+      "date": "2026-11-24",
+      "type": "מבחן",
+      "subject": "ערבית",
+      "makeup": false
+    },
+    {
+      "date": "2026-11-26",
+      "type": "מבחן",
+      "subject": "מתמטיקה",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-01",
+      "type": "מבחן",
+      "subject": "מדעים",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-03",
+      "type": "מבחן",
+      "subject": "ספרות",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-13",
+      "type": "מבחן",
+      "subject": "אנגלית",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-14",
+      "type": "מועד ב'",
+      "subject": null,
+      "makeup": true
+    },
+    {
+      "date": "2026-12-16",
+      "type": "מבחן",
+      "subject": "עברית",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-21",
+      "type": "מבחן",
+      "subject": "אזרחות",
+      "makeup": false
+    },
+    {
+      "date": "2026-12-23",
+      "type": "מועד ב'",
+      "subject": null,
+      "makeup": true
+    },
+    {
+      "date": "2026-12-24",
+      "type": "מבחן",
+      "subject": "מדעי המחשב",
+      "makeup": false,
+      "owner": "amat"
+    }
+  ]
+}
