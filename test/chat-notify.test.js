@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { notifyText, loadNotifyState, sendChatNotification, sendReviewNotification, PUSH_TITLE, SITE_ORIGIN, REVIEW_PUSH_BODY } from '../lib/chat-notify.js';
+import { notifyText, loadNotifyState, sendChatNotification, sendReviewNotification, sendBriefNotification, PUSH_TITLE, SITE_ORIGIN, REVIEW_PUSH_BODY } from '../lib/chat-notify.js';
 import { fakeSql, captureConsole, FAKE_CRON, REVIEW_NOW, reviewRow } from './helpers.js';
 
 const SLOT = 'notify-1792000080';
@@ -210,5 +210,50 @@ describe('chat-notify: sendReviewNotification (קריטריון 10, 57 T10)', ()
   });
   test('כשל מסד נזרק (הצרכן תופס)', async () => {
     await assert.rejects(() => sendReviewNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: 'close-2026-10-16', pushHandle: fakePush(), secret: FAKE_CRON, now: REVIEW_NOW }), /db down/);
+  });
+});
+
+describe('chat-notify: sendBriefNotification (B-2)', () => {
+  const BRIEF_SLOT = 'brief-2026-10-27';
+  const BODY = '08:15–15:45 · 9 שיעורים · 3 משימות פתוחות';
+  // המצב: משימות פתוחות + שאלות; ההודעה עצמה נוצרת עם read_at מלא ולכן unread=0 ו-hasUnseen=false (כמו בפועל).
+  const briefSql = (extra = {}) => fakeSql((text) => (text.includes('FROM intake_outcomes o') ? [] : [{ pending: 1, unread: 0, open_tasks: 3, has_unseen: false, ...extra }]));
+  test('נשלחת בלי תלות ב-hasUnseen: בקשה אחת עם הכותרת, הגוף שהועבר, navigate, app_badge=משימות+שאלות ו-dedupe_key=מפתח המשבצת', async () => {
+    const push = fakePush();
+    const sql = briefSql();
+    const out = await sendBriefNotification({ sql, slotKey: BRIEF_SLOT, pushHandle: push, secret: FAKE_CRON, body: BODY, now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: true, status: 200, badge: 4 });
+    assert.equal(push.seen.length, 1);
+    assert.equal(push.seen[0].request.url, 'https://yoman-system.vercel.app/api/push-send');
+    assert.equal(push.seen[0].request.headers.get('authorization'), `Bearer ${FAKE_CRON}`);
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: BODY, navigate: '/', app_badge: 4, dedupe_key: BRIEF_SLOT });
+    assert.equal(push.seen[0].deps.sql, sql);
+  });
+  test('נשלחת גם כשה-badge הוא 0 (שבת בלי משימות ובלי שאלות)', async () => {
+    const push = fakePush();
+    const out = await sendBriefNotification({ sql: briefSql({ pending: 0, open_tasks: 0 }), slotKey: BRIEF_SLOT, pushHandle: push, secret: FAKE_CRON, body: 'יום פנוי', now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: true, status: 200, badge: 0 });
+    assert.equal(push.seen[0].body.app_badge, 0);
+  });
+  test('app_badge נחתך ל-9999; הבקשה בלי שאילתת תוכן הודעה', async () => {
+    const push = fakePush();
+    const sql = briefSql({ unread: 20000 });
+    await sendBriefNotification({ sql, slotKey: BRIEF_SLOT, pushHandle: push, secret: FAKE_CRON, body: BODY, now: REVIEW_NOW });
+    assert.equal(push.seen[0].body.app_badge, 9999);
+    assert.ok(sql.calls.every((c) => !/raw_content|body/.test(c.text)));
+  });
+  test('בלי סוד: no-secret ולא נשלח. סטטוס לא 2xx: push-status. דחיפה זורקת: push-error ושם השגיאה בלבד בלוג', async (t) => {
+    const logged = captureConsole(t);
+    const push = fakePush();
+    assert.deepEqual(await sendBriefNotification({ sql: briefSql(), slotKey: BRIEF_SLOT, pushHandle: push, secret: '', body: BODY, now: REVIEW_NOW }), { sent: false, reason: 'no-secret', badge: 4 });
+    assert.equal(push.seen.length, 0);
+    assert.deepEqual(await sendBriefNotification({ sql: briefSql(), slotKey: BRIEF_SLOT, pushHandle: fakePush(500), secret: FAKE_CRON, body: BODY, now: REVIEW_NOW }), { sent: false, reason: 'push-status', status: 500, badge: 4 });
+    const boom = fakePush(() => { throw Object.assign(new Error(`secret ${FAKE_CRON}`), { name: 'BoomError' }); });
+    assert.deepEqual(await sendBriefNotification({ sql: briefSql(), slotKey: BRIEF_SLOT, pushHandle: boom, secret: FAKE_CRON, body: BODY, now: REVIEW_NOW }), { sent: false, reason: 'push-error', status: null, badge: 4 });
+    assert.match(logged.text(), /BoomError/);
+    assert.doesNotMatch(logged.text(), new RegExp(FAKE_CRON));
+  });
+  test('כשל מסד בקריאת המצב נזרק', async () => {
+    await assert.rejects(() => sendBriefNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: BRIEF_SLOT, pushHandle: fakePush(), secret: FAKE_CRON, body: BODY }), /db down/);
   });
 });

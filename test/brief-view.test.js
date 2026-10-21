@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { composeBrief, schoolSummary, briefEntityId, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
+import { composeBrief, schoolSummary, briefEntityId, briefPushText, BRIEF_PUSH_WAITING, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
 import { parseTimetableMarkdown } from '../lib/timetable.js';
 
 const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8'));
@@ -195,5 +195,46 @@ describe('brief-view: partial (חלק מהנתונים לא נטען)', () => {
   });
   test('partial=false (ברירת מחדל): "יום פנוי" כרגיל', () => {
     assert.ok(composeBrief({ dateIso: '2026-10-24', timetable: TIMETABLE }).text.includes(FREE_DAY_LINE));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B-2: נוסח התראת הבוקר (briefPushText). מספרים ותוויות בלבד, בכל יום, גם בשבת ובחופשה.
+// 2026-10-27 = שלישי (יום לימודים בלי מבחן), 2026-10-26 = שני עם מבחן במתמטיקה ב-10:05, 2026-10-24 = שבת, 2026-12-08 = שלישי בתוך חנוכה (6-12.12).
+// ---------------------------------------------------------------------------
+describe('brief-view: briefPushText (B-2)', () => {
+  const T = (n) => Array.from({ length: n }, (_, i) => ({ title: `כותרת-סודית-${i}` }));
+  const push = (dateIso, n, extra = {}) => briefPushText({ brief: composeBrief({ dateIso, timetable: TIMETABLE, tasks: T(n), ...extra }), timetable: TIMETABLE, partial: extra.partial });
+
+  test('יום לימודים עם 3 משימות: שורת בית הספר ואחריה "3 משימות פתוחות"', () => {
+    assert.equal(push('2026-10-27', 3), `${schoolSummary('2026-10-27', TIMETABLE).text} · 3 משימות פתוחות`);
+  });
+  test('משימה אחת: "משימה אחת פתוחה"; אפס משימות: החלק מושמט', () => {
+    assert.ok(push('2026-10-27', 1).endsWith(' · משימה אחת פתוחה'));
+    assert.equal(push('2026-10-27', 0), schoolSummary('2026-10-27', TIMETABLE).text);
+  });
+  test('יום מבחן: ההתראה נפתחת בשורת המבחן (עם שעה), ואחריה שורת בית הספר והמשימות', () => {
+    assert.equal(push('2026-10-26', 3), 'מבחן במתמטיקה ב-10:05 · 08:15–15:45 · 9 שיעורים · 3 משימות פתוחות');
+  });
+  test('שבת עם משימות: "יום פנוי · N משימות פתוחות"; משימה אחת: "יום פנוי · משימה אחת פתוחה"', () => {
+    assert.equal(push('2026-10-24', 3), 'יום פנוי · 3 משימות פתוחות');
+    assert.equal(push('2026-10-24', 1), 'יום פנוי · משימה אחת פתוחה');
+  });
+  test('שבת בלי משימות: נוסח D8 הקיים', () => assert.equal(push('2026-10-24', 0), FREE_DAY_LINE));
+  test('יום חופשה (חנוכה): נוסח "יום פנוי", בלי שורת בית ספר', () => {
+    assert.equal(push('2026-12-08', 2), 'יום פנוי · 2 משימות פתוחות');
+    assert.equal(push('2026-12-08', 0), FREE_DAY_LINE);
+  });
+  test('מערכת שעות חסרה (null): "הבריף של היום מחכה"', () => {
+    assert.equal(BRIEF_PUSH_WAITING, 'הבריף של היום מחכה');
+    assert.equal(briefPushText({ brief: composeBrief({ dateIso: '2026-10-27', timetable: null, tasks: T(2) }), timetable: null }), BRIEF_PUSH_WAITING);
+  });
+  test('partial (המשימות לא נטענו): בלי ספירת משימות, ובלא-לימודים לא טוענים "יום פנוי"', () => {
+    assert.equal(push('2026-10-27', 0, { partial: true }), schoolSummary('2026-10-27', TIMETABLE).text);
+    assert.equal(push('2026-10-24', 0, { partial: true }), BRIEF_PUSH_WAITING);
+  });
+  test('פרטיות: אין כותרת משימה ואין טקסט שאלה בנוסח', () => {
+    const text = push('2026-10-27', 3, { pending: [{ kind: 'homework', subject: 'פיזיקה' }, { id: 'q' }] });
+    assert.ok(!text.includes('כותרת-סודית') && !text.includes('פיזיקה'));
   });
 });
