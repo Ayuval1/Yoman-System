@@ -704,7 +704,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
   test('B-2 ניסיון חוזר אחרי כשל דחיפה (הודעה קיימת): הדחיפה מנוסה שוב, בלי הודעה כפולה', async (t) => {
     captureConsole(t);
     const sql = briefDb({ tasks: TASK_ROWS });
-    const first = await slotRun(DAY, sql, recPush(500));
+    const first = await slotRun(DAY, sql, recPush(500), {}, 5);
     assert.equal(first.created, true);
     assert.deepEqual(first.push, { sent: false, reason: 'push-status' });
     const good = recPush();
@@ -716,7 +716,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
   test('B-2 דחיפה שמחזירה 500 או זורקת: לא נזרק, ההודעה קיימת, push נרשם בתוצאה וב-probe_log (ok=false)', async (t) => {
     const cap = captureConsole(t);
     const sqlA = briefDb({ tasks: TASK_ROWS });
-    const outA = await slotRun(DAY, sqlA, recPush(500));
+    const outA = await slotRun(DAY, sqlA, recPush(500), {}, 5);
     assert.equal(outA.created, true);
     assert.equal(outA.ok, false);
     assert.deepEqual(outA.push, { sent: false, reason: 'push-status' });
@@ -724,7 +724,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     assert.equal(chatNotifyRows(sqlA)[0].values[0], false);
     assert.match(chatNotifyRows(sqlA)[0].values[1], /sent=false; reason=push-status; push_status=500$/);
     const sqlB = briefDb({ tasks: TASK_ROWS });
-    const outB = await slotRun(DAY, sqlB, async () => { throw Object.assign(new Error('boom סודי'), { name: 'BoomError' }); });
+    const outB = await slotRun(DAY, sqlB, async () => { throw Object.assign(new Error('boom סודי'), { name: 'BoomError' }); }, {}, 5);
     assert.equal(outB.created, true);
     assert.deepEqual(outB.push, { sent: false, reason: 'push-error' });
     assert.equal(bodyOf(sqlB).length, 1);
@@ -773,6 +773,26 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     const push = recPush();
     await slotRun(DAY, sql, push, {}, 5);
     assert.equal(push.seen[0].body, '08:15–14:15 · 7 שיעורים');
+  });
+
+  test('B-2 דחיפה שנכשלה זמנית (500 או חריגה) לפני הניסיון האחרון: נזרק לניסיון חוזר, וההודעה נשמרה פעם אחת', async (t) => {
+    captureConsole(t);
+    const sql500 = briefDb({ tasks: TASK_ROWS });
+    await assert.rejects(() => slotRun(DAY, sql500, recPush(500)), /נכשלה זמנית/);
+    assert.equal(bodyOf(sql500).length, 1);
+    const sqlThrow = briefDb({ tasks: TASK_ROWS });
+    await assert.rejects(() => slotRun(DAY, sqlThrow, async () => { throw new Error('net'); }), /נכשלה זמנית/);
+    const sql4xx = briefDb({ tasks: TASK_ROWS });
+    const out4xx = await slotRun(DAY, sql4xx, recPush(401));
+    assert.deepEqual(out4xx.push, { sent: false, reason: 'push-status' }, '4xx לא נזרק: ניסיון חוזר לא ישנה אותו');
+  });
+  test('B-2 שבת, ניסיון אחרון בתור עם כשל משימות: הדחיפה "הבריף של היום מחכה" (partialForPush מועבר)', async (t) => {
+    captureConsole(t);
+    const saturday = { kind: 'brief', slotKey: 'brief-2026-10-24', targetAt: '2026-10-24T04:30:00.000Z' };
+    const sql = briefDb({ onQuery: (text) => { if (text.includes('FROM tasks t')) throw new Error('db down'); } });
+    const push = recPush();
+    await slotRun(saturday, sql, push, {}, 5);
+    assert.equal(push.seen[0].body, 'הבריף של היום מחכה');
   });
 
   test('close ו-homework לא נגעו: משבצת close לא כותבת הודעת בריף', async () => {

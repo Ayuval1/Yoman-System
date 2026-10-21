@@ -130,6 +130,10 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
     console.error('queue-deliver: התראת הבוקר נכשלה:', error?.name); // רק שם השגיאה
     outcome = { sent: false, reason: 'error', badge: null };
   }
+  // כשל דחיפה זמני (5xx מ-push-send, או חריגה בקריאה אליו) לפני הניסיון האחרון: זורקים, והתור מנסה שוב. בטוח: ההודעה כבר קיימת (בלי INSERT שני), ו-dedupe_key מונע שליחה כפולה.
+  // 4xx (למשל בלי סוד) לא נזרק: ניסיון חוזר לא ישנה אותו. [הנחה, לא אומת] 5xx אחרי שהמפתח נתפס ב-push-send משאיר אותו תפוס, ולכן ניסיון חוזר כזה לא ישלח; זה לא מזיק (ביקורת B-2, ממצא 1).
+  const transient = outcome.reason === 'push-error' || (outcome.reason === 'push-status' && outcome.status >= 500);
+  if (transient && !lastAttempt) throw new Error(`queue-deliver: התראת הבוקר נכשלה זמנית (${outcome.reason})`);
   const sentOk = outcome.sent;
   const notifyDetail = `${detail}; created=${created}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
   try {
