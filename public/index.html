@@ -175,6 +175,13 @@
     font-size: 14px; font-weight: var(--fw-bold); background: var(--btn-neutral); color: var(--accent);
   }
 
+  /* ---------- כרטיס הבריף החי (בנוסף להודעת הבוקר בצ'אט; docs/08-chapter8/68, הכרעת יובל 21.10.2026) ----------
+     הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות: שורה כמו .mini/.openrow (נקודה, עמודת טקסט .ot עם .om, כפתור .odone), ומסך מלא כמו סיכום היום (.rvscreen, .rvhead, .rvbody, .rvrow).
+     .bfcard נוסף רק כדי לבטל את המרווח העליון (הכרטיס ראשון באזור הנעוץ); .bfopen הוא אזור הלחיצה הראשי (כפתור בלי מראה של כפתור). */
+  .bfcard { margin-top: 0; margin-bottom: 10px; }
+  .bfopen { border: 0; background: none; padding: 0; text-align: start; color: inherit; font: inherit; }
+  .bfopen .t { font-weight: var(--fw-bold); }
+
   /* ---------- ההודעות (s_main_light .feed) ---------- */
   .feed {
     flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -318,6 +325,15 @@
       <button type="button" class="more" id="rvClose">סגור</button>
     </header>
     <div class="rvbody" id="rvBody"></div>
+  </section>
+
+  <!-- הבריף של היום: מסך מלא (כרטיס הבריף החי). נבנה ב-JS מטקסט בלבד. -->
+  <section class="rvscreen" id="bf" role="dialog" aria-modal="true" aria-label="הבריף של היום" hidden>
+    <header class="rvhead">
+      <h2>הבריף של היום</h2>
+      <button type="button" class="more" id="bfClose">סגור</button>
+    </header>
+    <div class="rvbody" id="bfBody"></div>
   </section>
 
 <script type="module">
@@ -549,6 +565,9 @@ const state = {
   open_tasks: [],       // רשימת "פתוחות" (8.6-2): כפי שהשרת החזיר ב-GET ובתשובות homework ו-task_done
   dismissed: new Set(), // שאלות שיעורי בית בלי כפתור תאריך שיובל סגר ב"סגור": מוסתרות בדף בלבד, לא נשלח לשרת (השרת פוקע אותן לבד)
   hwAsk: new Set(),     // כרטיסי שיעורי בית ש"היו שיעורי בית" נלחץ בהם: כפתור התאריך מוצג
+  brief: null,          // כרטיס הבריף החי: { dateIso, title, school, exams, freeDay, text } כפי שהשרת החזיר, או null (לפני 07:30 / שרת בלי השדה): אז אין כרטיס
+  briefSeen: null,      // dateIso ש"ראיתי" נלחץ עליו בדף הזה (זיכרון בלבד, גיבוי כשאין localStorage)
+  bfOpen: false,        // המסך המלא של הבריף פתוח
 };
 
 // --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
@@ -895,12 +914,121 @@ function openTasksNodes(spaced) {
   return nodes;
 }
 
+// --- כרטיס הבריף החי (docs/08-chapter8/68, הכרעת יובל 21.10.2026): בנוסף להודעת הבוקר בצ'אט, לא במקומה ---
+// הכרטיס בראש האזור הנעוץ מ-07:30 שעון ישראל עד סוף היום (כל יום, גם שבת וחופשה). השרת מחליט אם יש כרטיס (brief = null לפני 07:30); הדף רק מצייר.
+// הספירות חיות: מ-state.open_tasks ומ-state.pending (בלי שאלות שיובל סגר ב"סגור"), כך ש"בוצע" מעדכן אותן מיד. המסך המלא מציג brief.text מהשרת (טרי אחרי כל תשובה שמחזירה brief).
+// "ראיתי" מסתיר את הכרטיס עד מחר 07:30 (גם אם המצב משתנה באותו יום). נשמר רק בדפדפן: localStorage לפי תאריך ישראלי, כל גישה בתוך try/catch.
+// הנחה, לא אומת: במכשיר אחר או אחרי מחיקת נתוני האתר הכרטיס יופיע שוב. אם localStorage לא זמין, הכרטיס מוסתר עד רענון הדף ואז מופיע שוב.
+// הכרטיס אינו נספר במספר על האייקון ואינו משפיע עליו: setBadge מקבל רק את badge מהשרת.
+const BRIEF_SEEN_PREFIX = 'brief-seen-';
+const FREE_DAY_TEXT = 'יום פנוי: אין בית ספר ואין משימות פתוחות'; // זהה ל-FREE_DAY_LINE ב-lib/brief-view.js (נבדק ב-test/brief-card-screen.test.js)
+const bfEl = document.getElementById('bf');
+const bfBodyEl = document.getElementById('bfBody');
+const bfCloseBtn = document.getElementById('bfClose');
+
+// תשובת שרת -> brief תקין או null (שרת בלי השדה, null, או צורה לא צפויה: הדף נראה כמו היום).
+function validBrief(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (typeof value.dateIso !== 'string' || typeof value.title !== 'string' || typeof value.text !== 'string') return null;
+  return {
+    dateIso: value.dateIso, title: value.title, text: value.text,
+    school: typeof value.school === 'string' && value.school !== '' ? value.school : null,
+    exams: Array.isArray(value.exams) ? value.exams.filter((line) => typeof line === 'string' && line !== '') : [],
+    freeDay: value.freeDay === true,
+  };
+}
+
+const briefSeenKey = (dateIso) => BRIEF_SEEN_PREFIX + dateIso;
+
+function briefIsSeen(dateIso) {
+  if (state.briefSeen === dateIso) return true;
+  try { return localStorage.getItem(briefSeenKey(dateIso)) === '1'; } catch { return false; }
+}
+
+function markBriefSeen(dateIso) {
+  state.briefSeen = dateIso;
+  try { localStorage.setItem(briefSeenKey(dateIso), '1'); } catch { /* אין אחסון: מוסתר עד רענון הדף */ }
+}
+
+// מסיר מפתחות "ראיתי" של ימים קודמים (הזדמנותי, בכל טעינה שיש בה כרטיס).
+function cleanOldBriefKeys(dateIso) {
+  try {
+    const keep = briefSeenKey(dateIso);
+    for (let index = localStorage.length - 1; index >= 0; index--) {
+      const key = localStorage.key(index);
+      if (key && key.startsWith(BRIEF_SEEN_PREFIX) && key !== keep) localStorage.removeItem(key);
+    }
+  } catch { /* אין אחסון */ }
+}
+
+const taskCountText = (count) => (count === 1 ? 'משימה אחת פתוחה' : `${count} משימות פתוחות`);
+const questionCountText = (count) => (count === 1 ? 'שאלה אחת ממתינה' : `${count} שאלות ממתינות`);
+
+// הכרטיס, או null כשאין (אין brief, או שיובל לחץ "ראיתי" היום). הטקסט נכנס רק דרך textContent (el).
+function briefCard() {
+  const brief = state.brief;
+  if (!brief || briefIsSeen(brief.dateIso)) return null;
+  const openCount = Array.isArray(state.open_tasks) ? state.open_tasks.length : 0;
+  const questionCount = state.pending.filter((question) => !state.dismissed.has(question.id)).length;
+
+  const row = el('div', 'mini openrow bfcard');
+  const open = el('button', 'bfopen ot');
+  open.type = 'button';
+  open.setAttribute('aria-label', 'פתח את הבריף המלא');
+  open.append(el('span', 't', brief.title));
+  if (brief.school) open.append(el('span', 'om', brief.school));
+  else if (brief.freeDay && openCount === 0 && questionCount === 0 && brief.exams.length === 0) open.append(el('span', 'om', FREE_DAY_TEXT));
+  for (const examLine of brief.exams) open.append(el('span', 'om', examLine));
+  const counts = [];
+  if (openCount > 0) counts.push(taskCountText(openCount));
+  if (questionCount > 0) counts.push(questionCountText(questionCount));
+  if (counts.length > 0) open.append(el('span', 'om', counts.join(' · ')));
+  open.addEventListener('click', openBrief);
+
+  const seen = el('button', 'odone', 'ראיתי');
+  seen.type = 'button';
+  seen.addEventListener('click', () => {
+    markBriefSeen(brief.dateIso);
+    if (state.bfOpen) closeBrief();
+    renderPending();
+  });
+  row.append(el('span', 'd'), open, seen);
+  return row;
+}
+
+function renderBriefScreen() {
+  if (!state.bfOpen) return;
+  if (!state.brief) { closeBrief(); return; } // השרת כבר לא מחזיר בריף (למשל עבר חצות): סוגרים
+  const row = el('div', 'rvrow');
+  row.append(el('div', 'txt', state.brief.text));
+  bfBodyEl.replaceChildren(row);
+}
+
+function openBrief() {
+  if (!state.brief) return;
+  state.bfOpen = true;
+  bfEl.hidden = false;
+  bfBodyEl.scrollTop = 0;
+  renderBriefScreen();
+  bfCloseBtn.focus();
+}
+
+function closeBrief() {
+  state.bfOpen = false;
+  bfEl.hidden = true;
+  bfBodyEl.replaceChildren();
+}
+bfCloseBtn.addEventListener('click', closeBrief);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && state.bfOpen) closeBrief(); });
+
 function renderPending() {
   // שאלות שיעורי בית שיובל סגר ב"סגור" (בלי כפתור תאריך) מוסתרות בדף בלבד.
   const list = state.pending.filter((question) => !state.dismissed.has(question.id));
   const hasReview = state.review.total > 0;
   const hasOpen = Array.isArray(state.open_tasks) && state.open_tasks.length > 0;
-  if (list.length === 0 && !hasReview && !hasOpen) {
+  const briefNode = briefCard(); // כרטיס הבריף החי: ראשון באזור הנעוץ, מעל השאלות, פס הסיכום ורשימת הפתוחות
+  const hasBrief = briefNode !== null;
+  if (list.length === 0 && !hasReview && !hasOpen && !hasBrief) {
     pinEl.hidden = true;
     pinEl.replaceChildren();
     state.stackOpen = false;
@@ -911,7 +1039,7 @@ function renderPending() {
     // בלי שאלות פתוחות: הפס של סיכום היום (אם יש) ורשימת הפתוחות (אם יש).
     state.stackOpen = false;
     pinEl.classList.remove('expanded');
-    pinEl.replaceChildren(...(hasReview ? [reviewStrip()] : []), ...openTasksNodes(hasReview));
+    pinEl.replaceChildren(...(hasBrief ? [briefNode] : []), ...(hasReview ? [reviewStrip()] : []), ...openTasksNodes(hasReview || hasBrief));
     return;
   }
   const current = list.find((q) => q.id === state.focusId) ?? list[0];
@@ -919,7 +1047,7 @@ function renderPending() {
   if (others.length === 0) state.stackOpen = false;
   pinEl.classList.toggle('expanded', state.stackOpen);
 
-  const nodes = [];
+  const nodes = hasBrief ? [briefNode] : [];
   if (state.stackOpen) {
     // מורחב (states.html "ערימה פתוחה"): הכרטיס הראשון מלא, השאר שורה אחת עם נקודת ענבר וחץ, ו"סגור".
     const head = el('div', 'exhead');
@@ -1130,6 +1258,7 @@ function render() {
   renderPending();
   renderFeed();
   renderReview();
+  renderBriefScreen();
 }
 
 // --- רענון: GET, ציור, המספר, ואז "נקרא" על מה שהוצג ---
@@ -1172,6 +1301,8 @@ async function loadOnce() {
   for (const id of [...state.hwAsk]) if (!pendingIds.has(id)) state.hwAsk.delete(id);
   for (const id of [...state.dismissed]) if (!pendingIds.has(id)) state.dismissed.delete(id);
   state.open_tasks = Array.isArray(data?.open_tasks) ? data.open_tasks : []; // 8.6-2: רשימת "פתוחות"
+  state.brief = validBrief(data?.brief); // כרטיס הבריף החי; בלי השדה או null: אין כרטיס
+  if (state.brief) cleanOldBriefKeys(state.brief.dateIso);
   render();
   if (!reviewStale) await setBadge(Number(data?.badge) || 0);
   await markShownAsRead();
@@ -1238,6 +1369,7 @@ function applyServerLists(data) {
     for (const id of [...state.dismissed]) if (!pendingIds.has(id)) state.dismissed.delete(id);
   }
   if (Array.isArray(data?.open_tasks)) state.open_tasks = data.open_tasks;
+  if (data && 'brief' in data) state.brief = validBrief(data.brief); // בריף טרי אחרי homework / task_done
   if (Number.isFinite(data?.badge)) setBadge(data.badge);
 }
 

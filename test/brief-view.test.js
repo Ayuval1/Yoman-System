@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { composeBrief, schoolSummary, briefEntityId, briefPushText, BRIEF_PUSH_WAITING, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
+import { composeBrief, schoolSummary, briefEntityId, briefPushText, briefCardData, BRIEF_PUSH_WAITING, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
 import { parseTimetableMarkdown } from '../lib/timetable.js';
 
 const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8'));
@@ -236,5 +236,82 @@ describe('brief-view: briefPushText (B-2)', () => {
   test('פרטיות: אין כותרת משימה ואין טקסט שאלה בנוסח', () => {
     const text = push('2026-10-27', 3, { pending: [{ kind: 'homework', subject: 'פיזיקה' }, { id: 'q' }] });
     assert.ok(!text.includes('כותרת-סודית') && !text.includes('פיזיקה'));
+  });
+});
+
+// כרטיס הבריף החי (briefCardData): null לפני 07:30 שעון ישראל, מ-07:30 ועד סוף היום הישראלי: נתונים + text זהה ל-composeBrief.
+describe('brief-view: briefCardData (כרטיס הבריף החי)', () => {
+  const at = (iso) => new Date(iso);
+  const MON_0730 = at('2026-10-26T05:30:00.000Z'); // שני 26.10.2026 07:30 בישראל (UTC+2 אחרי מעבר השעון)
+  const tasks = [{ title: 'דף תרגילים' }];
+
+  test('לפני 07:30: null. ב-07:30 ואחריו (כולל סוף היום): קיים, עם התאריך הישראלי', () => {
+    assert.equal(briefCardData({ now: at('2026-10-26T05:29:59.000Z'), timetable: TIMETABLE }), null);
+    assert.equal(briefCardData({ now: at('2026-10-25T22:30:00.000Z'), timetable: TIMETABLE }), null, 'אחרי חצות ישראל (00:30 ב-26.10) עדיין לא 07:30');
+    assert.equal(briefCardData({ now: MON_0730, timetable: TIMETABLE }).dateIso, '2026-10-26');
+    assert.equal(briefCardData({ now: at('2026-10-26T12:00:00.000Z'), timetable: TIMETABLE }).dateIso, '2026-10-26');
+    assert.equal(briefCardData({ now: at('2026-10-26T21:59:00.000Z'), timetable: TIMETABLE }).dateIso, '2026-10-26', '23:59 בישראל');
+    assert.equal(briefCardData({ now: at('2026-10-26T22:00:00.000Z'), timetable: TIMETABLE }), null, '00:00 ב-27.10: היום הבא, עוד לפני 07:30');
+  });
+
+  test('יום לימודים ומבחן (26.10): כותרת, שורת בית ספר, שורת מבחן "היום: ...", והטקסט זהה ל-composeBrief', () => {
+    const card = briefCardData({ now: MON_0730, timetable: TIMETABLE, tasks, pending: [{ id: 'q1', text: 'מומצא' }] });
+    const expected = composeBrief({ dateIso: '2026-10-26', timetable: TIMETABLE, tasks, pending: [{ id: 'q1', text: 'מומצא' }] });
+    assert.equal(card.text, expected.text);
+    assert.equal(card.title, 'בריף · יום שני 26.10');
+    assert.equal(card.school, '08:15–15:45 · 9 שיעורים');
+    assert.deepEqual(card.exams, ['היום: מבחן במתמטיקה ב-10:05']);
+    assert.equal(card.freeDay, false);
+  });
+
+  test('שבת 24.10.2026 בלי כלום: אין שורת בית ספר, כללי יום פנוי; עם משימה: לא יום פנוי', () => {
+    const now = at('2026-10-24T04:30:00.000Z'); // 07:30 בישראל (UTC+3, עוד לפני מעבר השעון)
+    const empty = briefCardData({ now, timetable: TIMETABLE });
+    assert.equal(empty.dateIso, '2026-10-24');
+    assert.equal(empty.school, null);
+    assert.equal(empty.freeDay, true);
+    assert.ok(empty.text.includes(FREE_DAY_LINE));
+    const withTask = briefCardData({ now, timetable: TIMETABLE, tasks });
+    assert.equal(withTask.freeDay, false);
+    assert.ok(!withTask.text.includes(FREE_DAY_LINE));
+    const withQuestion = briefCardData({ now, timetable: TIMETABLE, pending: [{ id: 'q' }] });
+    assert.equal(withQuestion.freeDay, false);
+  });
+
+  test('חופשה (8.12.2026, בתוך חנוכה, יום שבו יש שיעורים במערכת): אין שורת בית ספר, יום פנוי; גם אחרי חצות של שעון חורף', () => {
+    const card = briefCardData({ now: at('2026-12-08T05:30:00.000Z'), timetable: TIMETABLE }); // 07:30 בישראל (UTC+2)
+    assert.equal(card.dateIso, '2026-12-08');
+    assert.equal(card.school, null);
+    assert.equal(card.freeDay, true);
+  });
+
+  test('משימות ושאלות חיות משתקפות ב-text (אותו now, נתונים שונים)', () => {
+    const none = briefCardData({ now: MON_0730, timetable: TIMETABLE });
+    const some = briefCardData({ now: MON_0730, timetable: TIMETABLE, tasks: [{ title: 'א' }, { title: 'ב' }], pending: [{ kind: 'homework', subject: 'פיזיקה' }] });
+    assert.ok(!none.text.includes('משימות פתוחות'));
+    assert.ok(some.text.includes('משימות פתוחות (2):'));
+    assert.ok(some.text.includes('שאלות שממתינות: שיעורי בית בפיזיקה'));
+  });
+
+  test('מערכת שעות חסרה (null): כרטיס קיים, בלי שורת בית ספר ובלי נוסח "יום פנוי"', () => {
+    const card = briefCardData({ now: MON_0730, timetable: null });
+    assert.equal(card.school, null);
+    assert.equal(card.freeDay, false);
+    assert.ok(!card.text.includes(FREE_DAY_LINE));
+    assert.equal(card.title, 'בריף · יום שני 26.10');
+  });
+
+  test('מעבר שעון (25.10.2026): 07:30 לפני ואחרי המעבר נמדד בשעון ישראל; 05:29Z ב-25.10 הוא 07:29 (UTC+2) ולכן null', () => {
+    // 24.10 (UTC+3): 07:30 = 04:30Z. 25.10 ואילך (UTC+2): 07:30 = 05:30Z.
+    assert.equal(briefCardData({ now: at('2026-10-24T04:29:00.000Z'), timetable: TIMETABLE }), null);
+    assert.equal(briefCardData({ now: at('2026-10-24T04:30:00.000Z'), timetable: TIMETABLE }).dateIso, '2026-10-24');
+    assert.equal(briefCardData({ now: at('2026-10-25T05:29:00.000Z'), timetable: TIMETABLE }), null);
+    assert.equal(briefCardData({ now: at('2026-10-25T05:30:00.000Z'), timetable: TIMETABLE }).dateIso, '2026-10-25');
+    // 04:30Z ב-25.10 הוא 06:30 בישראל (UTC+2): עדיין לפני 07:30, אף שב-24.10 אותו שעון UTC היה 07:30.
+    assert.equal(briefCardData({ now: at('2026-10-25T04:30:00.000Z'), timetable: TIMETABLE }), null);
+  });
+
+  test('now לא תקין זורק RangeError (הקורא, api/chat.js, עוטף)', () => {
+    assert.throws(() => briefCardData({ now: new Date(NaN), timetable: TIMETABLE }), RangeError);
   });
 });
