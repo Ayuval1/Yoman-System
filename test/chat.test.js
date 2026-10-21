@@ -340,7 +340,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
     const res = await get(sql);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'items', 'open_tasks', 'pending', 'review']); // 8.6-1: נוסף open_tasks
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'review']); // 8.6-1: נוסף open_tasks; כרטיס הבריף: נוסף brief
     assert.deepEqual(body.review, {
       total: 2,
       items: [
@@ -497,5 +497,90 @@ describe('chat: POST check (קריטריונים 7 ו-8)', () => {
       assert.equal(await res.text(), 'לא נשלח, נסה שוב.');
       assert.equal(sql.calls.length, 0);
     }
+  });
+});
+
+// כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים brief; לפני 07:30 שעון ישראל null; כשל בבנייתו לא שובר את התשובה.
+describe('chat: brief (כרטיס הבריף החי)', () => {
+  const MONDAY_MORNING = new Date('2026-10-19T05:00:00.000Z'); // שני 19.10.2026 08:00 בישראל (UTC+3)
+  const MONDAY_BEFORE_0730 = new Date('2026-10-19T04:29:00.000Z'); // 07:29 בישראל
+  const task = (n, title) => ({ id: uuid(n), title, subject: null, due_at: null, media_count: 0 });
+  // מסד קטן: משימות פתוחות ניתנות לשינוי; "בוצע" מסיר אותן. כל השאר ריק.
+  function tasksDb(tasks) {
+    return fakeSql((text, values) => {
+      if (text.includes("FROM tasks t WHERE t.status = 'open'")) return tasks.map((t) => ({ ...t }));
+      if (text.startsWith("UPDATE tasks SET status = 'done'")) {
+        const index = tasks.findIndex((t) => t.id === values[0]);
+        if (index < 0) return [];
+        tasks.splice(index, 1);
+        return [{ id: values[0] }];
+      }
+      if (text.includes('AS unread')) return [{ pending: 0, unread: 0, open_tasks: tasks.length }];
+      return [];
+    });
+  }
+  const getAt = (sql, now, extra = {}) => handle(req(URL_CHAT, { method: 'GET', headers: H }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE, now: () => now, ...extra });
+  const postAt = (sql, body, now) => handle(jsonRequest(body, { url: URL_CHAT, headers: { ...H, 'content-type': 'application/json' } }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE, now: () => now });
+
+  test('GET אחרי 07:30: brief עם כותרת, שורת בית ספר והטקסט המלא של הבריף, והמשימות הנוכחיות בו', async () => {
+    const sql = tasksDb([task(1, 'דף תרגילים')]);
+    const body = await (await getAt(sql, MONDAY_MORNING)).json();
+    assert.equal(body.brief.dateIso, '2026-10-19');
+    assert.equal(body.brief.title, 'בריף · יום שני 19.10');
+    assert.match(body.brief.school, /^08:15–\d\d:\d\d · \d+ שיעורים$/);
+    assert.match(body.brief.text, /משימות פתוחות \(1\):\n· דף תרגילים — בלי תאריך/);
+    assert.equal(body.brief.freeDay, false);
+  });
+  test('GET לפני 07:30 בישראל: brief = null, ושאר התשובה כרגיל', async () => {
+    const sql = tasksDb([task(1, 'דף תרגילים')]);
+    const body = await (await getAt(sql, MONDAY_BEFORE_0730)).json();
+    assert.equal(body.brief, null);
+    assert.deepEqual(body.open_tasks.map((t) => t.id), [uuid(1)]);
+  });
+  test('task_done: ה-brief בתשובה טרי (המשימה שסומנה כבר לא בטקסט)', async () => {
+    const tasks = [task(1, 'דף תרגילים'), task(2, 'עבודה בהיסטוריה')];
+    const sql = tasksDb(tasks);
+    const before = await (await getAt(sql, MONDAY_MORNING)).json();
+    assert.match(before.brief.text, /משימות פתוחות \(2\)/);
+    const done = await (await postAt(sql, { action: 'task_done', task_id: uuid(1) }, MONDAY_MORNING)).json();
+    assert.equal(done.status, 'done');
+    assert.match(done.brief.text, /משימות פתוחות \(1\):\n· עבודה בהיסטוריה — בלי תאריך/);
+    assert.doesNotMatch(done.brief.text, /דף תרגילים/);
+  });
+  test('homework: התשובה כוללת brief (גם כשהמסד ריק: closed)', async () => {
+    const sql = tasksDb([task(1, 'דף תרגילים')]);
+    const body = await (await postAt(sql, { action: 'homework', message_id: uuid(7), had: false }, MONDAY_MORNING)).json();
+    assert.ok('brief' in body);
+    assert.match(body.brief.text, /משימות פתוחות \(1\)/);
+  });
+  test('כשל בבניית ה-brief (שאילתת השאלות נכשלת במסלול task_done): brief = null, שאר התשובה שלמה, בלוג רק שם השגיאה', async (t) => {
+    const cap = captureConsole(t);
+    const tasks = [task(1, 'דף תרגילים'), task(2, 'עבודה בהיסטוריה')];
+    const sql = fakeSql((text, values) => {
+      if (text.includes('FROM messages m LEFT JOIN sources s')) throw Object.assign(new Error('db down טקסט מהמסד'), { name: 'NeonDbError' });
+      if (text.includes("FROM tasks t WHERE t.status = 'open'")) return tasks.map((x) => ({ ...x }));
+      if (text.startsWith("UPDATE tasks SET status = 'done'")) { tasks.splice(0, 1); return [{ id: values[0] }]; }
+      if (text.includes('AS unread')) return [{ pending: 0, unread: 0, open_tasks: tasks.length }];
+      return [];
+    });
+    const res = await postAt(sql, { action: 'task_done', task_id: uuid(1) }, MONDAY_MORNING);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, 'done');
+    assert.deepEqual(body.open_tasks.map((x) => x.id), [uuid(2)]);
+    assert.equal(body.brief, null);
+    assert.deepEqual(cap.lines, ['chat: בניית הבריף נכשלה: NeonDbError']);
+  });
+  test('כשל בבניית ה-brief ב-GET (מערכת שעות שהקריאה אליה זורקת): brief = null, 200, והשאר שלם', async (t) => {
+    const cap = captureConsole(t);
+    const sql = tasksDb([task(1, 'דף תרגילים')]);
+    const broken = { get slots() { throw new TypeError('boom'); } };
+    const res = await getAt(sql, MONDAY_MORNING, { timetable: broken });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.brief, null);
+    assert.deepEqual(body.open_tasks.map((x) => x.id), [uuid(1)]);
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'review']);
+    assert.deepEqual(cap.lines, ['chat: בניית הבריף נכשלה: TypeError']);
   });
 });

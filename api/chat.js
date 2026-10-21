@@ -8,6 +8,7 @@
 //   שלב 8.6-1 (docs/08-chapter8/60): GET מחזיר גם open_tasks, ו-pending יכול לכלול פריט { kind: 'homework', ... }.
 //   POST { action: 'homework', message_id, had, topic?, due? } -> { status: 'answered' | 'closed' | 'unclear', task_id, pending, open_tasks, badge }   (task_id רק כשנוצרה משימה; closed = כבר נסגרה, לא נכתב דבר)
 //   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
+//   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, exams, freeDay, text } (lib/brief-view.js, briefCardData). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
@@ -19,6 +20,8 @@ import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-vie
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
+import { loadTimetable } from '../lib/timetable.js';
+import { briefCardData } from '../lib/brief-view.js';
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
@@ -104,6 +107,19 @@ async function markRead(sql, messageIds) {
   `;
 }
 
+// כרטיס הבריף החי (briefCardData). לעולם לא זורק: כל כשל (מערכת שעות, שאלות, חישוב) = null והתשובה הקיימת נשארת שלמה. בלוג רק שם השגיאה.
+// pending (אופציונלי): כשכבר נטען בבקשה. בלעדיו (task_done) נטען כאן, בתוך ה-try.
+async function buildBrief({ sql, timetable, tasks, pending, now }) {
+  try {
+    const table = timetable === undefined ? await loadTimetable(sql) : timetable; // loadTimetable לא זורק: כשל = null (בלי שורת בית ספר)
+    const questions = pending === undefined ? await loadPending(sql, table, now) : pending;
+    return briefCardData({ now, timetable: table, tasks, pending: questions });
+  } catch (error) {
+    console.error('chat: בניית הבריף נכשלה:', error?.name);
+    return null;
+  }
+}
+
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
 export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date() } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
@@ -134,7 +150,8 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const review = await loadReview(sql, now());
       const badge = await loadBadge(sql, now());
       const openTasks = await loadOpenTasks(sql);
-      return json({ items, pending, badge, review, open_tasks: openTasks });
+      const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
+      return json({ items, pending, badge, review, open_tasks: openTasks, brief });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);
@@ -153,13 +170,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const pending = await loadPending(sql, timetable, now());
       const openTasks = await loadOpenTasks(sql);
       const badge = await loadBadge(sql, now());
-      return json({ status: result.status, task_id: result.taskId, pending, open_tasks: openTasks, badge });
+      const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
+      return json({ status: result.status, task_id: result.taskId, pending, open_tasks: openTasks, badge, brief });
     }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
       const openTasks = await loadOpenTasks(sql);
       const badge = await loadBadge(sql, now());
-      return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge });
+      const brief = await buildBrief({ sql, timetable, tasks: openTasks, now: now() });
+      return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge, brief });
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable });
