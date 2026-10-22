@@ -308,6 +308,16 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     }
   });
 
+  test('שורה לכל משימה בכרטיס (הכרעת יובל, 22.10): שלוש משימות = שלוש שורות עם "בוצע", לפי סדר הרשימה, ו"ראיתי" אחרונה', () => {
+    const tasks = [TASK, { ...TASK, id: 't2', title: 'דף תרגילים', due_at: null }, { ...TASK, id: 't3', title: 'מחברת' }];
+    const body = makeCardEnv({ brief: SCHOOL, open_tasks: tasks }).briefCard().find('bfbody')[0];
+    assert.equal(body.find('bftask').length, 3);
+    assert.deepEqual(body.find('bftask').map((row) => row.find('odone').length), [1, 1, 1]);
+    assert.deepEqual(body.find('bftask').map((row) => row.collect()[0]), ['שיעורי בית · אנגלית', 'דף תרגילים', 'מחברת']);
+    assert.equal(body.childNodes.at(-1).textContent, 'ראיתי');
+    assert.doesNotMatch(bodyOf('briefCard'), /tasks\[0\]/);
+  });
+
   test('"ראיתי" בכרטיס מסמן ומסתיר; "בוצע" בכרטיס שולח task_done, והמספר יורד כש-state.open_tasks מתעדכן', () => {
     const env = makeCardEnv({ brief: SCHOOL, open_tasks: [TASK, { ...TASK, id: 't2', due_at: '2026-10-26T21:15:00.000Z' }] });
     const first = env.briefCard();
