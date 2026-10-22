@@ -1,0 +1,272 @@
+<title>הדמיות כרטיס הבריף</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* פריסה: שתי הדמיות של מסך הבית זו לצד זו (במסך צר: זו מתחת לזו). הטוקנים הועתקו מ-public/tokens.css של האפליקציה, לא הומצאו. */
+:root {
+  --deep: #0A7A36; --deep2: #0E8C40; --live: #16A64B;
+  --mint: #F0F8F3; --amber: #96650F; --amberbg: #FCF3E2;
+  --bg: #EFF2F4; --bg2: #E4E9EB; --card: #FFFFFF; --card1: #FFFFFF;
+  --label: #0B1410; --label2: rgba(45,60,52,.62); --label3: rgba(45,60,52,.34); --sep: rgba(45,60,52,.14);
+  --accent: #0A7A36; --btn-neutral: #EFF1F3;
+  --sh-card1: 0 10px 24px rgba(8,52,30,.16), 0 2px 6px rgba(8,52,30,.08);
+  --sh-card2: 0 4px 12px rgba(8,52,30,.09);
+  --sh-bubble: 0 3px 10px rgba(8,52,30,.09);
+  --page: #DDE3E0; --page-fg: #0B1410; --page-dim: rgba(45,60,52,.7);
+  --band-text: #0A5A2A;
+  --font: system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --deep: #0A5A2A; --deep2: #0C6B33; --live: #149042;
+    --mint: #16291F; --amber: #D9A03C; --amberbg: #2A2211;
+    --bg: #141A17; --bg2: #0D1210; --card: #1B2420; --card1: #1D2621;
+    --label: #EEF4F0; --label2: rgba(226,240,232,.60); --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+    --accent: #54CC85; --btn-neutral: rgba(235,245,238,.10);
+    --sh-card1: 0 12px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+    --sh-card2: 0 6px 16px rgba(0,0,0,.42);
+    --sh-bubble: 0 4px 12px rgba(0,0,0,.42);
+    --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65);
+    --band-text: #54CC85;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --deep: #0A5A2A; --deep2: #0C6B33; --live: #149042;
+  --mint: #16291F; --amber: #D9A03C; --amberbg: #2A2211;
+  --bg: #141A17; --bg2: #0D1210; --card: #1B2420; --card1: #1D2621;
+  --label: #EEF4F0; --label2: rgba(226,240,232,.60); --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+  --accent: #54CC85; --btn-neutral: rgba(235,245,238,.10);
+  --sh-card1: 0 12px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  --sh-card2: 0 6px 16px rgba(0,0,0,.42);
+  --sh-bubble: 0 4px 12px rgba(0,0,0,.42);
+  --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65);
+  --band-text: #54CC85;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font); background: var(--page); color: var(--page-fg);
+  padding-block: 24px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
+.lead { font-size: 15px; line-height: 1.5; color: var(--page-dim); max-width: 60ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cap { display: flex; flex-direction: column; gap: 4px; }
+.cap b { font-size: 16px; }
+.cap span { font-size: 14px; line-height: 1.45; color: var(--page-dim); }
+.tnum { font-variant-numeric: tabular-nums; }
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; white-space: nowrap; }
+
+/* מסגרת האייפון: מסך הבית של האפליקציה (כותרת ירוקה, אזור נעוץ, צ'אט) */
+.phone {
+  width: 100%; max-width: 390px; margin: 0 auto; border-radius: 34px; overflow: hidden;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%); color: var(--label);
+  box-shadow: 0 0 0 1px var(--sep);
+}
+.hero {
+  background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff;
+  padding: 22px 22px 52px; border-radius: 0 0 34px 34px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
+.hero h2 { font-size: 33px; line-height: 1.1; }
+.hero small { display: block; margin-top: 6px; font-size: 14px; opacity: .8; }
+.gbtn { background: #fff; color: #0A5A2A; border: 0; border-radius: 100px; padding: 8px 14px; font-size: 14px; font-weight: 700; flex: none; }
+.pin { margin-top: -34px; padding: 0 14px; position: relative; }
+.chat { padding: 16px 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { align-self: flex-start; max-width: 86%; background: var(--card); border-radius: 22px; padding: 14px 16px; box-shadow: var(--sh-bubble); font-size: 15px; line-height: 1.5; }
+.bubble .ts { display: block; margin-top: 6px; font-size: 12px; color: var(--label3); }
+.sys { align-self: flex-end; font-size: 13px; color: var(--label2); background: var(--card); padding: 8px 14px; border-radius: 18px; box-shadow: var(--sh-card2); }
+.btn { border: 0; border-radius: 100px; padding: 7px 14px; font-size: 14px; font-weight: 700; background: var(--btn-neutral); color: var(--accent); }
+
+/* ---- כרטיס הבריף: דרגה 2 (פס מנטה) גדול ---- */
+.a1 { background: var(--card1); border-radius: 22px; overflow: hidden; box-shadow: var(--sh-card1); }
+.a1 .band { display: flex; align-items: center; gap: 8px; padding: 12px 18px; background: var(--mint); }
+.a1 .band .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.a1 .band b { font-size: 13px; color: var(--band-text); }
+.a1 .band time { margin-inline-start: auto; font-size: 13px; color: var(--band-text); }
+.a1 .head { padding: 16px 18px 6px; }
+.a1 .head h3 { font-size: 26px; line-height: 1.15; }
+.a1 .head p { margin-top: 4px; font-size: 14px; color: var(--label2); }
+.a1 .sect { padding: 12px 18px; border-top: 1px solid var(--sep); display: flex; flex-direction: column; gap: 8px; }
+.a1 .lbl { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--label2); }
+.a1 .line { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.a1 .line .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.a1 .line .v { margin-inline-start: auto; font-size: 15px; color: var(--label2); }
+.a1 .foot { padding: 10px 18px 14px; display: flex; gap: 8px; border-top: 1px solid var(--sep); }
+.a1 .foot .btn { flex: 1; padding: 11px 0; font-size: 15px; }
+
+/* המספרים: מספר גדול וכיתוב קטן לידו, כמו בריבועים של ההדמיה הקודמת */
+.stats { display: flex; gap: 10px; padding: 14px 18px 16px; }
+.stat { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--mint); border-radius: 16px; padding: 12px 14px; }
+.stat .n { font-size: 38px; line-height: 1; font-weight: 700; color: var(--label); }
+.stat .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .u { font-size: 15px; font-weight: 600; }
+.stat .s { font-size: 12px; color: var(--label2); white-space: nowrap; }
+
+
+/* ---- ב1: אוורירי. מספרים גדולים בלי ריבועים, "בוצע" בתוך שורת המשימה ---- */
+.b1 .head { padding: 20px 20px 4px; }
+.b1 .head h3 { font-size: 30px; line-height: 1.1; }
+.b1 .nums { display: flex; padding: 14px 20px 20px; }
+.b1 .num { flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; min-width: 0; }
+.b1 .num + .num { padding-inline-start: 20px; margin-inline-start: 20px; border-inline-start: 1px solid var(--sep); }
+.b1 .num .n { font-size: 44px; line-height: 1; font-weight: 700; }
+.b1 .num .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.b1 .num .u { font-size: 16px; font-weight: 600; }
+.b1 .num .s { flex-basis: 100%; font-size: 13px; color: var(--label2); white-space: nowrap; }
+.b1 .task { display: flex; align-items: center; gap: 10px; margin: 0 14px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
+.b1 .task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.b1 .task .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.b1 .task .t em { font-style: normal; font-size: 13px; color: var(--label2); }
+.b1 .task .btn { background: var(--card1); }
+.b1 .seen { display: block; width: 100%; border: 0; background: none; padding: 14px 0 16px; font-size: 14px; font-weight: 700; color: var(--label2); text-align: center; }
+
+/* ---- ב2: בולט. גוש ירוק עמוק עם מספרים לבנים בתוך הכרטיס ---- */
+.b2 { background: var(--card1); border-radius: 24px; overflow: hidden; box-shadow: var(--sh-card1); }
+.b2 .block { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.b2 .block .top { display: flex; align-items: center; gap: 8px; font-size: 13px; opacity: .85; }
+.b2 .block .top time { margin-inline-start: auto; }
+.b2 .block h3 { font-size: 30px; line-height: 1.1; }
+.b2 .block .nums { display: flex; gap: 22px; }
+.b2 .block .num { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; }
+.b2 .block .n { font-size: 44px; line-height: 1; font-weight: 700; }
+.b2 .block .tx { display: flex; flex-direction: column; gap: 2px; }
+.b2 .block .u { font-size: 16px; font-weight: 600; }
+.b2 .block .s { flex-basis: 100%; font-size: 13px; opacity: .75; white-space: nowrap; }
+.b2 .body { padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.b2 .task { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
+.b2 .task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.b2 .task .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.b2 .task .t em { font-style: normal; font-size: 13px; color: var(--label2); }
+.b2 .task .btn { background: var(--card1); }
+.b2 .seen { border: 0; background: none; padding: 10px 0 2px; font-size: 14px; font-weight: 700; color: var(--label2); text-align: center; }
+
+
+/* ---- ב2 משופר: שני כיוונים. ג1: גוש עמוק עם הילה, ג2: כל הכרטיס ירוק ---- */
+.b2 .chev { font-size: 20px; line-height: 1; opacity: .9; }
+.b2.c1 .block {
+  background: radial-gradient(120% 100% at 100% 0%, rgba(255,255,255,.16), rgba(255,255,255,0) 55%),
+              linear-gradient(180deg, color-mix(in srgb, var(--deep) 66%, #000), color-mix(in srgb, var(--deep) 84%, #000));
+}
+.b2.c1 .block .nums { padding-top: 12px; border-top: 1px solid rgba(255,255,255,.22); }
+.b2.c1 .block .num + .num { padding-inline-start: 22px; border-inline-start: 1px solid rgba(255,255,255,.22); }
+.b2.c1 .body { padding: 12px 14px 12px; }
+.b2.c1 .seen { align-self: stretch; padding: 12px 0; margin-top: 4px; border-radius: 100px; background: var(--btn-neutral); color: var(--accent); font-size: 15px; }
+
+.b2.c2 { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; }
+.b2.c2 .block { background: none; padding-bottom: 14px; }
+.b2.c2 .block .nums { gap: 0; }
+.b2.c2 .block .num { flex: 1; }
+.b2.c2 .block .num + .num { padding-inline-start: 22px; margin-inline-start: 22px; border-inline-start: 1px solid rgba(255,255,255,.28); }
+.b2.c2 .body { padding: 0 14px 14px; }
+.b2.c2 .task { background: rgba(255,255,255,.14); color: #fff; }
+.b2.c2 .task .t em { color: rgba(255,255,255,.72); }
+.b2.c2 .task .d { background: #FFD27A; }
+.b2.c2 .task .btn { background: #fff; color: #0A5A2A; }
+.b2.c2 .seen { color: rgba(255,255,255,.82); padding-top: 12px; }
+
+.note { font-size: 13px; line-height: 1.5; color: var(--page-dim); border-top: 1px solid var(--sep); padding-top: 14px; max-width: 70ch; }
+</style>
+
+<div class="wrap" dir="rtl" lang="he">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>כרטיס הבריף: ב2 משופר</h1>
+    <p class="lead">שני כיוונים לשיפור ב2, ליד ב2 כמו שבחרת. אותו יום חמישי 22.10. בשניהם נוסף חץ שמראה שהכרטיס נפתח למסך מלא, והשעות נשארות בשורה אחת. ג1 מבדיל את הכרטיס מהכותרת, ג2 הופך את כולו לירוק.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="b2 c1">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><span class="chev">‹</span><time class="tnum">07:30</time></div>
+              <h3>יום לימודים</h3>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap"><b>ג1. גוש עמוק</b><span>הגוש הירוק כהה יותר מהכותרת של האפליקציה, עם הילה עדינה מהפינה, ולכן הוא נפרד ממנה ולא מתמזג. קו דק מעל המספרים, חץ ‹ שמראה שאפשר ללחוץ ולפתוח את המסך המלא, ו"ראיתי" ככפתור ברור בתחתית.</span></div>
+    </div>
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="b2 c2">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><span class="chev">‹</span><time class="tnum">07:30</time></div>
+              <h3>יום לימודים</h3>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap"><b>ג2. כל הכרטיס ירוק</b><span>הכרטיס כולו בירוק של הכותרת: המספרים, המשימה (בפס שקוף) ו"בוצע" כפתור לבן. נראה כמו כרטיס אחד שלם. החיסרון: הרבה ירוק, ומשימה בצבע לבן על ירוק פחות בולטת.</span></div>
+    </div>
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="b2 ">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+              <h3>יום לימודים</h3>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap"><b>ב2 כמו שבחרת (עוגן)</b><span>מה שאמרת עליו "הכי טוב", בלי שינוי, להשוואה.</span></div>
+    </div>
+  </div>
+
+  <p class="note">הדמיות בלבד, לא קוד של האפליקציה. הצבעים, הרדיוסים והצללים הם הערכים של האפליקציה. השעות והמשימה הם הנתונים של הבריף האמיתי מהבוקר. הבועה בתחתית היא ההודעה שכבר קיימת בצ'אט, ללא שינוי.</p>
+</div>
