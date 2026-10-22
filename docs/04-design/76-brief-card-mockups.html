@@ -59,7 +59,7 @@ h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
 .cap b { font-size: 16px; }
 .cap span { font-size: 14px; line-height: 1.45; color: var(--page-dim); }
 .tnum { font-variant-numeric: tabular-nums; }
-.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; white-space: nowrap; }
 
 /* מסגרת האייפון: מסך הבית של האפליקציה (כותרת ירוקה, אזור נעוץ, צ'אט) */
 .phone {
@@ -105,19 +105,80 @@ h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
 .stat .n { font-size: 38px; line-height: 1; font-weight: 700; color: var(--label); }
 .stat .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stat .u { font-size: 15px; font-weight: 600; }
-.stat .s { font-size: 12px; color: var(--label2); }
+.stat .s { font-size: 12px; color: var(--label2); white-space: nowrap; }
+
+
+/* ---- ב1: אוורירי. מספרים גדולים בלי ריבועים, "בוצע" בתוך שורת המשימה ---- */
+.b1 .head { padding: 20px 20px 4px; }
+.b1 .head h3 { font-size: 30px; line-height: 1.1; }
+.b1 .nums { display: flex; padding: 14px 20px 20px; }
+.b1 .num { flex: 1; display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; min-width: 0; }
+.b1 .num + .num { padding-inline-start: 20px; margin-inline-start: 20px; border-inline-start: 1px solid var(--sep); }
+.b1 .num .n { font-size: 44px; line-height: 1; font-weight: 700; }
+.b1 .num .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.b1 .num .u { font-size: 16px; font-weight: 600; }
+.b1 .num .s { flex-basis: 100%; font-size: 13px; color: var(--label2); white-space: nowrap; }
+.b1 .task { display: flex; align-items: center; gap: 10px; margin: 0 14px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
+.b1 .task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.b1 .task .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.b1 .task .t em { font-style: normal; font-size: 13px; color: var(--label2); }
+.b1 .task .btn { background: var(--card1); }
+.b1 .seen { display: block; width: 100%; border: 0; background: none; padding: 14px 0 16px; font-size: 14px; font-weight: 700; color: var(--label2); text-align: center; }
+
+/* ---- ב2: בולט. גוש ירוק עמוק עם מספרים לבנים בתוך הכרטיס ---- */
+.b2 { background: var(--card1); border-radius: 24px; overflow: hidden; box-shadow: var(--sh-card1); }
+.b2 .block { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.b2 .block .top { display: flex; align-items: center; gap: 8px; font-size: 13px; opacity: .85; }
+.b2 .block .top time { margin-inline-start: auto; }
+.b2 .block h3 { font-size: 30px; line-height: 1.1; }
+.b2 .block .nums { display: flex; gap: 22px; }
+.b2 .block .num { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; }
+.b2 .block .n { font-size: 44px; line-height: 1; font-weight: 700; }
+.b2 .block .tx { display: flex; flex-direction: column; gap: 2px; }
+.b2 .block .u { font-size: 16px; font-weight: 600; }
+.b2 .block .s { flex-basis: 100%; font-size: 13px; opacity: .75; white-space: nowrap; }
+.b2 .body { padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.b2 .task { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
+.b2 .task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.b2 .task .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.b2 .task .t em { font-style: normal; font-size: 13px; color: var(--label2); }
+.b2 .task .btn { background: var(--card1); }
+.b2 .seen { border: 0; background: none; padding: 10px 0 2px; font-size: 14px; font-weight: 700; color: var(--label2); text-align: center; }
+
+
+/* ---- ב2 משופר: שני כיוונים. ג1: גוש עמוק עם הילה, ג2: כל הכרטיס ירוק ---- */
+.b2 .chev { font-size: 20px; line-height: 1; opacity: .9; }
+.b2.c1 .block {
+  background: radial-gradient(120% 100% at 100% 0%, rgba(255,255,255,.16), rgba(255,255,255,0) 55%),
+              linear-gradient(180deg, color-mix(in srgb, var(--deep) 66%, #000), color-mix(in srgb, var(--deep) 84%, #000));
+}
+.b2.c1 .block .nums { padding-top: 12px; border-top: 1px solid rgba(255,255,255,.22); }
+.b2.c1 .block .num + .num { padding-inline-start: 22px; border-inline-start: 1px solid rgba(255,255,255,.22); }
+.b2.c1 .body { padding: 12px 14px 12px; }
+.b2.c1 .seen { align-self: stretch; padding: 12px 0; margin-top: 4px; border-radius: 100px; background: var(--btn-neutral); color: var(--accent); font-size: 15px; }
+
+.b2.c2 { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; }
+.b2.c2 .block { background: none; padding-bottom: 14px; }
+.b2.c2 .block .nums { gap: 0; }
+.b2.c2 .block .num { flex: 1; }
+.b2.c2 .block .num + .num { padding-inline-start: 22px; margin-inline-start: 22px; border-inline-start: 1px solid rgba(255,255,255,.28); }
+.b2.c2 .body { padding: 0 14px 14px; }
+.b2.c2 .task { background: rgba(255,255,255,.14); color: #fff; }
+.b2.c2 .task .t em { color: rgba(255,255,255,.72); }
+.b2.c2 .task .d { background: #FFD27A; }
+.b2.c2 .task .btn { background: #fff; color: #0A5A2A; }
+.b2.c2 .seen { color: rgba(255,255,255,.82); padding-top: 12px; }
 
 .note { font-size: 13px; line-height: 1.5; color: var(--page-dim); border-top: 1px solid var(--sep); padding-top: 14px; max-width: 70ch; }
 </style>
 
 <div class="wrap" dir="rtl" lang="he">
   <header style="display:flex;flex-direction:column;gap:8px">
-    <h1>כרטיס הבריף: א1 עם המספרים הגדולים</h1>
-    <p class="lead">יום חמישי 22.10 האמיתי: 9 שיעורים, 08:15 עד 15:45, ומשימה אחת פתוחה. מימין הגרסה החדשה, א1 עם מבנה המספרים שביקשת. משמאל א1 כמו שהייתה, להשוואה.</p>
+    <h1>כרטיס הבריף: ב2 משופר</h1>
+    <p class="lead">שני כיוונים לשיפור ב2, ליד ב2 כמו שבחרת. אותו יום חמישי 22.10. בשניהם נוסף חץ שמראה שהכרטיס נפתח למסך מלא, והשעות נשארות בשורה אחת. ג1 מבדיל את הכרטיס מהכותרת, ג2 הופך את כולו לירוק.</p>
   </header>
 
   <div class="grid">
-    <!-- ===== החדשה ===== -->
     <div class="col">
       <div class="phone">
         <div class="hero">
@@ -125,50 +186,19 @@ h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
           <button class="gbtn" type="button">חבר Google</button>
         </div>
         <div class="pin">
-          <div class="a1">
-            <div class="band"><span class="dot"></span><b>הבריף של היום</b><time class="tnum">07:30</time></div>
-            <div class="head"><h3>יום לימודים</h3></div>
-            <div class="stats">
-              <div class="stat"><span class="n tnum">9</span><span class="tx"><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></span></div>
-              <div class="stat"><span class="n tnum">1</span><span class="tx"><span class="u">משימה</span><span class="s">עד 25.10</span></span></div>
-            </div>
-            <div class="sect">
-              <span class="lbl">משימות פתוחות</span>
-              <div class="line"><span class="d"></span><span>שיעורי בית · אנגלית</span><span class="v">עד 25.10</span></div>
-            </div>
-            <div class="foot"><button class="btn" type="button">בוצע</button><button class="btn" type="button" style="color:var(--label2)">ראיתי</button></div>
-          </div>
-        </div>
-        <div class="chat">
-          <div class="sys">התקבל · אתמול 12:12</div>
-          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
-        </div>
-      </div>
-      <div class="cap">
-        <b>א1 החדשה: מספר גדול וכיתוב לידו</b>
-        <span>"9 שיעורים" ו"1 משימה" במבנה של ההדמיה השנייה: המספר גדול והכיתוב קטן לידו, עם השעות או התאריך מתחת לכיתוב. רשימת המשימות נשארת מתחת, כי ממנה לוחצים "בוצע". ריבוע "מבחנים" יופיע רק ביום שיש בו מבחן.</span>
-      </div>
-    </div>
-
-    <!-- ===== א1 הקודמת ===== -->
-    <div class="col">
-      <div class="phone">
-        <div class="hero">
-          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
-          <button class="gbtn" type="button">חבר Google</button>
-        </div>
-        <div class="pin">
-          <div class="a1">
-            <div class="band"><span class="dot"></span><b>הבריף של היום</b><time class="tnum">07:30</time></div>
-            <div class="head">
+          <div class="b2 c1">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><span class="chev">‹</span><time class="tnum">07:30</time></div>
               <h3>יום לימודים</h3>
-              <p>9 שיעורים · <span class="ltr tnum">08:15–15:45</span></p>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
             </div>
-            <div class="sect">
-              <span class="lbl">משימות פתוחות · 1</span>
-              <div class="line"><span class="d"></span><span>שיעורי בית · אנגלית</span><span class="v">עד 25.10</span></div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
             </div>
-            <div class="foot"><button class="btn" type="button">בוצע</button><button class="btn" type="button" style="color:var(--label2)">ראיתי</button></div>
           </div>
         </div>
         <div class="chat">
@@ -176,10 +206,65 @@ h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
           <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
         </div>
       </div>
-      <div class="cap">
-        <b>א1 כמו שהייתה</b>
-        <span>שורת טקסט אחת: "9 שיעורים · 08:15–15:45". להשוואה בלבד.</span>
+      <div class="cap"><b>ג1. גוש עמוק</b><span>הגוש הירוק כהה יותר מהכותרת של האפליקציה, עם הילה עדינה מהפינה, ולכן הוא נפרד ממנה ולא מתמזג. קו דק מעל המספרים, חץ ‹ שמראה שאפשר ללחוץ ולפתוח את המסך המלא, ו"ראיתי" ככפתור ברור בתחתית.</span></div>
+    </div>
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="b2 c2">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><span class="chev">‹</span><time class="tnum">07:30</time></div>
+              <h3>יום לימודים</h3>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
       </div>
+      <div class="cap"><b>ג2. כל הכרטיס ירוק</b><span>הכרטיס כולו בירוק של הכותרת: המספרים, המשימה (בפס שקוף) ו"בוצע" כפתור לבן. נראה כמו כרטיס אחד שלם. החיסרון: הרבה ירוק, ומשימה בצבע לבן על ירוק פחות בולטת.</span></div>
+    </div>
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="b2 ">
+            <div class="block">
+              <div class="top"><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+              <h3>יום לימודים</h3>
+              <div class="nums">
+                <div class="num"><span class="n tnum">9</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></div>
+                <div class="num"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 25.10</span></div>
+              </div>
+            </div>
+            <div class="body">
+              <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · אנגלית</span><em>עד 25.10</em></span><button class="btn" type="button">בוצע</button></div>
+              <button class="seen" type="button">ראיתי</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap"><b>ב2 כמו שבחרת (עוגן)</b><span>מה שאמרת עליו "הכי טוב", בלי שינוי, להשוואה.</span></div>
     </div>
   </div>
 
