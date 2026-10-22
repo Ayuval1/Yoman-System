@@ -1,0 +1,187 @@
+<title>הדמיות כרטיס הבריף</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* פריסה: שתי הדמיות של מסך הבית זו לצד זו (במסך צר: זו מתחת לזו). הטוקנים הועתקו מ-public/tokens.css של האפליקציה, לא הומצאו. */
+:root {
+  --deep: #0A7A36; --deep2: #0E8C40; --live: #16A64B;
+  --mint: #F0F8F3; --amber: #96650F; --amberbg: #FCF3E2;
+  --bg: #EFF2F4; --bg2: #E4E9EB; --card: #FFFFFF; --card1: #FFFFFF;
+  --label: #0B1410; --label2: rgba(45,60,52,.62); --label3: rgba(45,60,52,.34); --sep: rgba(45,60,52,.14);
+  --accent: #0A7A36; --btn-neutral: #EFF1F3;
+  --sh-card1: 0 10px 24px rgba(8,52,30,.16), 0 2px 6px rgba(8,52,30,.08);
+  --sh-card2: 0 4px 12px rgba(8,52,30,.09);
+  --sh-bubble: 0 3px 10px rgba(8,52,30,.09);
+  --page: #DDE3E0; --page-fg: #0B1410; --page-dim: rgba(45,60,52,.7);
+  --band-text: #0A5A2A;
+  --font: system-ui, -apple-system, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --deep: #0A5A2A; --deep2: #0C6B33; --live: #149042;
+    --mint: #16291F; --amber: #D9A03C; --amberbg: #2A2211;
+    --bg: #141A17; --bg2: #0D1210; --card: #1B2420; --card1: #1D2621;
+    --label: #EEF4F0; --label2: rgba(226,240,232,.60); --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+    --accent: #54CC85; --btn-neutral: rgba(235,245,238,.10);
+    --sh-card1: 0 12px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+    --sh-card2: 0 6px 16px rgba(0,0,0,.42);
+    --sh-bubble: 0 4px 12px rgba(0,0,0,.42);
+    --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65);
+    --band-text: #54CC85;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --deep: #0A5A2A; --deep2: #0C6B33; --live: #149042;
+  --mint: #16291F; --amber: #D9A03C; --amberbg: #2A2211;
+  --bg: #141A17; --bg2: #0D1210; --card: #1B2420; --card1: #1D2621;
+  --label: #EEF4F0; --label2: rgba(226,240,232,.60); --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+  --accent: #54CC85; --btn-neutral: rgba(235,245,238,.10);
+  --sh-card1: 0 12px 28px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4);
+  --sh-card2: 0 6px 16px rgba(0,0,0,.42);
+  --sh-bubble: 0 4px 12px rgba(0,0,0,.42);
+  --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65);
+  --band-text: #54CC85;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font); background: var(--page); color: var(--page-fg);
+  padding-block: 24px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
+.lead { font-size: 15px; line-height: 1.5; color: var(--page-dim); max-width: 60ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cap { display: flex; flex-direction: column; gap: 4px; }
+.cap b { font-size: 16px; }
+.cap span { font-size: 14px; line-height: 1.45; color: var(--page-dim); }
+.tnum { font-variant-numeric: tabular-nums; }
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+
+/* מסגרת האייפון: מסך הבית של האפליקציה (כותרת ירוקה, אזור נעוץ, צ'אט) */
+.phone {
+  width: 100%; max-width: 390px; margin: 0 auto; border-radius: 34px; overflow: hidden;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%); color: var(--label);
+  box-shadow: 0 0 0 1px var(--sep);
+}
+.hero {
+  background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff;
+  padding: 22px 22px 52px; border-radius: 0 0 34px 34px;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
+.hero h2 { font-size: 33px; line-height: 1.1; }
+.hero small { display: block; margin-top: 6px; font-size: 14px; opacity: .8; }
+.gbtn { background: #fff; color: #0A5A2A; border: 0; border-radius: 100px; padding: 8px 14px; font-size: 14px; font-weight: 700; flex: none; }
+.pin { margin-top: -34px; padding: 0 14px; position: relative; }
+.chat { padding: 16px 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { align-self: flex-start; max-width: 86%; background: var(--card); border-radius: 22px; padding: 14px 16px; box-shadow: var(--sh-bubble); font-size: 15px; line-height: 1.5; }
+.bubble .ts { display: block; margin-top: 6px; font-size: 12px; color: var(--label3); }
+.sys { align-self: flex-end; font-size: 13px; color: var(--label2); background: var(--card); padding: 8px 14px; border-radius: 18px; box-shadow: var(--sh-card2); }
+.btn { border: 0; border-radius: 100px; padding: 7px 14px; font-size: 14px; font-weight: 700; background: var(--btn-neutral); color: var(--accent); }
+
+/* ---- כרטיס הבריף: דרגה 2 (פס מנטה) גדול ---- */
+.a1 { background: var(--card1); border-radius: 22px; overflow: hidden; box-shadow: var(--sh-card1); }
+.a1 .band { display: flex; align-items: center; gap: 8px; padding: 12px 18px; background: var(--mint); }
+.a1 .band .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.a1 .band b { font-size: 13px; color: var(--band-text); }
+.a1 .band time { margin-inline-start: auto; font-size: 13px; color: var(--band-text); }
+.a1 .head { padding: 16px 18px 6px; }
+.a1 .head h3 { font-size: 26px; line-height: 1.15; }
+.a1 .head p { margin-top: 4px; font-size: 14px; color: var(--label2); }
+.a1 .sect { padding: 12px 18px; border-top: 1px solid var(--sep); display: flex; flex-direction: column; gap: 8px; }
+.a1 .lbl { font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--label2); }
+.a1 .line { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+.a1 .line .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.a1 .line .v { margin-inline-start: auto; font-size: 15px; color: var(--label2); }
+.a1 .foot { padding: 10px 18px 14px; display: flex; gap: 8px; border-top: 1px solid var(--sep); }
+.a1 .foot .btn { flex: 1; padding: 11px 0; font-size: 15px; }
+
+/* המספרים: מספר גדול וכיתוב קטן לידו, כמו בריבועים של ההדמיה הקודמת */
+.stats { display: flex; gap: 10px; padding: 14px 18px 16px; }
+.stat { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; background: var(--mint); border-radius: 16px; padding: 12px 14px; }
+.stat .n { font-size: 38px; line-height: 1; font-weight: 700; color: var(--label); }
+.stat .tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .u { font-size: 15px; font-weight: 600; }
+.stat .s { font-size: 12px; color: var(--label2); }
+
+.note { font-size: 13px; line-height: 1.5; color: var(--page-dim); border-top: 1px solid var(--sep); padding-top: 14px; max-width: 70ch; }
+</style>
+
+<div class="wrap" dir="rtl" lang="he">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>כרטיס הבריף: א1 עם המספרים הגדולים</h1>
+    <p class="lead">יום חמישי 22.10 האמיתי: 9 שיעורים, 08:15 עד 15:45, ומשימה אחת פתוחה. מימין הגרסה החדשה, א1 עם מבנה המספרים שביקשת. משמאל א1 כמו שהייתה, להשוואה.</p>
+  </header>
+
+  <div class="grid">
+    <!-- ===== החדשה ===== -->
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="a1">
+            <div class="band"><span class="dot"></span><b>הבריף של היום</b><time class="tnum">07:30</time></div>
+            <div class="head"><h3>יום לימודים</h3></div>
+            <div class="stats">
+              <div class="stat"><span class="n tnum">9</span><span class="tx"><span class="u">שיעורים</span><span class="s ltr tnum">08:15–15:45</span></span></div>
+              <div class="stat"><span class="n tnum">1</span><span class="tx"><span class="u">משימה</span><span class="s">עד 25.10</span></span></div>
+            </div>
+            <div class="sect">
+              <span class="lbl">משימות פתוחות</span>
+              <div class="line"><span class="d"></span><span>שיעורי בית · אנגלית</span><span class="v">עד 25.10</span></div>
+            </div>
+            <div class="foot"><button class="btn" type="button">בוצע</button><button class="btn" type="button" style="color:var(--label2)">ראיתי</button></div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b>א1 החדשה: מספר גדול וכיתוב לידו</b>
+        <span>"9 שיעורים" ו"1 משימה" במבנה של ההדמיה השנייה: המספר גדול והכיתוב קטן לידו, עם השעות או התאריך מתחת לכיתוב. רשימת המשימות נשארת מתחת, כי ממנה לוחצים "בוצע". ריבוע "מבחנים" יופיע רק ביום שיש בו מבחן.</span>
+      </div>
+    </div>
+
+    <!-- ===== א1 הקודמת ===== -->
+    <div class="col">
+      <div class="phone">
+        <div class="hero">
+          <div><h2>יום חמישי</h2><small>22 באוקטובר 2026</small></div>
+          <button class="gbtn" type="button">חבר Google</button>
+        </div>
+        <div class="pin">
+          <div class="a1">
+            <div class="band"><span class="dot"></span><b>הבריף של היום</b><time class="tnum">07:30</time></div>
+            <div class="head">
+              <h3>יום לימודים</h3>
+              <p>9 שיעורים · <span class="ltr tnum">08:15–15:45</span></p>
+            </div>
+            <div class="sect">
+              <span class="lbl">משימות פתוחות · 1</span>
+              <div class="line"><span class="d"></span><span>שיעורי בית · אנגלית</span><span class="v">עד 25.10</span></div>
+            </div>
+            <div class="foot"><button class="btn" type="button">בוצע</button><button class="btn" type="button" style="color:var(--label2)">ראיתי</button></div>
+          </div>
+        </div>
+        <div class="chat">
+          <div class="sys">התקבל · אתמול 12:12</div>
+          <div class="bubble">בריף · יום חמישי 22.10<br>9 שיעורים · <span class="ltr tnum">08:15–15:45</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div>
+        </div>
+      </div>
+      <div class="cap">
+        <b>א1 כמו שהייתה</b>
+        <span>שורת טקסט אחת: "9 שיעורים · 08:15–15:45". להשוואה בלבד.</span>
+      </div>
+    </div>
+  </div>
+
+  <p class="note">הדמיות בלבד, לא קוד של האפליקציה. הצבעים, הרדיוסים והצללים הם הערכים של האפליקציה. השעות והמשימה הם הנתונים של הבריף האמיתי מהבוקר. הבועה בתחתית היא ההודעה שכבר קיימת בצ'אט, ללא שינוי.</p>
+</div>
