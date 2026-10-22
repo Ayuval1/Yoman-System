@@ -1058,7 +1058,7 @@ function briefCard() {
   card.append(block);
 
   const body = el('div', 'bfbody');
-  if (openCount > 0) body.append(openTaskRow(tasks[0], 'bftask openrow'));
+  for (const task of tasks) body.append(openTaskRow(task, 'bftask openrow')); // שורה לכל משימה (הכרעת יובל, 22.10); האזור הנעוץ גולל מעל 58dvh
   const seen = el('button', 'bfseen', 'ראיתי');
   seen.type = 'button';
   seen.addEventListener('click', () => {
