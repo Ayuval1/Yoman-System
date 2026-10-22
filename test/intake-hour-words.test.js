@@ -389,3 +389,46 @@ describe('שעה במילים: תיקוני ביקורת נקייה (22.10.2026)
     assert.equal(answer('בערב או בבוקר', ['04:00', '16:00']), undefined);
   });
 });
+
+describe('שעה במילים: תיקוני ביקורת נקייה שנייה (22.10.2026)', () => {
+  const leave = (tail) => extract(`אני יוצא מוקדם מבית הספר ${tail}`);
+  const event = (tail) => extract(`יש לי תור לרופא ${tail}`);
+  test('מילת הכרעה אחרי מילת יום ("בעשר מחר בערב") לא מכריעה, אבל גם לא מאפשרת הסקה נגדה: שואלים', () => {
+    for (const [tail, candidates] of [['בעשר מחר בערב', ['10:00', '22:00']], ['בשתיים מחר בבוקר', ['02:00', '14:00']], ['בשתיים ביום שלישי בבוקר', ['02:00', '14:00']]]) {
+      const result = leave(tail);
+      assert.equal(valueOf(result, 'time'), undefined, tail);
+      assert.deepEqual(timeCandidates(result), candidates, tail);
+    }
+  });
+  test('"היום" ו"השבוע" אחרי השעה הם מועד ולא משך: השעה נקראת', () => {
+    assert.deepEqual(timeCandidates(event('בארבע היום')), ['04:00', '16:00']);
+    assert.deepEqual(timeCandidates(event('בארבע וחצי היום')), ['04:30', '16:30']);
+    assert.equal(valueOf(leave('בשתיים היום'), 'time'), '14:00');
+    assert.deepEqual(timeCandidates(leave('בשבע היום')), ['07:00', '19:00']);
+    assert.deepEqual(reading('בשמונה השבוע'), ['08:00', '20:00']);
+    assert.equal(reading('בשמונה השעות'), null);
+  });
+  test('חלופות ("/", "ו", "אולי", "או") אינן שעה אחת: לא נקראות', () => {
+    for (const text of ['בשמונה בבוקר ובערב', 'בשמונה בבוקר ואולי בערב', 'בשתיים ובשלוש', 'בשתיים אולי בשלוש', 'בשתיים או בשלוש']) {
+      assert.equal(reading(text), null, text);
+    }
+    none(leave('בשתיים/שלוש'));
+    none(event('בשבע בבוקר/בערב'));
+    function none(result) { assert.equal(result.type === null || (valueOf(result, 'time') === undefined && timeCandidates(result) === undefined), true); }
+  });
+  test('תשובה חופשית: מילה שלא מתאימה לשעה אינה מפוענחת; מילים שמתאימות כן', () => {
+    const answer = (text, candidates) => applyAnswer({ facts: [], field: 'time', answer: text, candidates }).find((f) => f.field === 'time')?.value;
+    assert.equal(answer('בצהריים', ['08:00', '20:00']), undefined);
+    assert.equal(answer('בצהריים', ['11:00', '23:00']), undefined);
+    assert.equal(answer('בלילה', ['06:00', '18:00']), undefined);
+    assert.equal(answer('בערב', ['00:00', '12:00']), undefined);
+    assert.equal(answer('בערב', ['08:00', '20:00']), '20:00');
+    assert.equal(answer('בערב', ['04:00', '16:00']), '16:00');
+    assert.equal(answer('בצהריים', ['02:00', '14:00']), '14:00');
+    assert.equal(answer('בצהריים', ['00:30', '12:30']), '12:30');
+  });
+  test('תשובה חופשית: סימן פיסוק בין חצאי משפט לא מוביל לשעה מהחצי השני', () => {
+    const answer = (text, candidates) => applyAnswer({ facts: [], field: 'time', answer: text, candidates }).find((f) => f.field === 'time')?.value;
+    assert.equal(answer('בשבע. בערב יש לי אימון', ['04:00', '16:00']), undefined);
+  });
+});
