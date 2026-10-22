@@ -338,3 +338,54 @@ describe('שעה במילים: חיבור לצינור (processSource, pendingQu
     assert.equal(writesOf(unclear).length, 0);
   });
 });
+
+describe('שעה במילים: תיקוני ביקורת נקייה (22.10.2026)', () => {
+  const leave = (tail) => extract(`אני יוצא מוקדם מבית הספר ${tail}`);
+  const none = (result) => assert.equal(result.type === null || (valueOf(result, 'time') === undefined && timeCandidates(result) === undefined), true, JSON.stringify(result));
+  test('סעיף 1: מילת הכרעה בחצי משפט אחר (נקודה, פסיק, שורה חדשה) אינה מכריעה', () => {
+    const event = extract('יש לי תור לרופא בשבע. בערב יש לי אימון');
+    assert.equal(valueOf(event, 'time'), undefined);
+    assert.deepEqual(timeCandidates(event), ['07:00', '19:00']);
+    assert.deepEqual(timeCandidates(extract('יש לי תור לרופא בשבע, בערב אני בבית')), ['07:00', '19:00']);
+    assert.equal(valueOf(leave('בעשר\nבערב אני בבית'), 'time'), '10:00');
+    assert.equal(valueOf(leave('בשתיים. בלילה יש לי אימון'), 'time'), '14:00');
+  });
+  test('סעיף 2: מילת חלק-יום שלא הכריעה מבטלת את ההסקה משעות הלימודים (שואלים)', () => {
+    for (const [tail, candidates] of [['בשתיים לפנות בוקר', ['02:00', '14:00']], ['בשלוש הלילה', ['03:00', '15:00']], ['בשלוש בערב', ['03:00', '15:00']]]) {
+      const result = leave(tail);
+      assert.equal(valueOf(result, 'time'), undefined, tail);
+      assert.deepEqual(timeCandidates(result), candidates, tail);
+    }
+    for (const tail of ['בשתיים או בשלוש']) none(leave(tail));
+    none(extract('יש לי תור לרופא בשבע בבוקר או בערב'));
+  });
+  test('סעיף 3: "עשרה לשתיים" בניסוח "בעשר לשתיים" אינה נקראת', () => {
+    for (const text of ['בעשר לשתיים', 'בחמש לשתיים']) {
+      assert.equal(reading(text), null, text);
+      none(leave(text));
+    }
+    none(extract('יש לי תור לרופא בחמש לשלוש'));
+  });
+  test('סעיף 4: מספרים מ-13 ומעלה ("שלוש עשרה") אינם נקראים', () => {
+    for (const text of ['בשלוש עשרה', 'בארבע עשרה', 'בשמונה עשרה']) assert.equal(reading(text), null, text);
+  });
+  test('סעיף 5: משך ("שעה אחת"), "באחת הכיתות" ותאריכים אינם שעה', () => {
+    for (const text of ['שעה אחת', 'באחת הכיתות', 'באחת ההפסקות', 'בעשר באוקטובר', 'בשבע לנובמבר', 'בתשע בנובמבר', 'בחמש לחודש']) assert.equal(reading(text), null, text);
+    assert.deepEqual(reading('בשעה אחת'), ['01:00', '13:00']);
+    none(leave('שעה אחת'));
+  });
+  test('סעיף 6: קריאה ודאית באותו משפט (ספרות או הכרעה) גוברת על עמומה, כמו לפני השלב', () => {
+    assert.equal(valueOf(extract('יש לי תור לרופא בשלוש ואחר כך ב-17:00'), 'time'), '17:00');
+    assert.equal(valueOf(extract('יש לי תור לרופא בארבע וב-17:00'), 'time'), '17:00');
+    assert.equal(valueOf(leave('בשתיים וחצי ב-14:00'), 'time'), '14:00');
+    assert.equal(originOf(leave('בשתיים וחצי ב-14:00'), 'time'), 'read');
+  });
+  test('סעיפים 7 ו-8: תשובה חופשית מול חצות, ו"אחרי הצהריים" בשתי מילים', () => {
+    const answer = (text, candidates) => applyAnswer({ facts: [], field: 'time', answer: text, candidates }).find((f) => f.field === 'time')?.value;
+    assert.equal(answer('בבוקר', ['00:00', '12:00']), undefined, 'חצות אינו בוקר');
+    assert.equal(answer('בבוקר', ['04:00', '16:00']), '04:00');
+    assert.equal(answer('אחרי הצהריים', ['04:00', '16:00']), '16:00');
+    assert.equal(answer('אחר הצהריים', ['04:00', '16:00']), '16:00');
+    assert.equal(answer('בערב או בבוקר', ['04:00', '16:00']), undefined);
+  });
+});
