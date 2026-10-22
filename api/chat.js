@@ -8,7 +8,7 @@
 //   שלב 8.6-1 (docs/08-chapter8/60): GET מחזיר גם open_tasks, ו-pending יכול לכלול פריט { kind: 'homework', ... }.
 //   POST { action: 'homework', message_id, had, topic?, due? } -> { status: 'answered' | 'closed' | 'unclear', task_id, pending, open_tasks, badge }   (task_id רק כשנוצרה משימה; closed = כבר נסגרה, לא נכתב דבר)
 //   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
-//   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, exams, freeDay, text } (lib/brief-view.js, briefCardData). כשל בבנייתו לא שובר את התשובה: brief = null.
+//   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
