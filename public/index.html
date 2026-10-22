@@ -182,6 +182,31 @@
   .bfopen { border: 0; background: none; padding: 0; text-align: start; color: inherit; font: inherit; }
   .bfopen .t { font-weight: var(--fw-bold); }
 
+  /* ---------- כרטיס הבריף: המראה ב2 (הוכרע 22.10.2026; docs/04-design/76-brief-card-mockups.html, המסגרת "ב2 כמו שבחרת"; 03-design-rules "כרטיס הבריף היומי: המראה") ----------
+     כרטיס אחד: גוש ירוק (.bfblock, גרדיאנט --deep2 ל---deep כמו כותרת האפליקציה, טקסט לבן כמו בכותרת) שהוא גם אזור הלחיצה למסך המלא, ומתחתיו גוף על משטח הכרטיס (.bfbody): שורת המשימה הראשונה עם "בוצע", ו"ראיתי".
+     חריגה מכללי העיצוב (גוש ירוק מלא, שני אקנטים) היא בחירת יובל המפורשת. ערכי הגדלים והרדיוסים מההדמיה; הצבעים רק מטוקנים (חוץ מהלבן על הירוק). */
+  .bfcard.bf2 { background: var(--card1); border-radius: var(--r-card1); overflow: hidden; box-shadow: var(--sh-card1); }
+  .bfblock {
+    display: flex; flex-direction: column; gap: 14px; width: 100%; cursor: pointer;
+    background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 16px 20px 20px;
+  }
+  .bftop { display: flex; align-items: center; gap: 8px; font-size: 13px; opacity: .85; }
+  .bftop .bftime { margin-inline-start: auto; }
+  .bfhead { font-size: 30px; line-height: 1.1; font-weight: var(--fw-bold); }
+  .bfnums { display: flex; gap: 22px; }
+  .bfnum { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; }
+  .bfn { font-size: 44px; line-height: 1; font-weight: var(--fw-bold); }
+  .bfu { font-size: 16px; font-weight: 600; }
+  .bfs { flex-basis: 100%; font-size: 13px; opacity: .75; white-space: nowrap; }
+  .bfltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
+  .bfline { font-size: 14px; opacity: .9; }
+  .bfbody { padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .bftask { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
+  .bftask .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+  .bftask .t { color: var(--label); line-height: 1.3; }
+  .bftask .odone { background: var(--card1); }
+  .bfseen { border: 0; background: none; padding: 10px 0 2px; font-size: 14px; font-weight: var(--fw-bold); color: var(--label2); text-align: center; }
+
   /* ---------- ההודעות (s_main_light .feed) ---------- */
   .feed {
     flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
@@ -877,6 +902,34 @@ function homeworkCard(question, { withHead, count }) {
 // הכרטיס הנכון לפי סוג השאלה: שיעורי בית לא עוברים דרך questionCard (כפתורי טקסט וכתיבה חופשית).
 const cardFor = (question, options) => (question.kind === 'homework' ? homeworkCard(question, options) : questionCard(question, options));
 
+// שורת משימה פתוחה אחת (כותרת, פרטים, הערת שגיאה, "בוצע"): משותפת לרשימת "פתוחות" ולגוף כרטיס הבריף. rowClass: 'mini openrow' ברשימה, 'bftask openrow' בכרטיס.
+function openTaskRow(task, rowClass) {
+  const busy = state.busy.has(task.id);
+  const row = el('div', rowClass);
+  const text = el('span', 'ot');
+  text.append(el('span', 't', task.title ?? ''));
+  const due = dueLabel(task.due_at);
+  // הנחה, לא אומת: שורת הפרטים ("עד 22.10 · תמונה אחת"). המפרט קובע רק "תמונה אחת"; יותר מתמונה אחת (8.6-3 לא מאפשר) מוצג כמספר.
+  const meta = [];
+  if (due) meta.push('עד ' + due);
+  if (task.media_count === 1) meta.push('תמונה אחת');
+  else if (task.media_count > 1) meta.push(`${task.media_count} תמונות`);
+  if (meta.length > 0) text.append(el('span', 'om', meta.join(' · ')));
+  const note = state.notes.get(task.id);
+  if (note) {
+    const noteEl = el('span', 'om', note);
+    noteEl.style.color = 'var(--amber)';
+    noteEl.setAttribute('role', 'status');
+    text.append(noteEl);
+  }
+  const done = el('button', 'odone', 'בוצע');
+  done.type = 'button';
+  done.disabled = busy;
+  done.addEventListener('click', () => sendTaskDone(task.id));
+  row.append(el('span', 'd'), text, done);
+  return row;
+}
+
 // רשימת "פתוחות" (שלב 8.6-2, מפרט 60 סעיף 11 ותרחיש ד): כותרת ושורה לכל פריט, עם "בוצע". ריקה = אין צמתים.
 function openTasksNodes(spaced) {
   const list = Array.isArray(state.open_tasks) ? state.open_tasks : [];
@@ -885,32 +938,7 @@ function openTasksNodes(spaced) {
   if (spaced) head.style.paddingTop = '14px';
   head.append(el('span', 'dot'), el('span', 'exlbl', 'פתוחות'), el('span', 'excnt tnum', list.length));
   const nodes = [head];
-  for (const task of list) {
-    const busy = state.busy.has(task.id);
-    const row = el('div', 'mini openrow');
-    const text = el('span', 'ot');
-    text.append(el('span', 't', task.title ?? ''));
-    const due = dueLabel(task.due_at);
-    // הנחה, לא אומת: שורת הפרטים ("עד 22.10 · תמונה אחת"). המפרט קובע רק "תמונה אחת"; יותר מתמונה אחת (8.6-3 לא מאפשר) מוצג כמספר.
-    const meta = [];
-    if (due) meta.push('עד ' + due);
-    if (task.media_count === 1) meta.push('תמונה אחת');
-    else if (task.media_count > 1) meta.push(`${task.media_count} תמונות`);
-    if (meta.length > 0) text.append(el('span', 'om', meta.join(' · ')));
-    const note = state.notes.get(task.id);
-    if (note) {
-      const noteEl = el('span', 'om', note);
-      noteEl.style.color = 'var(--amber)';
-      noteEl.setAttribute('role', 'status');
-      text.append(noteEl);
-    }
-    const done = el('button', 'odone', 'בוצע');
-    done.type = 'button';
-    done.disabled = busy;
-    done.addEventListener('click', () => sendTaskDone(task.id));
-    row.append(el('span', 'd'), text, done);
-    nodes.push(row);
-  }
+  for (const task of list) nodes.push(openTaskRow(task, 'mini openrow'));
   return nodes;
 }
 
@@ -935,6 +963,12 @@ function validBrief(value) {
     school: typeof value.school === 'string' && value.school !== '' ? value.school : null,
     exams: Array.isArray(value.exams) ? value.exams.filter((line) => typeof line === 'string' && line !== '') : [],
     freeDay: value.freeDay === true,
+    // שדות מספריים/שעות מהשרת (מראה ב2): מספר שלם לא שלילי ושעה HH:MM, אחרת null. שרת ישן בלי השדות: null (הכרטיס חוזר לשורת school הטקסטואלית).
+    schoolLessons: Number.isInteger(value.schoolLessons) && value.schoolLessons >= 0 ? value.schoolLessons : null,
+    schoolStartsAt: typeof value.schoolStartsAt === 'string' && /^\d{2}:\d{2}$/.test(value.schoolStartsAt) ? value.schoolStartsAt : null,
+    schoolEndsAt: typeof value.schoolEndsAt === 'string' && /^\d{2}:\d{2}$/.test(value.schoolEndsAt) ? value.schoolEndsAt : null,
+    // true = יום לימודים, false = ידוע שאין בית ספר, null = לא ידוע (מערכת שעות חסרה, או שרת ישן בלי השדה).
+    schoolDay: value.schoolDay === true ? true : value.schoolDay === false ? false : null,
   };
 }
 
@@ -964,36 +998,77 @@ function cleanOldBriefKeys(dateIso) {
 const taskCountText = (count) => (count === 1 ? 'משימה אחת פתוחה' : `${count} משימות פתוחות`);
 const questionCountText = (count) => (count === 1 ? 'שאלה אחת ממתינה' : `${count} שאלות ממתינות`);
 
+// שעת הבריף הקבועה (הבריף מופיע מ-07:30 שעון ישראל; ההדמיה מציגה אותה בקצה שורת הכותרת של הגוש).
+const BRIEF_TIME_TEXT = '07:30';
+
+// הרשימה הפתוחה כפי שהכרטיס צריך אותה: המשימה הראשונה (לשורה בגוף) ותאריך היעד הקרוב ביותר (לכיתוב מתחת למספר). הכול מ-state.open_tasks, כך ש"בוצע" מעדכן מיד.
+function nearestDueLabel(tasks) {
+  let best = null;
+  for (const task of tasks) {
+    const at = task.due_at ? new Date(task.due_at) : null;
+    if (!at || Number.isNaN(at.getTime())) continue;
+    if (best === null || at < best) best = at;
+  }
+  const label = best ? dueLabel(best.toISOString()) : '';
+  return label ? 'עד ' + label : '';
+}
+
+// מספר גדול עם כיתוב לידו ושורה קטנה מתחתיו (ההדמיה: .num). sub=null: בלי שורה.
+function bfNumber(count, unit, sub, ltr) {
+  const num = el('span', 'bfnum');
+  num.append(el('span', 'bfn tnum', count), el('span', 'bfu', unit));
+  if (sub) num.append(el('span', ltr ? 'bfs bfltr tnum' : 'bfs', sub));
+  return num;
+}
+
 // הכרטיס, או null כשאין (אין brief, או שיובל לחץ "ראיתי" היום). הטקסט נכנס רק דרך textContent (el).
+// מבנה (מראה ב2): גוש ירוק שהוא כפתור הפתיחה למסך המלא, וגוף על משטח הכרטיס עם המשימה הראשונה ו"ראיתי". יום לימודים/יום פנוי נקבע מ-brief.school (null = אין יום לימודים), בלי לפרסר את הטקסט.
 function briefCard() {
   const brief = state.brief;
   if (!brief || briefIsSeen(brief.dateIso)) return null;
-  const openCount = Array.isArray(state.open_tasks) ? state.open_tasks.length : 0;
+  const tasks = Array.isArray(state.open_tasks) ? state.open_tasks : [];
+  const openCount = tasks.length;
   const questionCount = state.pending.filter((question) => !state.dismissed.has(question.id)).length;
+  const schoolDay = brief.school !== null;
 
-  const row = el('div', 'mini openrow bfcard');
-  const open = el('button', 'bfopen ot');
-  open.type = 'button';
-  open.setAttribute('aria-label', 'פתח את הבריף המלא');
-  open.append(el('span', 't', brief.title));
-  if (brief.school) open.append(el('span', 'om', brief.school));
-  else if (brief.freeDay && openCount === 0 && questionCount === 0 && brief.exams.length === 0) open.append(el('span', 'om', FREE_DAY_TEXT));
-  for (const examLine of brief.exams) open.append(el('span', 'om', examLine));
-  const counts = [];
-  if (openCount > 0) counts.push(taskCountText(openCount));
-  if (questionCount > 0) counts.push(questionCountText(questionCount));
-  if (counts.length > 0) open.append(el('span', 'om', counts.join(' · ')));
-  open.addEventListener('click', openBrief);
+  const card = el('div', 'bfcard bf2');
+  const block = el('button', 'bfopen bfblock');
+  block.type = 'button';
+  block.setAttribute('aria-label', 'פתח את הבריף המלא');
+  const top = el('span', 'bftop');
+  top.append(el('span', '', 'הבריף של היום'), el('time', 'bftime tnum', BRIEF_TIME_TEXT));
+  // "יום פנוי" רק כשהשרת יודע שאין בית ספר (schoolDay === false). לא ידוע (מערכת שעות חסרה) או שרת ישן בלי השדה: יום לימודים אם יש שורת school, אחרת כותרת הבריף עצמה, בלי טענה שאין מקור לה.
+  const headText = typeof brief.schoolDay === 'boolean' ? (brief.schoolDay ? 'יום לימודים' : 'יום פנוי')
+    : schoolDay ? 'יום לימודים' : brief.freeDay ? 'יום פנוי' : brief.title;
+  block.append(top, el('span', 'bfhead', headText));
 
-  const seen = el('button', 'odone', 'ראיתי');
+  const nums = el('span', 'bfnums');
+  if (schoolDay && brief.schoolLessons !== null) {
+    const hours = brief.schoolStartsAt && brief.schoolEndsAt ? `${brief.schoolStartsAt}–${brief.schoolEndsAt}` : '';
+    nums.append(bfNumber(brief.schoolLessons, brief.schoolLessons === 1 ? 'שיעור' : 'שיעורים', hours, true));
+  }
+  if (openCount > 0) nums.append(bfNumber(openCount, openCount === 1 ? 'משימה' : 'משימות', nearestDueLabel(tasks), false));
+  if (nums.childNodes.length > 0) block.append(nums);
+  // שרת ישן (בלי שדות המספרים): שורת school הטקסטואלית כמו לפני המראה ב2. יום פנוי בלי כלום: שורת FREE_DAY_TEXT.
+  if (schoolDay && brief.schoolLessons === null) block.append(el('span', 'bfline', brief.school));
+  else if (!schoolDay && brief.freeDay && openCount === 0 && questionCount === 0 && brief.exams.length === 0) block.append(el('span', 'bfline', FREE_DAY_TEXT));
+  for (const examLine of brief.exams) block.append(el('span', 'bfline', examLine));
+  if (questionCount > 0) block.append(el('span', 'bfline', questionCountText(questionCount)));
+  block.addEventListener('click', openBrief);
+  card.append(block);
+
+  const body = el('div', 'bfbody');
+  if (openCount > 0) body.append(openTaskRow(tasks[0], 'bftask openrow'));
+  const seen = el('button', 'bfseen', 'ראיתי');
   seen.type = 'button';
   seen.addEventListener('click', () => {
     markBriefSeen(brief.dateIso);
     if (state.bfOpen) closeBrief();
     renderPending();
   });
-  row.append(el('span', 'd'), open, seen);
-  return row;
+  body.append(seen);
+  card.append(body);
+  return card;
 }
 
 function renderBriefScreen() {
@@ -1036,10 +1111,10 @@ function renderPending() {
   }
   pinEl.hidden = false;
   if (list.length === 0) {
-    // בלי שאלות פתוחות: הפס של סיכום היום (אם יש) ורשימת הפתוחות (אם יש).
+    // בלי שאלות פתוחות: הפס של סיכום היום (אם יש) ורשימת הפתוחות (אם יש, ולא כשהכרטיס מוצג: המשימות בתוכו).
     state.stackOpen = false;
     pinEl.classList.remove('expanded');
-    pinEl.replaceChildren(...(hasBrief ? [briefNode] : []), ...(hasReview ? [reviewStrip()] : []), ...openTasksNodes(hasReview || hasBrief));
+    pinEl.replaceChildren(...(hasBrief ? [briefNode] : []), ...(hasReview ? [reviewStrip()] : []), ...(hasBrief ? [] : openTasksNodes(hasReview)));
     return;
   }
   const current = list.find((q) => q.id === state.focusId) ?? list[0];
@@ -1083,7 +1158,7 @@ function renderPending() {
     }
   }
   if (hasReview) nodes.push(reviewStrip()); // מתחת לכרטיסי השאלות (57, תרחיש א)
-  if (hasOpen) nodes.push(...openTasksNodes(true)); // רשימת "פתוחות" מתחת לכרטיסים ולפס הסיכום (60 סעיף 11)
+  if (hasOpen && !hasBrief) nodes.push(...openTasksNodes(true)); // רשימת "פתוחות" מתחת לכרטיסים ולפס הסיכום (60 סעיף 11); כל עוד כרטיס הבריף מוצג המשימות בתוכו, ואחרי "ראיתי" הרשימה חוזרת
   pinEl.replaceChildren(...nodes);
 }
 

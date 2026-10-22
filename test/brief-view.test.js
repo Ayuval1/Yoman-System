@@ -311,6 +311,39 @@ describe('brief-view: briefCardData (כרטיס הבריף החי)', () => {
     assert.equal(briefCardData({ now: at('2026-10-25T04:30:00.000Z'), timetable: TIMETABLE }), null);
   });
 
+  test('שדות מספריים: יום לימודים (26.10, יום מבחן) = 9 שיעורים 08:15–15:45, והמבחן לא משפיע עליהם', () => {
+    const card = briefCardData({ now: MON_0730, timetable: TIMETABLE });
+    assert.equal(card.schoolLessons, 9);
+    assert.equal(card.schoolStartsAt, '08:15');
+    assert.equal(card.schoolEndsAt, '15:45');
+    assert.equal(card.exams.length, 1);
+  });
+
+  test('שדות מספריים: שבת, חופשה ומערכת שעות חסרה = שלושת השדות null', () => {
+    const cards = [
+      briefCardData({ now: at('2026-10-24T04:30:00.000Z'), timetable: TIMETABLE }), // שבת
+      briefCardData({ now: at('2026-12-08T05:30:00.000Z'), timetable: TIMETABLE }), // חופשה
+      briefCardData({ now: MON_0730, timetable: null }),
+    ];
+    for (const card of cards) {
+      assert.equal(card.schoolLessons, null);
+      assert.equal(card.schoolStartsAt, null);
+      assert.equal(card.schoolEndsAt, null);
+    }
+  });
+
+  test('schoolDay: יום לימודים true, שבת וחופשה (עם מערכת שעות) false, מערכת שעות חסרה null (אי אפשר לטעון "יום פנוי" בלי מקור), גם עם משימות', () => {
+    assert.equal(briefCardData({ now: MON_0730, timetable: TIMETABLE }).schoolDay, true);
+    assert.equal(briefCardData({ now: at('2026-10-24T04:30:00.000Z'), timetable: TIMETABLE }).schoolDay, false);
+    assert.equal(briefCardData({ now: at('2026-12-08T05:30:00.000Z'), timetable: TIMETABLE }).schoolDay, false);
+    const noTable = briefCardData({ now: MON_0730, timetable: null });
+    assert.equal(noTable.schoolDay, null);
+    assert.equal(noTable.freeDay, false);
+    const withTasks = briefCardData({ now: at('2026-10-24T04:30:00.000Z'), timetable: TIMETABLE, tasks: [{ title: 'משימה', due_at: null }] });
+    assert.equal(withTasks.schoolDay, false);
+    assert.equal(withTasks.freeDay, false, 'freeDay לבדו לא מספיק: הוא false כשיש משימות');
+  });
+
   test('now לא תקין זורק RangeError (הקורא, api/chat.js, עוטף)', () => {
     assert.throws(() => briefCardData({ now: new Date(NaN), timetable: TIMETABLE }), RangeError);
   });
