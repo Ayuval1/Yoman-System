@@ -361,7 +361,7 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     // כל טוקן --bf-* שהדף משתמש בו מוגדר ב-tokens.css
     const tokens = readFileSync(new URL('../public/tokens.css', import.meta.url), 'utf8');
     for (const name of new Set(css.match(/--bf-[a-z]+/g) ?? [])) {
-      assert.match(tokens, new RegExp(`${name}:\\s*(#|rgba?\\()`), `${name} חסר ב-tokens.css`);
+      assert.match(tokens, new RegExp(`${name}:\\s*(#|rgba?\\(|var\\(--)`), `${name} חסר ב-tokens.css`);
     }
   });
 
