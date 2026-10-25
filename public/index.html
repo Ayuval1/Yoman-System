@@ -584,7 +584,7 @@ const state = {
   drafts: new Map(),    // id שאלה -> מה שהוקלד בתיבה שבכרטיס, כדי שלא יימחק ברענון
   busy: new Set(),      // שאלות שתשובה עליהן בדרך: הכפתורים נעולים
   expanded: new Set(),  // בועות ארוכות שנפתחו ב"עוד ›"
-  review: { total: 0, items: [] }, // סיכום היום (M.2): הממתינים לסימון, כפי שהשרת החזיר
+  review: { total: 0, items: [], examLine: null }, // סיכום היום (M.2): הממתינים לסימון, כפי שהשרת החזיר; examLine = שורת המבחן של הערב (B-3, 68 D11)
   rvOpen: false,        // המסך המלא פתוח
   rvRows: [],           // השורות שמוצגות בו: הממתינים, ועוד מה שסומן בזמן שהוא פתוח (נעלם בסגירה או ברענון)
   rvMarks: new Map(),   // outcome_id -> { verdict, event_type } של הסימון האחרון בזמן שהמסך פתוח
@@ -1104,7 +1104,7 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && 
 function renderPending() {
   // שאלות שיעורי בית שיובל סגר ב"סגור" (בלי כפתור תאריך) מוסתרות בדף בלבד.
   const list = state.pending.filter((question) => !state.dismissed.has(question.id));
-  const hasReview = state.review.total > 0;
+  const hasReview = state.review.total > 0 || Boolean(state.review.examLine); // B-3 (68 D11): הפס מופיע גם בלי הודעות לסימון כשיש מבחן מחר
   const hasOpen = Array.isArray(state.open_tasks) && state.open_tasks.length > 0;
   const briefNode = briefCard(); // כרטיס הבריף החי: ראשון באזור הנעוץ, מעל השאלות, פס הסיכום ורשימת הפתוחות
   const hasBrief = briefNode !== null;
@@ -1183,9 +1183,15 @@ function reviewStrip() {
   const row = el('button', 'mini');
   row.type = 'button';
   // הנחה, לא אומת: ביחיד "הודעה אחת ממתינה לסימון" (57 כותב רק את הרבים).
-  const label = total === 1 ? 'סיכום היום · הודעה אחת ממתינה לסימון' : `סיכום היום · ${total} הודעות ממתינות לסימון`;
-  row.append(el('span', 'd'), el('span', 't', label), el('span', 'ch', '‹'));
-  row.addEventListener('click', openReview);
+  const reviewLabel = total === 1 ? 'סיכום היום · הודעה אחת ממתינה לסימון' : `סיכום היום · ${total} הודעות ממתינות לסימון`;
+  const examLine = state.review.examLine;
+  // B-3 (68 D11): רק מבחן = שורת המבחן; מבחן והודעות = "<שורת המבחן> · <התווית הקיימת>". בלי הודעות אין מה לסמן, ולכן אין חץ ואין פתיחה של המסך המלא.
+  const label = !examLine ? reviewLabel : total > 0 ? `${examLine} · ${reviewLabel}` : examLine;
+  row.append(el('span', 'd'), el('span', 't', label));
+  if (total > 0) {
+    row.append(el('span', 'ch', '‹'));
+    row.addEventListener('click', openReview);
+  }
   return row;
 }
 
@@ -1214,7 +1220,8 @@ document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && 
 // מקבל review מהשרת (GET או תשובת check). בזמן שהמסך פתוח: שורות שסומנו נשארות, ושורות חדשות מצטרפות בסוף.
 function applyReview(review) {
   const items = Array.isArray(review?.items) ? review.items : [];
-  state.review = { total: Number.isFinite(review?.total) ? review.total : items.length, items };
+  const examLine = typeof review?.exam_line === 'string' && review.exam_line !== '' ? review.exam_line : null; // B-3
+  state.review = { total: Number.isFinite(review?.total) ? review.total : items.length, items, examLine };
   if (!state.rvOpen) return;
   const fresh = new Map(items.map((item) => [item.outcome_id, item]));
   const kept = [];
@@ -1290,6 +1297,11 @@ function renderReview() {
   if (!state.rvOpen) return;
   const scroll = rvBodyEl.scrollTop;
   const nodes = [];
+  if (state.review.examLine) { // B-3: שורת המבחן בראש המסך (textContent דרך el)
+    const examRow = el('div', 'rvrow');
+    examRow.append(el('p', 'txt', state.review.examLine));
+    nodes.push(examRow);
+  }
   if (state.review.total === 0) nodes.push(el('p', 'rvempty', 'אין עוד הודעות לסימון'));
   for (const [view, title] of [['missed', 'לא נתפסו'], ['recorded', 'נרשמו']]) {
     const rows = state.rvRows.filter((item) => item.view === view);

@@ -290,7 +290,7 @@ describe('queue-deliver: משבצת close והתראת הסיכום (קריטר�
     return handle;
   };
   const writesTo = (sql, probe) => sql.calls.filter((c) => c.text.includes('INSERT INTO probe_log') && c.text.includes(`'${probe}'`));
-  const run = (sql, push, extra = {}) => handleDelivery(CLOSE, { deliveryCount: 1 }, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON, ...extra });
+  const run = (sql, push, extra = {}) => handleDelivery(CLOSE, { deliveryCount: 1 }, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON, timetable: null, ...extra }); // B-3: timetable מוזרק (null), כדי שטעינת מערכת השעות לא תוסיף שורות לקונסול
 
   test('יש הודעות לסימון: שורת message-slot קודם (ללא שינוי), ואז דחיפה אחת עם הנוסח הקבוע, app_badge מלא ו-dedupe_key של המשבצת, ורישום chat-notify', async () => {
     const sql = db();
@@ -304,7 +304,7 @@ describe('queue-deliver: משבצת close והתראת הסיכום (קריטר�
     const [notifyWrite] = writesTo(sql, 'chat-notify');
     assert.match(notifyWrite.text, /SELECT 'chat-notify', \?, \? WHERE NOT EXISTS \(SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE \?\)/);
     assert.equal(notifyWrite.values[0], true);
-    assert.equal(notifyWrite.values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1; badge=2; sent=true`);
+    assert.equal(notifyWrite.values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1; exam=0; badge=2; sent=true`); // B-3: נוסף exam=0
     assert.equal(notifyWrite.values[2], `slot=${CLOSE.slotKey};%`);
     assert.ok(sql.calls.indexOf(notifyWrite) > 0);
   });
@@ -379,6 +379,37 @@ describe('queue-deliver: משבצת close והתראת הסיכום (קריטר�
     assert.equal(out.stored, true);
     assert.deepEqual(cap.lines, ['queue-deliver: רישום התראת הסיכום נכשל: NeonDbError']);
     assert.ok(!cap.text().includes(SECRET_TEXT));
+  });
+  // B-3 (68 D11, D12): משבצת close של 25.10.2026 (21:00 ישראל אחרי מעבר השעון = 19:00Z), מבחן מחר ב-26.10.
+  const CLOSE_EXAM = { kind: 'close', slotKey: 'close-2026-10-25', targetAt: '2026-10-25T19:00:00.000Z' };
+  const runExam = (sql, push, extra = {}) => handleDelivery(CLOSE_EXAM, { deliveryCount: 1 }, { sql, now: () => new Date('2026-10-25T19:00:00.900Z'), pushHandle: push, secret: FAKE_CRON, ...extra });
+  test('B-3: מבחן מחר ובלי הודעות לסימון: דחיפה נשלחת עם שורת המבחן, ו-probe_log כולל exam=1 (בלי טקסט)', async () => {
+    const sql = db({ due: [] });
+    const push = fakePush();
+    const timetable = { slots: [{ weekday: 2, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'מתמטיקה', teacher: null, room: null }] };
+    const out = await runExam(sql, push, { timetable });
+    assert.equal(out.ok, true);
+    assert.equal(push.seen.length, 1);
+    assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה ב-10:05');
+    const [notifyWrite] = writesTo(sql, 'chat-notify');
+    assert.equal(notifyWrite.values[0], true);
+    assert.match(notifyWrite.values[1], /; exam=1; badge=1; sent=true$/);
+    assert.ok(!notifyWrite.values[1].includes('מבחן'), 'ב-probe_log אין טקסט השורה');
+  });
+  test('B-3: מבחן מחר והודעות לסימון: הנוסח המשולב', async () => {
+    const push = fakePush();
+    const inWindow = { recorded_at: new Date('2026-10-25T10:00:00Z'), received_at: new Date('2026-10-25T09:59:00Z') }; // בתוך חלון הסיכום של 25.10
+    await runExam(db({ due: [reviewRow(1, inWindow), reviewRow(2, inWindow)] }), push, { timetable: null });
+    assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה · סיכום היום מחכה לסימון');
+  });
+  test('B-3: כשל בטעינת מערכת השעות לא זורק: השורה בלי שעה, הדחיפה נשלחת, exam=1', async (t) => {
+    captureConsole(t);
+    const sql = db({ due: [], failOn: 'FROM timetable_slots' });
+    const push = fakePush();
+    const out = await runExam(sql, push); // timetable לא מוזרק: נטען מהמסד וקורס
+    assert.equal(out.stored, true);
+    assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה');
+    assert.match(writesTo(sql, 'chat-notify')[0].values[1], /; exam=1; /);
   });
   test('כשל בכתיבת message-slot עצמה עדיין נזרק (ניסיון חוזר של התור), ולא נשלחת התראה', async () => {
     const sql = db({ failOn: "SELECT 'message-slot'" });

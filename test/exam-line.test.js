@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { examsOnDate, examsToday, examsTomorrow, examTime, EXAMS } from '../lib/exam-line.js';
+import { examsOnDate, examsToday, examsTomorrow, examTime, examLineAt, EXAMS } from '../lib/exam-line.js';
 import { parseTimetableMarkdown } from '../lib/timetable.js';
 
 const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8'));
@@ -69,4 +69,44 @@ describe('exam-line: התאמת מקצוע (H14)', () => {
     const exams = [{ date: MONDAY, type: 'מבחן', subject: 'פיזיקה', makeup: false }, { date: MONDAY, type: "מועד ב'", subject: null, makeup: true }];
     assert.deepEqual(examsOnDate(MONDAY, { timetable: TIMETABLE, exams }).map((exam) => exam.text), ['מבחן בפיזיקה ב-13:30']);
   });
+});
+
+// שורת המבחן של הערב (B-3, 68 D11, D12). השעות בישראל; 25.10.2026 הוא יום מעבר השעון לחורף (02:00 -> 01:00), ואחריו ישראל ב-UTC+2.
+describe('exam-line: examLineAt (B-3)', () => {
+  const line = (iso, options = { timetable: TIMETABLE }) => examLineAt(new Date(iso), options);
+  test('ערב לפני המבחן: 25.10 21:30 ישראל (UTC+2 אחרי המעבר = 19:30Z) -> שורה עם שעה', () => {
+    assert.equal(line('2026-10-25T19:30:00Z'), 'מחר: מבחן במתמטיקה ב-10:05');
+  });
+  test('01:00 אחרי חצות של יום המבחן (26.10 01:00 ישראל = 23:00Z ב-25.10): עדיין מבחן אותו יום (D11)', () => {
+    assert.equal(line('2026-10-25T23:00:00Z'), 'מחר: מבחן במתמטיקה ב-10:05');
+  });
+  test('גבולות החלון: 21:00 בפנים, 20:59 בחוץ, 05:59 בפנים, 06:00 ו-06:01 בחוץ', () => {
+    assert.ok(line('2026-10-25T19:00:00Z'), '21:00 בפנים');
+    assert.equal(line('2026-10-25T18:59:00Z'), null, '20:59');
+    assert.ok(line('2026-10-26T03:59:00Z'), '05:59 בפנים');
+    assert.equal(line('2026-10-26T04:00:00Z'), null, '06:00');
+    assert.equal(line('2026-10-26T04:01:00Z'), null, '06:01');
+  });
+  test('מחוץ לחלון ביום שיש בו מבחן אחר: צהריים לפני המבחן בלי שורה', () => {
+    assert.equal(line('2026-10-25T10:00:00Z'), null);
+  });
+  test('אין מבחן מחר: null (26.10 21:30 ישראל, מחר 27.10 ריק)', () => assert.equal(line('2026-10-26T19:30:00Z'), null));
+  test("\"מועד ב'\" אינו מוצג: 20.10 21:30 ישראל (UTC+3 = 18:30Z) והמחר 21.10 הוא מועד ב' בלבד", () => {
+    assert.equal(line('2026-10-20T18:30:00Z'), null);
+  });
+  test('"מדעים" בלי פירוט: "<סוג> במדעים" בלי שעה (19.10 21:30 -> מבדק 20.10)', () => {
+    assert.equal(line('2026-10-19T18:30:00Z'), 'מחר: מבדק במדעים');
+  });
+  test('בלי מערכת שעות: השורה בלי שעה', () => {
+    assert.equal(line('2026-10-25T19:30:00Z', { timetable: null }), 'מחר: מבחן במתמטיקה');
+    assert.equal(examLineAt(new Date('2026-10-25T19:30:00Z')), 'מחר: מבחן במתמטיקה');
+  });
+  test('אחרי 29.10 ובדצמבר השורה עדיין מוצגת: 20.12 21:30 ישראל -> 21.12 אזרחות', () => {
+    assert.equal(line('2026-12-20T19:30:00Z'), 'מחר: מבחן באזרחות');
+  });
+  test('כמה מבחנים באותו יום: מחוברים ב-" · " (הצעה)', () => {
+    const exams = [{ date: '2026-10-26', type: 'מבחן', subject: 'פיזיקה', makeup: false }, { date: '2026-10-26', type: 'מבדק', subject: 'אנגלית', makeup: false }];
+    assert.equal(line('2026-10-25T19:30:00Z', { timetable: null, exams }), 'מחר: מבחן בפיזיקה · מבדק באנגלית');
+  });
+  test('גבול חודש: 30.11 21:30 ישראל -> 1.12 מדעים', () => assert.equal(line('2026-11-30T19:30:00Z'), 'מחר: מבחן במדעים'));
 });

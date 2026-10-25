@@ -1,7 +1,7 @@
 // נקודת הצ'אט (שלב 8.2א-1). מקור: docs/08-chapter8/47-chapter8-step-8-2a-spec.md, "החוזה של נקודת הצ'אט החדשה"; 35, D1-D4 ו"גבולות" (chat.js אושר ב-8.2א).
 // הצרכן היחיד: דף האפליקציה (שלב 8.2א-2). הודעה חדשה שיובל מקליד לא נשלחת לכאן אלא ל-api/intake.js עם channel=app.
 //
-//   GET                                               -> { items, pending, badge, review }   (review = סיכום היום, M.2: { total, items }; ראו lib/review-view.js ו-57)
+//   GET                                               -> { items, pending, badge, review }   (review = סיכום היום, M.2: { total, items, exam_line }; exam_line = שורת מבחן של הערב (B-3) או null; ראו lib/review-view.js ו-57)
 //   POST { action: 'answer', message_id, answer }     -> { status, items, pending, badge }   (items = רק מה שנוצר בתשובה הזו)
 //   POST { action: 'read', message_ids }              -> { badge }                          (מסמן רק בועות update יוצאות שלא נקראו, מתוך המזהים שנשלחו)
 //   POST { action: 'check', outcome_id, verdict, event_type? } -> { status: 'checked' | 'closed', review, badge }   (M.2: שורה אחת ב-intake_checks; closed = לא ניתן לסימון עכשיו, לא נכתב דבר)
@@ -21,6 +21,7 @@ import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
+import { examLineAt } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 
 const SECRET_HEADER = 'x-intake-secret';
@@ -120,6 +121,25 @@ async function buildBrief({ sql, timetable, tasks, pending, now }) {
   }
 }
 
+// סיכום היום + שורת המבחן של הערב (B-3, PRD 68 D11): review = { total, items, exam_line }. exam_line = examLineAt (מחרוזת או null).
+// לא משנה את badge: שורת מבחן בלי הודעות אינה נספרת באייקון. לא זורק על חלק השורה: כל כשל (מערכת שעות, חישוב) = exam_line: null או שורה בלי שעה.
+async function reviewWithExamLine(sql, timetable, now) {
+  const review = await loadReview(sql, now);
+  let table = null;
+  try {
+    table = timetable === undefined ? await loadTimetable(sql) : timetable; // loadTimetable לא זורק: כשל = null (בלי שעה)
+  } catch {
+    table = null;
+  }
+  let examLine = null;
+  try {
+    examLine = examLineAt(now, { timetable: table });
+  } catch (error) {
+    console.error('chat: חישוב שורת המבחן נכשל:', error?.name);
+  }
+  return { ...review, exam_line: examLine };
+}
+
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
 export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date() } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
@@ -147,7 +167,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     if (action === null) {
       const items = await loadItems(sql);
       const pending = await loadPending(sql, timetable, now());
-      const review = await loadReview(sql, now());
+      const review = await reviewWithExamLine(sql, timetable, now());
       const badge = await loadBadge(sql, now());
       const openTasks = await loadOpenTasks(sql);
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
@@ -160,7 +180,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     if (action.action === 'check') {
       // פקודת כתיבה אחת (או כלום). closed = ה-outcome אינו ניתן לסימון עכשיו (פקע, חדש מדי, כפילות, תצוגה אחרת, נציג אחר או לא קיים). 57 T6.
       const written = await writeCheck(sql, { outcomeId: action.outcomeId, verdict: action.verdict, eventType: action.eventType }, now());
-      const review = await loadReview(sql, now());
+      const review = await reviewWithExamLine(sql, timetable, now());
       const badge = await loadBadge(sql, now());
       return json({ status: written ? 'checked' : 'closed', review, badge });
     }

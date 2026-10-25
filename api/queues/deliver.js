@@ -12,6 +12,7 @@ import { sendChatNotification, sendReviewNotification, sendBriefNotification } f
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTimetable } from '../../lib/timetable.js';
+import { examLineAt } from '../../lib/exam-line.js';
 import { sequenceFromKey } from '../../lib/homework-schedule.js';
 import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
 
@@ -55,7 +56,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   `;
   // M.2 (57 T10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), התראה אחת על סיכום היום. הזמן לספירה הוא targetAt (21:00 של המשבצת), לא רגע ההגעה.
   // כל כשל כאן (ספירה, דחיפה, רישום) נתפס ולא נזרק: זריקה הייתה גורמת לניסיון חוזר של התור, והשורה הקיימת כבר נכתבה.
-  if (parsed.kind === 'close') await notifyReview({ sql, parsed, detail, ok, pushHandle, secret });
+  if (parsed.kind === 'close') await notifyReview({ sql, parsed, detail, ok, pushHandle, secret, timetable });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
@@ -194,16 +195,27 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
 }
 
 // התראת סיכום היום במשבצת close. נרשמת ב-probe_log כ-chat-notify (שורה אחת למשבצת). לא זורקת אף פעם.
-async function notifyReview({ sql, parsed, detail, ok, pushHandle, secret }) {
+// B-3 (68 D11, D12): שורת המבחן של הערב (examLineAt, לפי targetAt = 21:00 של המשבצת) מועברת להתראה; יש מבחן מחר = התראה גם בלי הודעות לסימון.
+// מערכת השעות: הזרקה (בדיקות) או loadTimetable (לא זורקת; null = בלי שעה). ב-probe_log נרשם exam=1/0 בלבד, בלי טקסט.
+async function notifyReview({ sql, parsed, detail, ok, pushHandle, secret, timetable }) {
   let outcome;
+  let examLine = null;
   try {
-    outcome = await sendReviewNotification({ sql, slotKey: parsed.slotKey, now: new Date(parsed.targetAt), pushHandle, secret });
+    const targetAt = new Date(parsed.targetAt);
+    const table = timetable === undefined ? await loadTimetable(sql) : timetable;
+    examLine = examLineAt(targetAt, { timetable: table });
+  } catch (error) {
+    console.error('queue-deliver: חישוב שורת המבחן נכשל:', error?.name); // רק שם השגיאה
+    examLine = null;
+  }
+  try {
+    outcome = await sendReviewNotification({ sql, slotKey: parsed.slotKey, now: new Date(parsed.targetAt), pushHandle, secret, examLine });
   } catch (error) {
     console.error('queue-deliver: התראת הסיכום נכשלה:', error?.name); // רק שם השגיאה
     outcome = { sent: false, reason: 'error', badge: null };
   }
   const sentOk = outcome.sent || outcome.reason === 'review-zero'; // "אין הודעות לסימון" תקין; כשל בדחיפה, סוד חסר או שגיאה אינם
-  const reviewDetail = `${detail}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  const reviewDetail = `${detail}; exam=${examLine ? 1 : 0}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
   try {
     await sql`
       INSERT INTO probe_log (probe, ok, detail)
