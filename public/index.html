@@ -184,7 +184,7 @@
 
   /* ---------- כרטיס הבריף: המראה k1 (שונה 25.10.2026 מהגוש הירוק ב2; הדמיות docs/04-design/80 (מסגרת d1) ו-81 (k1); 03-design-rules "כרטיס הבריף היומי: המראה") ----------
      כרטיס אחד: הגוש (.bfblock) שקוף והוא אזור הלחיצה למסך המלא, בו שני אריחים (.bfnum) עם מספר מעל הכיתוב, ומתחתיו גוף עם שורות משימה (.bfbody) ו"ראיתי".
-     הצבעים מטוקני --bf-* (tokens.css), שמפנים לטוקנים הקיימים של האפליקציה: הכרטיס כהה כמו האפליקציה במצב כהה (יובל, 25.10, אחרי שראה את k1 הבהיר על האייפון). לא אומת על מכשיר.
+     הצבעים מטוקני --bf-* (tokens.css): פלטת ק2 "גרפיט" מהדמיה 81 (יובל, 25.10, אחרי שהראה צילום שלה ואמר "רציתי ככה"). לא אומת על מכשיר.
      הפניה ישנה: ב2 מ-22.10 (docs/04-design/76-brief-card-mockups.html). */
   .bfcard.bf2 { background: var(--bf-bg); color: var(--bf-fg); border-radius: var(--r-card1); overflow: hidden; box-shadow: var(--sh-card1); }
   .bfblock {
@@ -192,6 +192,7 @@
     background: transparent; color: inherit; padding: 16px 20px 20px;
   }
   .bftop { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--bf-dim); }
+  .bftop::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bf-btnfg); flex: none; } /* הנקודה הירוקה שבהדמיה 81 (ק2) */
   .bftop .bftime { margin-inline-start: auto; }
   .bfhead { font-size: 30px; line-height: 1.1; font-weight: var(--fw-bold); }
   .bfnums { display: flex; gap: 10px; align-items: stretch; }
