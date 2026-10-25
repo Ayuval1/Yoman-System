@@ -978,7 +978,13 @@ function validBrief(value) {
 
 const briefSeenKey = (dateIso) => BRIEF_SEEN_PREFIX + dateIso;
 
+// מתג בדיקה חד-פעמי (יובל, 25.10): כתובת עם ?showbrief=1 מציגה את הכרטיס גם אחרי "ראיתי". לא נשמר דבר; בכניסה רגילה אין שינוי.
+function briefPreviewOn() {
+  try { return new URLSearchParams(location.search).get('showbrief') === '1'; } catch { return false; }
+}
+
 function briefIsSeen(dateIso) {
+  if (briefPreviewOn()) return false;
   if (state.briefSeen === dateIso) return true;
   try { return localStorage.getItem(briefSeenKey(dateIso)) === '1'; } catch { return false; }
 }
