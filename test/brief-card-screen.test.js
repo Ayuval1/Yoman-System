@@ -70,7 +70,6 @@ describe('public/index.html: כרטיס הבריף החי', () => {
       const BRIEF_SEEN_PREFIX = 'brief-seen-';
       ${constLine('briefSeenKey')}
       const localStorage = { getItem() { throw new Error('חסום'); }, setItem() { throw new Error('חסום'); } };
-      ${bodyOf('briefPreviewOn')}
       ${bodyOf('briefIsSeen')}
       ${bodyOf('markBriefSeen')}
       const before = briefIsSeen('2026-10-21');
@@ -187,7 +186,7 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     find(name) { const out = []; const walk = (node) => { if (node.hasClass(name)) out.push(node); node.childNodes.forEach(walk); }; walk(this); return out; }
     collect() { return [this.textContent, ...this.childNodes.flatMap((node) => node.collect())].filter((text) => text !== ''); }
   }
-  function makeCardEnv(stateInit, search) {
+  function makeCardEnv(stateInit) {
     const state = { brief: null, open_tasks: [], pending: [], dismissed: new Set(), busy: new Set(), notes: new Map(), briefSeen: null, bfOpen: false, review: { total: 0, items: [] }, stackOpen: false, focusId: null, ...stateInit };
     const calls = { openBrief: 0, done: [] };
     const pinEl = { hidden: true, classList: { remove() {}, toggle() {} }, children: [], replaceChildren(...nodes) { this.children = nodes; } };
@@ -200,7 +199,6 @@ describe('public/index.html: כרטיס הבריף החי', () => {
       ${constLine('questionCountText')}
       ${bodyOf('el')}
       ${bodyOf('dueLabel')}
-      ${bodyOf('briefPreviewOn')}
       ${bodyOf('briefIsSeen')}
       ${bodyOf('markBriefSeen')}
       ${bodyOf('openTaskRow')}
@@ -219,9 +217,6 @@ describe('public/index.html: כרטיס הבריף החי', () => {
       reviewStrip: () => new FakeNode('review'),
       cardFor: () => new FakeNode('qcard'),
     };
-    // vm חדש לא מכיר את הגלובלים של הדפדפן: URLSearchParams מוסיפים כאן, כמו Intl
-    ctx.URLSearchParams = URLSearchParams;
-    if (search !== undefined) ctx.location = { search };
     const api = vm.runInNewContext(code, ctx);
     return { state, pinEl, calls, ...api };
   }
@@ -340,14 +335,10 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     assert.equal(env.briefCard(), null);
   });
 
-  test('מתג בדיקה ?showbrief=1: אחרי "ראיתי" הכרטיס מוסתר, ועם המתג מוצג; ערך אחר או בלי location לא משנה', () => {
+  test('אחרי "ראיתי" הכרטיס מוסתר, גם אם כתובת הדף כוללת ?showbrief=1 (המתג הוסר)', () => {
     const seen = { brief: SCHOOL, open_tasks: [TASK], briefSeen: SCHOOL.dateIso };
-    assert.equal(makeCardEnv(seen).briefCard(), null, 'בלי location: מוסתר');
-    assert.equal(makeCardEnv(seen, '').briefCard(), null, 'בלי פרמטר: מוסתר');
-    assert.equal(makeCardEnv(seen, '?showbrief=0').briefCard(), null, 'ערך אחר: מוסתר');
-    assert.ok(makeCardEnv(seen, '?showbrief=1').briefCard(), 'עם המתג: מוצג');
-    assert.ok(makeCardEnv(seen, '?x=2&showbrief=1').briefCard(), 'המתג בין פרמטרים: מוצג');
-    assert.equal(makeCardEnv({ brief: null }, '?showbrief=1').briefCard(), null, 'בלי brief אין מה להציג גם עם המתג');
+    assert.equal(makeCardEnv(seen).briefCard(), null);
+    assert.ok(!/showbrief|briefPreviewOn/.test(html), 'אין שריד של המתג בדף');
   });
 
   test('CSS של k1 (25.10): כרטיס בהיר מטוקני --bf-*, אריחים עם מספר מעל הכיתוב, מספרים 40px וכותרת 30px, בלי צבע קבוע', () => {
