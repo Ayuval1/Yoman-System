@@ -376,3 +376,60 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     assert.doesNotMatch(read('../lib/review-view.js'), /briefCard|state\.brief/);
   });
 });
+
+// שורת המבחן בפס "סיכום היום" (B-3, docs/08-chapter8/68 D11, D12): הפס מוצג גם בלי הודעות, התווית משלבת את שורת המבחן, ובלי הודעות אין פתיחה למסך מלא.
+describe('public/index.html: שורת המבחן בפס הסיכום (B-3)', () => {
+  // el מדומה: אלמנט פשוט עם cls, text, children ו-listeners.
+  const makeEnv = (review) => {
+    const el = (tag, cls, text) => ({ tag, cls, text, children: [], listeners: {}, append(...nodes) { this.children.push(...nodes); }, addEventListener(name, fn) { this.listeners[name] = fn; } });
+    const env = { state: { review }, el, opened: 0 };
+    env.openReview = () => { env.opened += 1; };
+    return env;
+  };
+  const strip = (review) => {
+    const env = makeEnv(review);
+    const reviewStrip = vm.runInNewContext(`(${bodyOf('reviewStrip')})`, env);
+    return { row: reviewStrip(), env };
+  };
+  const labelOf = (row) => row.children.find((child) => child.cls === 't').text;
+
+  test('hasReview: total > 0 או examLine; ואחרי applyReview ה-examLine נשמר רק כמחרוזת לא ריקה', () => {
+    assert.match(bodyOf('renderPending'), /const hasReview = state\.review\.total > 0 \|\| Boolean\(state\.review\.examLine\)/);
+    assert.match(script, /review: \{ total: 0, items: \[\], examLine: null \}/);
+    const applied = { rvOpen: false };
+    const state = applied;
+    vm.runInNewContext(`(${bodyOf('applyReview')})({ total: 0, items: [], exam_line: 'מחר: מבחן במתמטיקה' })`, { state });
+    assert.equal(state.review.examLine, 'מחר: מבחן במתמטיקה');
+    for (const bad of [undefined, null, '', 5]) {
+      vm.runInNewContext(`(${bodyOf('applyReview')})({ total: 0, items: [], exam_line: bad })`, { state, bad });
+      assert.equal(state.review.examLine, null);
+    }
+  });
+  test('רק מבחן (total 0): התווית = שורת המבחן בלבד, בלי חץ, והלחיצה לא פותחת מסך מלא', () => {
+    const { row, env } = strip({ total: 0, items: [], examLine: 'מחר: מבחן במתמטיקה ב-10:05' });
+    assert.equal(labelOf(row), 'מחר: מבחן במתמטיקה ב-10:05');
+    assert.ok(!row.children.some((child) => child.cls === 'ch'));
+    assert.equal(row.listeners.click, undefined);
+    assert.equal(env.opened, 0);
+  });
+  test('מבחן והודעות: "<שורת המבחן> · <התווית הקיימת>", עם חץ ופתיחה בלחיצה', () => {
+    const { row, env } = strip({ total: 2, items: [], examLine: 'מחר: מבחן במתמטיקה' });
+    assert.equal(labelOf(row), 'מחר: מבחן במתמטיקה · סיכום היום · 2 הודעות ממתינות לסימון');
+    assert.ok(row.children.some((child) => child.cls === 'ch'));
+    row.listeners.click();
+    assert.equal(env.opened, 1);
+    const one = strip({ total: 1, items: [], examLine: 'מחר: מבחן במתמטיקה' });
+    assert.equal(labelOf(one.row), 'מחר: מבחן במתמטיקה · סיכום היום · הודעה אחת ממתינה לסימון');
+  });
+  test('הודעות בלי מבחן: התווית הקיימת בלי שינוי (M.2)', () => {
+    const { row } = strip({ total: 3, items: [], examLine: null });
+    assert.equal(labelOf(row), 'סיכום היום · 3 הודעות ממתינות לסימון');
+    assert.equal(typeof row.listeners.click, 'function');
+  });
+  test('המסך המלא: שורת המבחן בראש, בטקסט (textContent) ובמחלקות קיימות rvrow ו-txt', () => {
+    const body = bodyOf('renderReview');
+    assert.match(body, /if \(state\.review\.examLine\) \{[\s\S]*el\('div', 'rvrow'\)[\s\S]*el\('p', 'txt', state\.review\.examLine\)/);
+    assert.ok(body.indexOf('state.review.examLine') < body.indexOf('rvempty'), 'לפני הודעת "אין עוד הודעות"');
+    assert.doesNotMatch(body, /innerHTML/);
+  });
+});

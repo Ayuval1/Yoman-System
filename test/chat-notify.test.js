@@ -213,6 +213,43 @@ describe('chat-notify: sendReviewNotification (קריטריון 10, 57 T10)', ()
   });
 });
 
+// B-3 (docs/08-chapter8/68 D11, D12): ארבעת המצבים של examLine. הטקסט "מחר: ..." מומצא לבדיקה.
+describe('chat-notify: sendReviewNotification עם שורת מבחן (B-3)', () => {
+  const EXAM = 'מחר: מבחן במתמטיקה ב-10:05';
+  const dueSql = (extra = {}) => stateSql({ due: [reviewRow(1), reviewRow(2)], ...extra });
+  const args = (sql, push) => ({ sql, slotKey: 'close-2026-10-25', pushHandle: push, secret: FAKE_CRON, now: REVIEW_NOW, examLine: EXAM });
+  test('רק מבחן (אין הודעות לסימון): נשלחת דחיפה עם הגוף = שורת המבחן בלבד, וה-badge לא כולל סיכום', async () => {
+    const push = fakePush();
+    const out = await sendReviewNotification(args(stateSql({ pending: 1, unread: 2 }), push));
+    assert.deepEqual(out, { sent: true, status: 200, badge: 3 });
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: EXAM, navigate: '/', app_badge: 3, dedupe_key: 'close-2026-10-25' });
+  });
+  test('מבחן והודעות: הגוף = "<שורת המבחן> · סיכום היום מחכה לסימון", וה-badge כולל את הסיכום', async () => {
+    const push = fakePush();
+    const out = await sendReviewNotification(args(dueSql({ pending: 1, unread: 2 }), push));
+    assert.deepEqual(out, { sent: true, status: 200, badge: 4 });
+    assert.equal(push.seen[0].body.body, `${EXAM} · ${REVIEW_PUSH_BODY}`);
+    assert.equal(push.seen[0].body.app_badge, 4);
+  });
+  test('הודעות בלי מבחן (null, ריק או לא הועבר): הגוף הקבוע כמו קודם', async () => {
+    for (const examLine of [null, '', undefined]) {
+      const push = fakePush();
+      await sendReviewNotification({ ...args(dueSql(), push), examLine });
+      assert.equal(push.seen[0].body.body, REVIEW_PUSH_BODY);
+    }
+  });
+  test('אף אחד מהשניים: review-zero ואין דחיפה', async () => {
+    const push = fakePush();
+    const out = await sendReviewNotification({ ...args(stateSql({ pending: 3, unread: 1, hasUnseen: true }), push), examLine: null });
+    assert.deepEqual(out, { sent: false, reason: 'review-zero', badge: 4 });
+    assert.equal(push.seen.length, 0);
+  });
+  test('רק מבחן: בלי סוד = no-secret, סטטוס לא 2xx = push-status (שאר ההתנהגות ללא שינוי)', async () => {
+    assert.deepEqual(await sendReviewNotification({ ...args(stateSql(), fakePush()), secret: '' }), { sent: false, reason: 'no-secret', badge: 0 });
+    assert.deepEqual(await sendReviewNotification(args(stateSql(), fakePush(500))), { sent: false, reason: 'push-status', status: 500, badge: 0 });
+  });
+});
+
 describe('chat-notify: sendBriefNotification (B-2)', () => {
   const BRIEF_SLOT = 'brief-2026-10-27';
   const BODY = '08:15–15:45 · 9 שיעורים · 3 משימות פתוחות';

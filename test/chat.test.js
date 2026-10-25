@@ -347,6 +347,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
         { outcome_id: uuidOf(2), view: 'missed', text: MISSED_TEXT, result: null, missing: [], at: '2026-10-16T09:00:00.000Z' },
         { outcome_id: uuidOf(1), view: 'recorded', text: RECORDED_TEXT, result: 'מבחן · מתמטיקה · שלישי 20.10', missing: ['נושא', 'שיעור'], at: '2026-10-16T08:00:00.000Z' },
       ],
+      exam_line: null, // B-3: נוסף exam_line (16.10 18:00Z = 21:00 ישראל, אין מבחן ב-17.10)
     });
     assert.equal(body.badge, 4, 'שאלה אחת + שתי בועות + הסיכום כפריט אחד');
     assert.equal(writesOf(sql).length, 0, 'GET לא כותב');
@@ -354,7 +355,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
   test('אין הודעות לסימון: review ריק והמספר ללא תוספת, ושאילתה אחת בלבד לסיכום', async () => {
     const sql = chatDb({ badge: { pending: 1, unread: 2 } });
     const body = await (await get(sql)).json();
-    assert.deepEqual(body.review, { total: 0, items: [] });
+    assert.deepEqual(body.review, { total: 0, items: [], exam_line: null }); // B-3: נוסף exam_line
     assert.equal(body.badge, 3);
     assert.equal(sql.find('intake_outcomes').length, 2, 'אחת לרשימה ואחת לספירת המספר');
     assert.equal(sql.find('JOIN facts f ON').length, 0);
@@ -389,7 +390,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
   test('קריטריון 9: כשהכול סומן, הסיכום יורד מהמספר', async () => {
     const body = await (await get(chatDb({ review: [reviewRow(1, { checked: true })], badge: { pending: 0, unread: 0 } }))).json();
     assert.equal(body.badge, 0);
-    assert.deepEqual(body.review, { total: 0, items: [] });
+    assert.deepEqual(body.review, { total: 0, items: [], exam_line: null }); // B-3: נוסף exam_line
   });
   test('קריטריון 11: כשל מסד בשאילתת הסיכום: 500, והלוג רק עם שם השגיאה (בלי הטקסט שבהודעת השגיאה)', async (t) => {
     const cap = captureConsole(t);
@@ -582,5 +583,44 @@ describe('chat: brief (כרטיס הבריף החי)', () => {
     assert.deepEqual(body.open_tasks.map((x) => x.id), [uuid(1)]);
     assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'review']);
     assert.deepEqual(cap.lines, ['chat: בניית הבריף נכשלה: TypeError']);
+  });
+});
+
+// B-3 (docs/08-chapter8/68 D11, D12): review.exam_line. 25.10.2026 21:30 ישראל (אחרי מעבר השעון, UTC+2) = 19:30Z; מבחן במתמטיקה ב-26.10.
+describe('chat: review.exam_line (B-3)', () => {
+  const EVENING = new Date('2026-10-25T19:30:00Z');
+  const AFTERNOON = new Date('2026-10-25T10:00:00Z');
+  const MONDAY_MATH = { slots: [{ weekday: 2, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'מתמטיקה', teacher: null, room: null }] };
+  const getAtTime = (sql, now, timetable = MONDAY_MATH) => handle(req(URL_CHAT, { method: 'GET', headers: H }), { sql, secret: FAKE_SECRET, timetable, now: () => now });
+  const checkAtTime = (sql, now) => handle(jsonRequest({ action: 'check', outcome_id: uuidOf(1), verdict: 'right' }, { url: URL_CHAT, headers: { ...H, 'content-type': 'application/json' } }), { sql, secret: FAKE_SECRET, timetable: MONDAY_MATH, now: () => now });
+  test('GET בערב לפני מבחן: review.exam_line קיים (עם שעה)', async () => {
+    const body = await (await getAtTime(chatDb(), EVENING)).json();
+    assert.equal(body.review.exam_line, 'מחר: מבחן במתמטיקה ב-10:05');
+    assert.deepEqual(body.review.items, []);
+    assert.equal(body.review.total, 0);
+  });
+  test('GET מחוץ לחלון: exam_line הוא null (השדה קיים)', async () => {
+    const body = await (await getAtTime(chatDb(), AFTERNOON)).json();
+    assert.ok('exam_line' in body.review);
+    assert.equal(body.review.exam_line, null);
+  });
+  test('POST check: review.exam_line קיים גם בתשובה', async () => {
+    const body = await (await checkAtTime(chatDb(), EVENING)).json();
+    assert.equal(body.review.exam_line, 'מחר: מבחן במתמטיקה ב-10:05');
+  });
+  test('שורת מבחן בלי הודעות אינה נספרת באייקון: badge זהה עם שורת מבחן ובלעדיה', async () => {
+    const withLine = await (await getAtTime(chatDb({ badge: { pending: 1, unread: 2 } }), EVENING)).json();
+    const without = await (await getAtTime(chatDb({ badge: { pending: 1, unread: 2 } }), AFTERNOON)).json();
+    assert.ok(withLine.review.exam_line);
+    assert.equal(withLine.badge, 3);
+    assert.equal(withLine.badge, without.badge);
+    const zero = await (await getAtTime(chatDb(), EVENING)).json();
+    assert.equal(zero.badge, 0);
+  });
+  test('מערכת שעות שנכשלה לטעון (undefined -> loadTimetable מחזירה null): בלי שעה ובלי זריקה', async (t) => {
+    captureConsole(t);
+    const res = await handle(req(URL_CHAT, { method: 'GET', headers: H }), { sql: chatDb(), secret: FAKE_SECRET, now: () => EVENING });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).review.exam_line, 'מחר: מבחן במתמטיקה');
   });
 });
