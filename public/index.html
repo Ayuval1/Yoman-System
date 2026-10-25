@@ -182,30 +182,35 @@
   .bfopen { border: 0; background: none; padding: 0; text-align: start; color: inherit; font: inherit; }
   .bfopen .t { font-weight: var(--fw-bold); }
 
-  /* ---------- כרטיס הבריף: המראה ב2 (הוכרע 22.10.2026; docs/04-design/76-brief-card-mockups.html, המסגרת "ב2 כמו שבחרת"; 03-design-rules "כרטיס הבריף היומי: המראה") ----------
-     כרטיס אחד: גוש ירוק (.bfblock, גרדיאנט --deep2 ל---deep כמו כותרת האפליקציה, טקסט לבן כמו בכותרת) שהוא גם אזור הלחיצה למסך המלא, ומתחתיו גוף על משטח הכרטיס (.bfbody): שורת המשימה הראשונה עם "בוצע", ו"ראיתי".
-     חריגה מכללי העיצוב (גוש ירוק מלא, שני אקנטים) היא בחירת יובל המפורשת. ערכי הגדלים והרדיוסים מההדמיה; הצבעים רק מטוקנים (חוץ מהלבן על הירוק). */
-  .bfcard.bf2 { background: var(--card1); border-radius: var(--r-card1); overflow: hidden; box-shadow: var(--sh-card1); }
+  /* ---------- כרטיס הבריף: המראה k1 (שונה 25.10.2026 מהגוש הירוק ב2; הדמיות docs/04-design/80 (מסגרת d1) ו-81 (k1); 03-design-rules "כרטיס הבריף היומי: המראה") ----------
+     כרטיס בהיר אחד: הגוש (.bfblock) שקוף והוא אזור הלחיצה למסך המלא, בו שני אריחים (.bfnum) עם מספר מעל הכיתוב, ומתחתיו גוף עם שורות משימה (.bfbody) ו"ראיתי".
+     הצבעים מטוקני --bf-* (tokens.css, אותו כרטיס בהיר בשני ערכי הנושא). הערכים הצעה מהדמיה 81, לא אושרו עדיין על מכשיר.
+     הפניה ישנה: ב2 מ-22.10 (docs/04-design/76-brief-card-mockups.html). */
+  .bfcard.bf2 { background: var(--bf-bg); color: var(--bf-fg); border-radius: var(--r-card1); overflow: hidden; box-shadow: var(--sh-card1); }
   .bfblock {
     display: flex; flex-direction: column; gap: 14px; width: 100%; cursor: pointer;
-    background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 16px 20px 20px;
+    background: transparent; color: inherit; padding: 16px 20px 20px;
   }
-  .bftop { display: flex; align-items: center; gap: 8px; font-size: 13px; opacity: .85; }
+  .bftop { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--bf-dim); }
   .bftop .bftime { margin-inline-start: auto; }
   .bfhead { font-size: 30px; line-height: 1.1; font-weight: var(--fw-bold); }
-  .bfnums { display: flex; gap: 22px; }
-  .bfnum { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 6px; }
-  .bfn { font-size: 44px; line-height: 1; font-weight: var(--fw-bold); }
-  .bfu { font-size: 16px; font-weight: 600; }
-  .bfs { flex-basis: 100%; font-size: 13px; opacity: .75; white-space: nowrap; }
+  .bfnums { display: flex; gap: 10px; align-items: stretch; }
+  .bfnum { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; background: var(--bf-tile); border-radius: 18px; padding: 14px 16px; }
+  .bfn { font-size: 40px; line-height: 1; font-weight: var(--fw-bold); color: var(--bf-num); }
+  .bfu { margin-top: 6px; font-size: 16px; font-weight: 600; }
+  .bfs { font-size: 13px; color: var(--bf-dim); white-space: nowrap; }
   .bfltr { direction: ltr; unicode-bidi: isolate; display: inline-block; }
-  .bfline { font-size: 14px; opacity: .9; }
+  .bfline { font-size: 14px; color: var(--bf-dim); }
   .bfbody { padding: 14px; display: flex; flex-direction: column; gap: 4px; }
-  .bftask { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--btn-neutral); border-radius: 16px; font-size: 16px; }
-  .bftask .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
-  .bftask .t { color: var(--label); line-height: 1.3; }
-  .bftask .odone { background: var(--card1); }
-  .bfseen { border: 0; background: none; padding: 10px 0 2px; font-size: 14px; font-weight: var(--fw-bold); color: var(--label2); text-align: center; }
+  .bftask { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--bf-row); border-radius: 16px; font-size: 16px; }
+  .bftask .d { width: 7px; height: 7px; border-radius: 50%; background: var(--bf-amber); flex: none; }
+  .bftask .t { color: var(--bf-fg); line-height: 1.3; }
+  .bftask .odone { background: var(--bf-btn); color: var(--bf-btnfg); }
+  .bfseen { border: 0; background: none; padding: 10px 0 2px; font-size: 14px; font-weight: var(--fw-bold); color: var(--bf-dim); text-align: center; }
+  /* שורות המשימה משותפות לרשימת "פתוחות" (משטח רגיל) ולכרטיס (משטח בהיר): בתוך הכרטיס הצבעים מטוקני --bf-*, אחרת טקסט בהיר נעלם בנושא כהה (ביקורת נקייה 25.10). */
+  .openrow .om.omerr { color: var(--amber); }
+  .bftask .om { color: var(--bf-dim); }
+  .bftask .om.omerr { color: var(--bf-amber); }
 
   /* ---------- ההודעות (s_main_light .feed) ---------- */
   .feed {
@@ -917,8 +922,7 @@ function openTaskRow(task, rowClass) {
   if (meta.length > 0) text.append(el('span', 'om', meta.join(' · ')));
   const note = state.notes.get(task.id);
   if (note) {
-    const noteEl = el('span', 'om', note);
-    noteEl.style.color = 'var(--amber)';
+    const noteEl = el('span', 'om omerr', note);
     noteEl.setAttribute('role', 'status');
     text.append(noteEl);
   }
@@ -1013,7 +1017,7 @@ function nearestDueLabel(tasks) {
   return label ? 'עד ' + label : '';
 }
 
-// מספר גדול עם כיתוב לידו ושורה קטנה מתחתיו (ההדמיה: .num). sub=null: בלי שורה.
+// מספר גדול, כיתוב מתחתיו ושורה קטנה מתחת לכיתוב (אריח, k1 מ-25.10; ההדמיה: .tile). sub=null: בלי שורה.
 function bfNumber(count, unit, sub, ltr) {
   const num = el('span', 'bfnum');
   num.append(el('span', 'bfn tnum', count), el('span', 'bfu', unit));
@@ -1022,7 +1026,7 @@ function bfNumber(count, unit, sub, ltr) {
 }
 
 // הכרטיס, או null כשאין (אין brief, או שיובל לחץ "ראיתי" היום). הטקסט נכנס רק דרך textContent (el).
-// מבנה (מראה ב2): גוש ירוק שהוא כפתור הפתיחה למסך המלא, וגוף על משטח הכרטיס עם המשימה הראשונה ו"ראיתי". יום לימודים/יום פנוי נקבע מ-brief.school (null = אין יום לימודים), בלי לפרסר את הטקסט.
+// מבנה (מראה k1, 25.10): גוש שקוף עם שני אריחים שהוא כפתור הפתיחה למסך המלא, וגוף על משטח הכרטיס עם המשימה הראשונה ו"ראיתי". יום לימודים/יום פנוי נקבע מ-brief.school (null = אין יום לימודים), בלי לפרסר את הטקסט.
 function briefCard() {
   const brief = state.brief;
   if (!brief || briefIsSeen(brief.dateIso)) return null;

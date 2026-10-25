@@ -547,6 +547,14 @@ font-family: system-ui, -apple-system, sans-serif;
 
 **לא הוכרע, צריך הכרעה בסיכום השלב (`[הנחה, לא אומת]` עד אז):** (א) אחרי "ראיתי" הכרטיס נעלם עד מחר; **איפה המשימות הפתוחות אחר כך**, אם הרשימה הנפרדת נעלמה? ההצעה: הרשימה הנפרדת חוזרת אחרי "ראיתי", כמו היום. (ב) מראה יום ללא לימודים ("יום פנוי") וביום עם מבחן ושאלות ממתינות: לא הודמה. (ג) איך רואים שהכרטיס נפתח למסך מלא: חץ נבדק בהדמיה (ג1, ג2) ובסוף לא נבחר; ללא חץ הלחיצה נשארת כמו היום. (ד) "כמה מסכים שונים" (שאלת יובל 21.10): לא נמצאה הכרעה, וההדמיות לא מוסיפות מסך; המסך המלא "הבריף של היום" כבר קיים בלחיצה על הכרטיס. (ה) ההדמיה לא נבדקה בעין של Claude על מכשיר, ו-`color-mix`/הילה לא נכללו בבחירה.
 
+### שינוי מראה 25.10.2026: k1 בהיר במבנה d1
+
+יובל דחה ב-25.10.2026 את הגוש הירוק: כל הצבעים ירוקים, והמספרים הגדולים יושבים ליד כיתוב קטן. הוא בחר במבנה d1 (שני אריחים, מספר מעל הכיתוב) עם פלטת k1 בהירה. הדמיות: `docs/04-design/80-brief-card-mockups-round2.html` (מסגרת d1) ו-`docs/04-design/81-brief-card-d1-colors.html`.
+
+- ערכי הפלטה (טוקני `--bf-*` ב-`public/tokens.css`) הם **הצעה, ממתינים לצילום מסך של יובל מהטלפון**.
+- הכרטיס בהיר בשני נושאי האפליקציה (בהיר וכהה) `[הנחה, לא אומת על מכשיר]`.
+- הסעיף למעלה (גוש ירוק, גרדיאנט) הוחלף במראה הזה; השורות שלו נשארו לתיעוד היסטורי.
+
 ---
 
 **מקורות:** [Apple HIG — App Icons](https://developer.apple.com/design/human-interface-guidelines/app-icons) · [WebKit — פונט המערכת בווב](https://webkit.org/blog/3709/using-the-system-font-in-web-content/) · [Apple Forums — apple-touch-icon](https://developer.apple.com/forums/thread/65450) · [Apple Forums — מטמון מסך הבית](https://developer.apple.com/forums/thread/31599) · [setAlternateIconName](https://bryce.co/animated-app-icons/) · [Liquid Glass ב-PWA](https://branclon.com/blog/liquid-glass-pwa-icons/) · [Progressier — PWA ווידג'טים](https://intercom.help/progressier/en/articles/12814946-can-a-pwa-create-home-screen-widgets) · [AppBrain — Scriptable](https://www.appbrain.com/appstore/scriptable/ios-1405459188) · [App Store — Widget Web 26](https://apps.apple.com/app/id1522169352)
