@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>כרטיס הבריף, צבע למספרים</title>
+<style>
+/* הכרטיס זהה לגרפיט (ק2) שאושר 25.10, ערכים מ-public/tokens.css (--bf-*). משתנה רק צבע המספרים 1 ו-7. */
+:root { --deep: #0A5A2A; --deep2: #0C6B33; --bg: #141A17; --bg2: #0D1210; --card: #1B2420;
+  --label: #EEF4F0; --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+  --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65); --font: system-ui, -apple-system, sans-serif;
+  --bf-bg:#232827; --bf-fg:#F2F4F3; --bf-dim:rgba(238,242,240,.66); --bf-tile:#2F3534; --bf-row:rgba(255,255,255,.07); --bf-btn:#2F3534; --bf-btnfg:#54CC85; --bf-amber:#D9A03C;
+  color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--page); color: var(--page-fg); padding: 24px max(16px, env(safe-area-inset-left, 0px)) 40px; }
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 22px; line-height: 1.25; }
+.lead { font-size: 15px; line-height: 1.5; color: var(--page-dim); max-width: 62ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cap b { font-size: 16px; display: block; margin-bottom: 4px; } .cap span { font-size: 14px; line-height: 1.45; color: var(--page-dim); }
+.tnum { font-variant-numeric: tabular-nums; }
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; white-space: nowrap; }
+.phone { width: 100%; max-width: 390px; margin: 0 auto; border-radius: 34px; overflow: hidden; background: linear-gradient(180deg, var(--bg), var(--bg2)); color: var(--label); box-shadow: 0 0 0 1px var(--sep); }
+.hero { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 22px 22px 52px; border-radius: 0 0 34px 34px; }
+.hero h2 { font-size: 33px; line-height: 1.1; } .hero small { display: block; margin-top: 6px; font-size: 14px; opacity: .8; }
+.pin { margin-top: -34px; padding: 0 14px 18px; }
+.card { background: var(--bf-bg); color: var(--bf-fg); border-radius: 24px; box-shadow: 0 12px 28px rgba(0,0,0,.45); overflow: hidden; }
+.top { display: flex; align-items: center; gap: 8px; padding: 16px 20px 0; font-size: 13px; color: var(--bf-dim); }
+.top::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bf-btnfg); }
+.top time { margin-inline-start: auto; }
+.card h3 { padding: 8px 20px 0; font-size: 30px; line-height: 1.1; }
+.tiles { display: flex; gap: 10px; padding: 16px 14px 14px; }
+.tile { flex: 1; min-width: 0; background: var(--bf-tile); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile .n { font-size: 40px; line-height: 1; font-weight: 700; color: var(--num); }
+.tile .u { margin-top: 6px; font-size: 16px; font-weight: 600; } .tile .s { font-size: 13px; color: var(--bf-dim); white-space: nowrap; }
+.task { display: flex; align-items: center; gap: 10px; margin: 0 14px; padding: 12px 14px; background: var(--bf-row); border-radius: 16px; font-size: 16px; }
+.task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--bf-amber); flex: none; }
+.task .t { flex: 1; display: flex; flex-direction: column; gap: 2px; } .task .t em { font-style: normal; font-size: 13px; color: var(--bf-dim); }
+.btn { border: 0; border-radius: 100px; padding: 7px 14px; font-size: 14px; font-weight: 700; background: var(--bf-btn); color: var(--bf-btnfg); }
+.seen { display: block; width: 100%; border: 0; background: none; padding: 14px 0 16px; font-size: 14px; font-weight: 700; color: var(--bf-dim); }
+.note { font-size: 13px; line-height: 1.5; color: var(--page-dim); border-top: 1px solid var(--sep); padding-top: 14px; max-width: 70ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>כרטיס הבריף: צבע חי למספרים 1 ו-7</h1>
+    <p class="lead">הכרטיס זהה לגרפיט שאישרת. שלוש אפשרויות לצבע של שני המספרים הגדולים בלבד. כל מה שאר הכרטיס נשאר בדיוק אותו דבר.</p>
+  </header>
+  <div class="grid" id="grid"></div>
+  <p class="note">הדמיות בלבד, לא קוד של האפליקציה. ירוק חי הוא הצבע הקיים של האפליקציה (<span class="ltr">#54CC85</span>). תכלת וקורל הם הצעות חדשות שלא קיימות בפלטת האפליקציה, ולכן ידרשו אישור שלך כחריגה.</p>
+</div>
+<script>
+/* שלוש הפריסות זהות; משתנה רק --num */
+const options = [
+  { name: 'א. ירוק חי', num: '#54CC85', text: 'הירוק של האפליקציה (כמו "בוצע" והנקודה). הכי אחיד עם שאר המסך, ונשאר בתוך הפלטה הקיימת.' },
+  { name: 'ב. תכלת', num: '#7FD4FF', text: 'צבע קריר שמתבדל מהירוק של הכותרת. מספרים בולטים בלי להתחרות בכותרת.' },
+  { name: 'ג. קורל', num: '#FF9E7A', text: 'צבע חם ובולט מאוד על האפור. הכי "חי", אבל גם הכי רחוק מהפלטה של האפליקציה.' },
+];
+const phone = (o) => `
+<div class="col">
+  <div class="phone" style="--num:${o.num}">
+    <div class="hero"><h2>יום ראשון</h2><small>25 באוקטובר 2026</small></div>
+    <div class="pin"><div class="card">
+      <div class="top"><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+      <h3>יום לימודים</h3>
+      <div class="tiles">
+        <div class="tile"><span class="n tnum">7</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–14:15</span></div>
+        <div class="tile"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 26.10</span></div>
+      </div>
+      <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · מדעי המחשב</span><em>עד 26.10</em></span><button class="btn" type="button">בוצע</button></div>
+      <button class="seen" type="button">ראיתי</button>
+    </div></div>
+  </div>
+  <div class="cap"><b>${o.name}</b><span>${o.text}</span></div>
+</div>`;
+document.getElementById('grid').innerHTML = options.map(phone).join('');
+</script>
+</body>
+</html>
