@@ -335,12 +335,19 @@ describe('public/index.html: כרטיס הבריף החי', () => {
     assert.equal(env.briefCard(), null);
   });
 
-  test('CSS של ב2: גוש בגרדיאנט הטוקנים, מספרים 44px וכותרת 30px, בלי צבע קבוע חוץ מלבן', () => {
+  test('CSS של k1 (25.10): כרטיס בהיר מטוקני --bf-*, אריחים עם מספר מעל הכיתוב, מספרים 40px וכותרת 30px, בלי צבע קבוע', () => {
     const css = html.slice(html.indexOf('.bfcard.bf2 {'), html.indexOf('.bfseen {'));
-    assert.match(css, /linear-gradient\(180deg, var\(--deep2\), var\(--deep\)\)/);
-    assert.match(css, /\.bfn \{ font-size: 44px/);
+    assert.match(css, /\.bfcard\.bf2 \{ background: var\(--bf-bg\)/);
+    assert.doesNotMatch(css, /linear-gradient/);
+    assert.match(css, /\.bfnum \{[^}]*flex-direction: column[^}]*background: var\(--bf-tile\)/);
+    assert.match(css, /\.bfn \{ font-size: 40px/);
     assert.match(css, /\.bfhead \{ font-size: 30px/);
-    assert.doesNotMatch(css.replace(/#fff\b/g, ''), /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+    assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+    // כל טוקן --bf-* שהדף משתמש בו מוגדר ב-tokens.css
+    const tokens = readFileSync(new URL('../public/tokens.css', import.meta.url), 'utf8');
+    for (const name of new Set(css.match(/--bf-[a-z]+/g) ?? [])) {
+      assert.match(tokens, new RegExp(`${name}:\\s*(#|rgba?\\()`), `${name} חסר ב-tokens.css`);
+    }
   });
 
   test('המספר על האייקון: שום קוד של ה-badge לא מתייחס לבריף', () => {

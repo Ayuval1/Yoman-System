@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>כרטיס הבריף ד1, שלוש פלטות</title>
+<style>
+/* מבנה ד1 (80-brief-card-mockups-round2.html) ללא שינוי. משתנה רק הצבע. טוקנים של מצב כהה מ-public/tokens.css; הפלטות של ק1-ק3 הן הצעות להדמיה, לא טוקנים קיימים. */
+:root {
+  --deep: #0A5A2A; --deep2: #0C6B33;
+  --bg: #141A17; --bg2: #0D1210; --card: #1B2420;
+  --label: #EEF4F0; --label2: rgba(226,240,232,.60); --label3: rgba(226,240,232,.32); --sep: rgba(226,240,232,.12);
+  --amber: #D9A03C;
+  --sh-bubble: 0 4px 12px rgba(0,0,0,.42);
+  --page: #090D0B; --page-fg: #EEF4F0; --page-dim: rgba(226,240,232,.65);
+  --font: system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--page); color: var(--page-fg);
+  padding-block: 24px 40px; padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+h1 { font-size: 22px; line-height: 1.25; text-wrap: balance; }
+.lead { font-size: 15px; line-height: 1.5; color: var(--page-dim); max-width: 62ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cap { display: flex; flex-direction: column; gap: 4px; }
+.cap b { font-size: 16px; }
+.cap span { font-size: 14px; line-height: 1.45; color: var(--page-dim); }
+.tnum { font-variant-numeric: tabular-nums; }
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; white-space: nowrap; }
+
+.phone { width: 100%; max-width: 390px; margin: 0 auto; border-radius: 34px; overflow: hidden;
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%); color: var(--label); box-shadow: 0 0 0 1px var(--sep); }
+.hero { background: linear-gradient(180deg, var(--deep2), var(--deep)); color: #fff; padding: 22px 22px 52px;
+  border-radius: 0 0 34px 34px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.hero h2 { font-size: 33px; line-height: 1.1; }
+.hero small { display: block; margin-top: 6px; font-size: 14px; opacity: .8; }
+.gbtn { background: #fff; color: #0A5A2A; border: 0; border-radius: 100px; padding: 8px 14px; font-size: 14px; font-weight: 700; flex: none; }
+.pin { margin-top: -34px; padding: 0 14px; position: relative; }
+.chat { padding: 16px 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+.bubble { align-self: flex-start; max-width: 86%; background: var(--card); border-radius: 22px; padding: 14px 16px; box-shadow: var(--sh-bubble); font-size: 15px; line-height: 1.5; }
+.bubble .ts { display: block; margin-top: 6px; font-size: 12px; color: var(--label3); }
+
+/* הכרטיס: כל הצבעים דרך משתנים, כך שפלטה = ערכי משתנים בלבד */
+.card { background: var(--c-bg); color: var(--c-fg); border-radius: 24px; box-shadow: 0 12px 28px rgba(0,0,0,.45), 0 2px 6px rgba(0,0,0,.3); overflow: hidden; }
+.top { display: flex; align-items: center; gap: 8px; padding: 16px 20px 0; font-size: 13px; color: var(--c-dim); }
+.top .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); }
+.top time { margin-inline-start: auto; }
+.card h3 { padding: 8px 20px 0; font-size: 30px; line-height: 1.1; }
+.tiles { display: flex; gap: 10px; padding: 16px 14px 14px; }
+.tile { flex: 1; min-width: 0; background: var(--c-tile); border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile .n { font-size: 40px; line-height: 1; font-weight: 700; color: var(--c-num); }
+.tile .u { margin-top: 6px; font-size: 16px; font-weight: 600; }
+.tile .s { font-size: 13px; color: var(--c-dim); white-space: nowrap; }
+.task { display: flex; align-items: center; gap: 10px; margin: 0 14px; padding: 12px 14px; background: var(--c-row); border-radius: 16px; font-size: 16px; }
+.task .d { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); flex: none; }
+.task .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.task .t em { font-style: normal; font-size: 13px; color: var(--c-dim); }
+.btn { border: 0; border-radius: 100px; padding: 7px 14px; font-size: 14px; font-weight: 700; background: var(--c-btn); color: var(--c-btnfg); }
+.seen { display: block; width: 100%; border: 0; background: none; padding: 14px 0 16px; font-size: 14px; font-weight: 700; color: var(--c-dim); text-align: center; }
+
+/* ק1: בהיר. כרטיס כמעט לבן על המסך הכהה, מספרים ירוק עמוק */
+.k1 { --c-bg: #F3F6F4; --c-fg: #0B1410; --c-dim: rgba(45,60,52,.66); --c-accent: #0A7A36; --c-tile: #E2EAE5; --c-num: #0A6B30; --c-row: #E7ECE9; --c-btn: #FFFFFF; --c-btnfg: #0A6B30; }
+.k1 .task .d { background: #96650F; }
+/* ק2: גרפיט חד-צבעי. מספרים לבנים, ירוק רק בכפתור "בוצע" */
+.k2 { --c-bg: #232827; --c-fg: #F2F4F3; --c-dim: rgba(238,242,240,.60); --c-accent: #54CC85; --c-tile: #2F3534; --c-num: #FFFFFF; --c-row: rgba(255,255,255,.07); --c-btn: #2F3534; --c-btnfg: #54CC85; }
+/* ק3: צפחה כחולה. צבע אחר מהירוק, מספרים בכחול בהיר (הצעה: כחול אינו בפלטת האפליקציה) */
+.k3 { --c-bg: #1E2733; --c-fg: #EEF3F8; --c-dim: rgba(226,236,248,.62); --c-accent: #7FB2FF; --c-tile: #2A3646; --c-num: #8DBBFF; --c-row: rgba(255,255,255,.07); --c-btn: #2A3646; --c-btnfg: #8DBBFF; }
+
+.note { font-size: 13px; line-height: 1.5; color: var(--page-dim); border-top: 1px solid var(--sep); padding-top: 14px; max-width: 70ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>כרטיס הבריף ד1, שלוש פלטות צבע</h1>
+    <p class="lead">אותו מבנה ד1 בדיוק, בשלוש פלטות שונות. הכותרת הירוקה למעלה נשארת כמו שהיא בכולן, כדי שתראה איך כל פלטה יושבת מולה.</p>
+  </header>
+
+  <div class="grid">
+    <div class="col">
+      <div class="phone">
+        <div class="hero"><div><h2>יום ראשון</h2><small>25 באוקטובר 2026</small></div><button class="gbtn" type="button">חבר Google</button></div>
+        <div class="pin">
+          <div class="card k1">
+            <div class="top"><span class="dot"></span><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+            <h3>יום לימודים</h3>
+            <div class="tiles">
+              <div class="tile"><span class="n tnum">7</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–14:15</span></div>
+              <div class="tile"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 26.10</span></div>
+            </div>
+            <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · מדעי המחשב</span><em>עד 26.10</em></span><button class="btn" type="button">בוצע</button></div>
+            <button class="seen" type="button">ראיתי</button>
+          </div>
+        </div>
+        <div class="chat"><div class="bubble">בריף · יום ראשון 25.10<br>7 שיעורים · <span class="ltr tnum">08:15–14:15</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div></div>
+      </div>
+      <div class="cap"><b>ק1. בהיר</b><span>כרטיס כמעט לבן על הרקע הכהה, מספרים בירוק עמוק. הכי בולט ונפרד מהכותרת. מתאים אם הכהה נראה לך עמום.</span></div>
+    </div>
+
+    <div class="col">
+      <div class="phone">
+        <div class="hero"><div><h2>יום ראשון</h2><small>25 באוקטובר 2026</small></div><button class="gbtn" type="button">חבר Google</button></div>
+        <div class="pin">
+          <div class="card k2">
+            <div class="top"><span class="dot"></span><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+            <h3>יום לימודים</h3>
+            <div class="tiles">
+              <div class="tile"><span class="n tnum">7</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–14:15</span></div>
+              <div class="tile"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 26.10</span></div>
+            </div>
+            <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · מדעי המחשב</span><em>עד 26.10</em></span><button class="btn" type="button">בוצע</button></div>
+            <button class="seen" type="button">ראיתי</button>
+          </div>
+        </div>
+        <div class="chat"><div class="bubble">בריף · יום ראשון 25.10<br>7 שיעורים · <span class="ltr tnum">08:15–14:15</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div></div>
+      </div>
+      <div class="cap"><b>ק2. גרפיט, בלי צבע</b><span>אפור כהה ומספרים לבנים. ירוק רק בכפתור "בוצע". הכי שקט, ואין שום צבע שמתמזג עם הכותרת.</span></div>
+    </div>
+
+    <div class="col">
+      <div class="phone">
+        <div class="hero"><div><h2>יום ראשון</h2><small>25 באוקטובר 2026</small></div><button class="gbtn" type="button">חבר Google</button></div>
+        <div class="pin">
+          <div class="card k3">
+            <div class="top"><span class="dot"></span><span>הבריף של היום</span><time class="tnum">07:30</time></div>
+            <h3>יום לימודים</h3>
+            <div class="tiles">
+              <div class="tile"><span class="n tnum">7</span><span class="u">שיעורים</span><span class="s ltr tnum">08:15–14:15</span></div>
+              <div class="tile"><span class="n tnum">1</span><span class="u">משימה</span><span class="s">עד 26.10</span></div>
+            </div>
+            <div class="task"><span class="d"></span><span class="t"><span>שיעורי בית · מדעי המחשב</span><em>עד 26.10</em></span><button class="btn" type="button">בוצע</button></div>
+            <button class="seen" type="button">ראיתי</button>
+          </div>
+        </div>
+        <div class="chat"><div class="bubble">בריף · יום ראשון 25.10<br>7 שיעורים · <span class="ltr tnum">08:15–14:15</span><br>משימות פתוחות (1)…<span class="ts tnum">07:30</span></div></div>
+      </div>
+      <div class="cap"><b>ק3. צפחה כחולה</b><span>צבע אחר לגמרי מהירוק, מספרים בכחול בהיר. הכי מובחן. כחול לא קיים היום בפלטת האפליקציה, אז זו חריגה שתצטרך אישור שלך.</span></div>
+    </div>
+  </div>
+
+  <p class="note">הדמיות בלבד, לא קוד של האפליקציה. הבועה בתחתית היא ההודעה הקיימת בצ'אט, עם שעות כתובות משמאל לימין.</p>
+</div>
+</body>
+</html>
