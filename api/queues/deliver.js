@@ -15,6 +15,7 @@ import { loadTimetable } from '../../lib/timetable.js';
 import { examLineAt } from '../../lib/exam-line.js';
 import { sequenceFromKey } from '../../lib/homework-schedule.js';
 import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
+import { createExamAsks, loadExamAnswers } from '../../lib/exam-ask.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
 const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון האחרון הבריף נשלח גם בלי מערכת השעות (D10 ז)
@@ -87,6 +88,10 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
       table = null;
     }
   }
+  // B-3ב (68 H13): שאלת "איזה מקצוע במדעים?" נוצרת לפני טעינת השאלות, כדי שתופיע גם בבריף ("שאלות שממתינות"). לא זורקת: כשל (כולל טבלה שלא נוצרה) נרשם והבריף ממשיך.
+  // הנחה, לא אומת: "היום" לחלון הוא תאריך המשבצת (dateIso, כמו שאר הבריף), לא השעון.
+  await createExamAsks({ sql, todayIso: dateIso });
+  const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
   let partial = false;
   let tasks = [];
   let pending = [];
@@ -108,7 +113,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
       partial = true;
     }
   }
-  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial });
+  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers });
   let created = false;
   if (!exists) {
     const rows = await sql`
@@ -203,7 +208,7 @@ async function notifyReview({ sql, parsed, detail, ok, pushHandle, secret, timet
   try {
     const targetAt = new Date(parsed.targetAt);
     const table = timetable === undefined ? await loadTimetable(sql) : timetable;
-    examLine = examLineAt(targetAt, { timetable: table });
+    examLine = examLineAt(targetAt, { timetable: table, answers: await loadExamAnswers(sql) }); // loadExamAnswers לא זורק: כשל = מפה ריקה
   } catch (error) {
     console.error('queue-deliver: חישוב שורת המבחן נכשל:', error?.name); // רק שם השגיאה
     examLine = null;

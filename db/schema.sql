@@ -469,3 +469,19 @@ CREATE TABLE IF NOT EXISTS intake_checks (
   event_type text,                   -- מלא רק כש-verdict = was_event: short_day / cancel / move / exam / homework / room (D14)
   checked_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ---------------------------------------------------------------------------
+-- exam_asks — שאלת "איזה מקצוע במדעים?" אחת לכל מבחן "מדעים" בלי פירוט. שלב B-3ב, docs/08-chapter8/68-chapter8-brief-prd.md, H13 (ו-D14).
+-- הנחה, לא אומת: כל שמות העמודות והערכים הם הצעה; 68 קובע רק "טבלה קטנה חדשה, שיובל מריץ בפקודת CREATE".
+-- UNIQUE על exam_date: שאלה אחת לתאריך, ריצה חוזרת של הבריף לא יוצרת שאלה שנייה (ON CONFLICT DO NOTHING בקוד).
+-- exam_type = הסוג מהקובץ (מבחן / מבדק / אנסין). answer ריק עד תשובה: 'פיזיקה' / 'כימיה' / 'אחר'. status: asked / answered. בלי CHECK, כמו שאר הטבלאות.
+-- הטבלה נוצרת במסד החי בפקודת CREATE TABLE שיובל מריץ בעצמו.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS exam_asks (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  exam_date   date        NOT NULL UNIQUE,
+  exam_type   text        NOT NULL,
+  answer      text,
+  status      text        NOT NULL DEFAULT 'asked',
+  answered_at timestamptz
+);

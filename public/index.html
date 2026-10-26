@@ -538,6 +538,7 @@ googleBtn.addEventListener('click', async () => {
 //   POST /api/intake (Form: text, channel=app) -> טקסט. הודעה חדשה שיובל מקליד.
 //   שלב 8.6-2 (docs/08-chapter8/60): GET נושא גם open_tasks ([{ id, title, subject?, due_at?, media_count }]) ו-pending יכול לכלול { kind: 'homework', subject, buttons: [{ due, date }] };
 //   POST {action:'homework', message_id, had, topic?, due?} -> { status: answered|closed|unclear, pending, open_tasks, badge }; POST {action:'task_done', task_id} -> { status: done|closed, open_tasks, badge }.
+//   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (בלי text); POST {action:'exam', message_id, answer: 'פיזיקה'|'כימיה'|'אחר'} -> { status: answered|closed, pending, badge, review }.
 // רענון: בטעינה, כשהדף חוזר לחזית, ואחרי כל פעולה. בלי סקירה מחזורית (47 "מה נכנס" 10).
 // ============================================================
 
@@ -823,8 +824,12 @@ function dueLabel(iso) {
   }
 }
 
-// הטקסט של שאלה ממתינה, כולל שאלת שיעורי בית (שנגזרת מהמקצוע).
+// הטקסט של שאלה ממתינה, כולל שאלת שיעורי בית (שנגזרת מהמקצוע) ושאלת המבחן במדעים (שנגזרת מסוג המבחן ומהתאריך).
 function questionText(question) {
+  if (question.kind === 'exam') {
+    const label = ymdLabel(question.exam_date);
+    return `${question.exam_type ?? 'מבחן'} במדעים${label ? ` ב-${label}` : ''}: איזה מקצוע?`;
+  }
   if (question.kind !== 'homework') return question.text ?? '';
   return question.subject ? `${question.subject}: היו שיעורי בית?` : 'היו שיעורי בית?';
 }
@@ -905,8 +910,38 @@ function homeworkCard(question, { withHead, count }) {
   return card;
 }
 
-// הכרטיס הנכון לפי סוג השאלה: שיעורי בית לא עוברים דרך questionCard (כפתורי טקסט וכתיבה חופשית).
-const cardFor = (question, options) => (question.kind === 'homework' ? homeworkCard(question, options) : questionCard(question, options));
+// שאלת "איזה מקצוע במדעים?" (שלב B-3ב, 68 H13): כרטיס נפרד. הכפתורים הם אובייקטים ({ answer }), אין בו "לא יודע" ואין תיבת כתיבה חופשית. התשובה היא פעולת exam בלבד.
+function examCard(question, { withHead, count }) {
+  const card = el('section', 'card1');
+  const busy = state.busy.has(question.id);
+  if (withHead) {
+    const head = el('div', 'chead');
+    head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
+    card.append(head);
+  }
+  card.append(el('div', 'ctxt', questionText(question)));
+  const note = state.notes.get(question.id);
+  if (note) {
+    const noteEl = el('div', 'cnote', note);
+    noteEl.setAttribute('role', 'status');
+    card.append(noteEl);
+  }
+  const opts = el('div', 'opts');
+  for (const item of Array.isArray(question.buttons) ? question.buttons : []) {
+    if (typeof item?.answer !== 'string' || item.answer === '') continue;
+    const button = el('button', 'opt', item.answer);
+    button.type = 'button';
+    button.disabled = busy;
+    button.addEventListener('click', () => sendExam(question.id, item.answer));
+    opts.append(button);
+  }
+  opts.style.paddingBottom = '17px';
+  card.append(opts);
+  return card;
+}
+
+// הכרטיס הנכון לפי סוג השאלה: שיעורי בית ומבחן במדעים לא עוברים דרך questionCard (כפתורי טקסט וכתיבה חופשית).
+const cardFor = (question, options) => (question.kind === 'exam' ? examCard(question, options) : question.kind === 'homework' ? homeworkCard(question, options) : questionCard(question, options));
 
 // שורת משימה פתוחה אחת (כותרת, פרטים, הערת שגיאה, "בוצע"): משותפת לרשימת "פתוחות" ולגוף כרטיס הבריף. rowClass: 'mini openrow' ברשימה, 'bftask openrow' בכרטיס.
 function openTaskRow(task, rowClass) {
@@ -1497,6 +1532,39 @@ async function sendHomework(messageId, had) {
     state.pending = state.pending.filter((q) => q.id !== messageId); // גם אם התשובה חסרה pending
     render();
     refresh(); // GET שיצא לפני התשובה וחזר אחריה לא ישאיר את הכרטיס (כמו ב-sendAnswer)
+  } else {
+    state.notes.set(messageId, ERROR_TEXT);
+    renderPending();
+  }
+}
+
+// --- שאלת "איזה מקצוע במדעים?" (B-3ב): POST exam. התשובה מחזירה pending, badge ו-review (הפס מתעדכן בשם המקצוע), והדף מצייר מהם בלי GET נוסף. ---
+async function sendExam(messageId, answer) {
+  if (state.busy.has(messageId)) return; // לחיצה כפולה: התשובה הראשונה עוד בדרך
+  state.busy.add(messageId);
+  state.notes.delete(messageId);
+  renderPending();
+  let data = null;
+  try {
+    const res = await postChat({ action: 'exam', message_id: messageId, answer });
+    if (!res.ok) throw new Error('exam ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] שליחת תשובת מקצוע נכשלה', err?.name);
+  }
+  state.busy.delete(messageId);
+
+  if (data?.status === 'answered' || data?.status === 'closed') {
+    // answered: הכרטיס יורד והפס מתעדכן. closed: כבר נסגרה (או פגה), והכרטיס נעלם.
+    if (state.focusId === messageId) state.focusId = null;
+    applyServerLists(data);
+    state.pending = state.pending.filter((q) => q.id !== messageId); // גם אם התשובה חסרה pending
+    if (data.review) {
+      state.rvSeq += 1; // GET שיצא לפני התשובה לא ידרוס את הפס (כמו ב-check)
+      applyReview(data.review);
+    }
+    render();
+    refresh(); // GET שיצא לפני התשובה וחזר אחריה לא ישאיר את הכרטיס (כמו ב-sendHomework)
   } else {
     state.notes.set(messageId, ERROR_TEXT);
     renderPending();

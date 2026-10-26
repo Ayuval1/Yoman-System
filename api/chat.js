@@ -8,6 +8,8 @@
 //   שלב 8.6-1 (docs/08-chapter8/60): GET מחזיר גם open_tasks, ו-pending יכול לכלול פריט { kind: 'homework', ... }.
 //   POST { action: 'homework', message_id, had, topic?, due? } -> { status: 'answered' | 'closed' | 'unclear', task_id, pending, open_tasks, badge }   (task_id רק כשנוצרה משימה; closed = כבר נסגרה, לא נכתב דבר)
 //   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
+//   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול פריט { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (שאלת "איזה מקצוע במדעים?").
+//   POST { action: 'exam', message_id, answer: 'פיזיקה' | 'כימיה' | 'אחר' } -> { status: 'answered' | 'closed', pending, badge, review }   (closed = כבר נסגרה / פגה / לא קיימת, לא נכתב דבר; review מחושב מחדש כדי שהפס יתעדכן)
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
@@ -17,6 +19,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
 import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
+import { answerExam, loadExamAnswers } from '../lib/exam-ask.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
@@ -114,7 +117,8 @@ async function buildBrief({ sql, timetable, tasks, pending, now }) {
   try {
     const table = timetable === undefined ? await loadTimetable(sql) : timetable; // loadTimetable לא זורק: כשל = null (בלי שורת בית ספר)
     const questions = pending === undefined ? await loadPending(sql, table, now) : pending;
-    return briefCardData({ now, timetable: table, tasks, pending: questions });
+    const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
+    return briefCardData({ now, timetable: table, tasks, pending: questions, answers });
   } catch (error) {
     console.error('chat: בניית הבריף נכשלה:', error?.name);
     return null;
@@ -133,7 +137,7 @@ async function reviewWithExamLine(sql, timetable, now) {
   }
   let examLine = null;
   try {
-    examLine = examLineAt(now, { timetable: table });
+    examLine = examLineAt(now, { timetable: table, answers: await loadExamAnswers(sql) }); // loadExamAnswers לא זורק: כשל = מפה ריקה (שורה בלי שם המקצוע)
   } catch (error) {
     console.error('chat: חישוב שורת המבחן נכשל:', error?.name);
   }
@@ -192,6 +196,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const badge = await loadBadge(sql, now());
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
       return json({ status: result.status, task_id: result.taskId, pending, open_tasks: openTasks, badge, brief });
+    }
+    if (action.action === 'exam') {
+      // שאלת "איזה מקצוע במדעים?": פקודת כתיבה אחת (או כלום). closed = כבר נסגרה / פגה / לא קיימת. review מחושב מחדש, כי השורה בפס תלויה בתשובה.
+      const result = await answerExam({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      const pending = await loadPending(sql, timetable, now());
+      const badge = await loadBadge(sql, now());
+      const review = await reviewWithExamLine(sql, timetable, now());
+      return json({ status: result.status, pending, badge, review });
     }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
