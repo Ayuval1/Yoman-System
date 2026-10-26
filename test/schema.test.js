@@ -19,6 +19,8 @@ const NEW = [
 const MEASUREMENT = ['intake_outcomes', 'intake_checks'];
 // שאלת שיעורי הבית (שלב 8.6-1, docs/08-chapter8/60).
 const HOMEWORK = ['lesson_asks'];
+// שאלת "איזה מקצוע במדעים?" (שלב B-3ב, docs/08-chapter8/68 H13).
+const EXAM_ASKS = ['exam_asks'];
 
 // כל CREATE TABLE, עם הגוף עד ');' שבתחילת שורה.
 const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\n\);/gi)]
@@ -26,8 +28,8 @@ const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s
 
 describe('db/schema.sql', () => {
   test('בדיוק 26 הטבלאות הצפויות', () => {
-    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT, ...HOMEWORK].sort());
-    assert.equal(tables.length, 26);
+    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT, ...HOMEWORK, ...EXAM_ASKS].sort());
+    assert.equal(tables.length, 27);
   });
 
   test('lesson_asks: תשע העמודות כפי שיובל הריץ ב-Neon, UNIQUE על (subject, lesson_date, seq_start_period), ו-task_id מפנה ל-tasks', () => {
@@ -40,6 +42,18 @@ describe('db/schema.sql', () => {
     assert.match(t.body, /^\s*task_id\s+uuid\s+REFERENCES tasks\(id\)/m);
     assert.match(t.body, /^\s*status\s+text\s+NOT NULL DEFAULT 'asked'/m);
     assert.match(t.body, /UNIQUE \(subject, lesson_date, seq_start_period\)/);
+  });
+
+  test('exam_asks: שש העמודות כפי שיובל מריץ ב-Neon (B-3ב, H13), exam_date UNIQUE, status ברירת מחדל asked, ובלי הפניות', () => {
+    const t = tables.find((x) => x.name === 'exam_asks');
+    const columns = t.body.split(/\r?\n/).map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => m[1] + ' ' + m[2]);
+    assert.deepEqual(columns, ['id uuid', 'exam_date date', 'exam_type text', 'answer text', 'status text', 'answered_at timestamptz']);
+    assert.match(t.body, /^\s*id\s+uuid\s+PRIMARY KEY DEFAULT gen_random_uuid\(\)/m);
+    assert.match(t.body, /^\s*exam_date\s+date\s+NOT NULL UNIQUE/m);
+    assert.match(t.body, /^\s*exam_type\s+text\s+NOT NULL/m);
+    assert.match(t.body, /^\s*answer\s+text\s*,/m); // nullable: ריק עד תשובה
+    assert.match(t.body, /^\s*status\s+text\s+NOT NULL DEFAULT 'asked'/m);
+    assert.doesNotMatch(t.body, /REFERENCES/i);
   });
 
   test('העמודות החדשות של 8.6-1: tasks.subject, tasks.created_at (DEFAULT now()), media.task_id (מפנה ל-tasks)', () => {
