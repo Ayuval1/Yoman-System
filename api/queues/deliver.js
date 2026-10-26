@@ -15,6 +15,7 @@ import { loadTimetable } from '../../lib/timetable.js';
 import { examLineAt } from '../../lib/exam-line.js';
 import { sequenceFromKey } from '../../lib/homework-schedule.js';
 import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
+import { loadAbsenceRows, decideAbsence } from '../../lib/homework-absence.js';
 import { createExamAsks, loadExamAnswers } from '../../lib/exam-ask.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
@@ -168,7 +169,16 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
     console.error('queue-deliver: אין רצף שיעורי בית למפתח');
     return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok, created: false, sent: false, reason: 'no-sequence' };
   }
-  const { created } = await createLessonAsk({ sql, sequence, timetable: table });
+  // שלב 8.3-2: ביטול וחוסר (lib/homework-absence.js). רצף שכולו מבוטל: אין שאלה, אין שורה ב-lesson_asks ואין התראה (כמו no-sequence: ה-probe_log הקיים בלבד, בלי מקצוע).
+  // כשל בקריאת העובדות לא משנה: השאלה נוצרת כרגיל, בלי סימון "פוספס". נרשם רק שם השגיאה.
+  let absence = { cancelled: false, missed: false };
+  try {
+    absence = decideAbsence({ rows: await loadAbsenceRows(sql, sequence.lessonDate), sequence, timetable: table });
+  } catch (error) {
+    console.error('queue-deliver: קריאת עובדות ההיעדרות נכשלה:', error?.name); // רק שם השגיאה
+  }
+  if (absence.cancelled) return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok, created: false, sent: false, reason: 'cancelled' };
+  const { created } = await createLessonAsk({ sql, sequence, timetable: table, missed: absence.missed });
   // סגירת פער הניסיון החוזר: אם השאלה כבר קיימת (created=false) אבל אף ניסיון התראה לא נרשם ב-probe_log (קריסה אחרי היצירה), שולחים עכשיו.
   // השורה ב-probe_log נכתבת רק אחרי ניסיון, ו-dedupe_key של push-send מונע כפילות. הנחה, לא אומת: ניסיון שנכשל בדחיפה נרשם ולכן לא יישלח שוב.
   let shouldNotify = created;

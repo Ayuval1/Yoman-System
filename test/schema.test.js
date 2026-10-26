@@ -32,10 +32,11 @@ describe('db/schema.sql', () => {
     assert.equal(tables.length, 27);
   });
 
-  test('lesson_asks: תשע העמודות כפי שיובל הריץ ב-Neon, UNIQUE על (subject, lesson_date, seq_start_period), ו-task_id מפנה ל-tasks', () => {
+  test('lesson_asks: עשר העמודות כפי שיובל הריץ ב-Neon, UNIQUE על (subject, lesson_date, seq_start_period), ו-task_id מפנה ל-tasks', () => {
     const t = tables.find((x) => x.name === 'lesson_asks');
     const columns = t.body.split(/\r?\n/).map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`).filter((c) => !c.startsWith('UNIQUE'));
-    assert.deepEqual(columns, ['id uuid', 'subject text', 'lesson_date date', 'seq_start_period integer', 'seq_end_at timestamptz', 'topic text', 'had_homework boolean', 'task_id uuid', 'status text']);
+    assert.deepEqual(columns, ['id uuid', 'subject text', 'lesson_date date', 'seq_start_period integer', 'seq_end_at timestamptz', 'topic text', 'had_homework boolean', 'task_id uuid', 'status text', 'missed boolean']);
+    assert.match(t.body, /^\s*missed\s+boolean\s+NOT NULL DEFAULT false/m); // שלב 8.3-2
     assert.match(t.body, /^\s*subject\s+text\s+NOT NULL/m);
     assert.match(t.body, /^\s*lesson_date\s+date\s+NOT NULL/m);
     assert.match(t.body, /^\s*seq_start_period\s+integer\s+NOT NULL/m);

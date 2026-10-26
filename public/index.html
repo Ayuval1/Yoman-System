@@ -844,6 +844,7 @@ function questionText(question) {
     return `${question.exam_type ?? 'מבחן'} במדעים${label ? ` ב-${label}` : ''}: איזה מקצוע?`;
   }
   if (question.kind !== 'homework') return question.text ?? '';
+  if (question.missed === true) return question.subject ? `פספסת שיעור ${question.subject}, נתנו שיעורי בית?` : 'פספסת שיעור, נתנו שיעורי בית?'; // שלב 8.3-2
   return question.subject ? `${question.subject}: היו שיעורי בית?` : 'היו שיעורי בית?';
 }
 
