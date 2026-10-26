@@ -493,7 +493,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     assert.equal(out.created, true);
     assert.deepEqual(bodyOf(sql), [[
       'בריף · יום שני 26.10',
-      '08:15–15:45 · 9 שיעורים',
+      '\u206608:15–15:45\u2069 · 9 שיעורים',
       'היום: מבחן במתמטיקה ב-10:05',
       'משימות פתוחות (3):',
       '· שיעורי בית · היסטוריה — באיחור (היה עד ראשון 25.10)',
@@ -635,7 +635,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     const sql = briefDb();
     await run(sql);
     assert.equal(sql.find('FROM timetable_slots').length, 1);
-    assert.ok(bodyOf(sql)[0].includes('08:15–15:45 · 9 שיעורים'));
+    assert.ok(bodyOf(sql)[0].includes('\u206608:15–15:45\u2069 · 9 שיעורים'));
   });
   test('פרטיות: בהודעה ובפרמטרים אין שם מורה או חדר, ובשאילתות אין טקסט הודעה של שאלה אחרת', async () => {
     const secret = 'טקסט-שאלה-סודי-מומצא';
@@ -671,7 +671,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     assert.deepEqual(out.push, { sent: true, reason: null });
     assert.equal(push.seen.length, 1);
     assert.equal(push.seen[0].dedupe_key, DAY.slotKey);
-    assert.equal(push.seen[0].body, '08:15–14:15 · 7 שיעורים · 4 משימות פתוחות');
+    assert.equal(push.seen[0].body, '\u206608:15–14:15\u2069 · 7 שיעורים · 4 משימות פתוחות');
     assert.ok(!JSON.stringify(push.seen[0]).includes(SECRET_TITLE) && !JSON.stringify(push.seen[0]).includes('אנגלית'));
     assert.ok(bodyOf(sql)[0].includes(SECRET_TITLE), 'הכותרת כן בהודעה עצמה');
     const [row] = chatNotifyRows(sql);
@@ -681,15 +681,15 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
   test('B-2 משימה אחת ואפס משימות: "משימה אחת פתוחה" / החלק מושמט', async () => {
     const one = recPush();
     await slotRun(DAY, briefDb({ tasks: [TASK_ROWS[1]] }), one);
-    assert.equal(one.seen[0].body, '08:15–14:15 · 7 שיעורים · משימה אחת פתוחה');
+    assert.equal(one.seen[0].body, '\u206608:15–14:15\u2069 · 7 שיעורים · משימה אחת פתוחה');
     const none = recPush();
     await slotRun(DAY, briefDb(), none);
-    assert.equal(none.seen[0].body, '08:15–14:15 · 7 שיעורים');
+    assert.equal(none.seen[0].body, '\u206608:15–14:15\u2069 · 7 שיעורים');
   });
   test('B-2 יום מבחן (26.10): ההתראה נפתחת בשורת המבחן', async () => {
     const push = recPush();
     await run(briefDb({ tasks: TASK_ROWS }), { pushHandle: push, secret: FAKE_CRON });
-    assert.equal(push.seen[0].body, 'מבחן במתמטיקה ב-10:05 · 08:15–15:45 · 9 שיעורים · 3 משימות פתוחות');
+    assert.equal(push.seen[0].body, 'מבחן במתמטיקה ב-10:05 · \u206608:15–15:45\u2069 · 9 שיעורים · 3 משימות פתוחות');
   });
   test('B-2 שבת: ההודעה נוצרת והדחיפה נשלחת (עם משימות: "יום פנוי · N משימות פתוחות"; בלי: נוסח D8)', async () => {
     const withTasks = recPush();
@@ -803,7 +803,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     const sql = briefDb({ onQuery: (text) => { if (text.includes('FROM tasks t')) throw new Error('db down'); } });
     const push = recPush();
     await slotRun(DAY, sql, push, {}, 5);
-    assert.equal(push.seen[0].body, '08:15–14:15 · 7 שיעורים');
+    assert.equal(push.seen[0].body, '\u206608:15–14:15\u2069 · 7 שיעורים');
   });
 
   test('B-2 דחיפה שנכשלה זמנית (500 או חריגה) לפני הניסיון האחרון: נזרק לניסיון חוזר, וההודעה נשמרה פעם אחת', async (t) => {

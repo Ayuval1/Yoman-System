@@ -22,7 +22,7 @@ describe('brief-view: יום עם 9 שיעורים ו-3 משימות (התבני
   test('הטקסט המלא זהה לתבנית ב-PRD, מילה במילה (המשימות ממוינות לפי תאריך, בלי תאריך בסוף)', () => {
     assert.equal(out.text, [
       'בריף · יום שני 26.10',
-      '08:15–15:45 · 9 שיעורים',
+      '\u206608:15–15:45\u2069 · 9 שיעורים',
       'היום: מבחן במתמטיקה ב-10:05',
       'משימות פתוחות (3):',
       '· שיעורי בית · היסטוריה — באיחור (היה עד ראשון 25.10)',
@@ -33,16 +33,16 @@ describe('brief-view: יום עם 9 שיעורים ו-3 משימות (התבני
     ].join('\n'));
   });
   test('המבנה המוחזר: שורת בית ספר, יום לימודים, 3 משימות, מבחן אחד', () => {
-    assert.deepEqual(out.school, { startsAt: '08:15', endsAt: '15:45', lessons: 9, text: '08:15–15:45 · 9 שיעורים' });
+    assert.deepEqual(out.school, { startsAt: '08:15', endsAt: '15:45', lessons: 9, text: '\u206608:15–15:45\u2069 · 9 שיעורים' });
     assert.equal(out.schoolDay, true);
     assert.equal(out.tasks, 3);
     assert.equal(out.exams.length, 1);
   });
   test('שלישי 20.10.2026: 08:15–14:15 · 7 שיעורים (הדוגמה בסעיף 1 של ה-PRD)', () => {
-    assert.equal(schoolSummary('2026-10-20', TIMETABLE).text, '08:15–14:15 · 7 שיעורים');
+    assert.equal(schoolSummary('2026-10-20', TIMETABLE).text, '\u206608:15–14:15\u2069 · 7 שיעורים');
   });
   test('שיעור אחד ביום: "שיעור אחד"', () => {
-    assert.equal(schoolSummary('2026-10-20', { slots: [{ weekday: 3, period: 4, startsAt: '10:55', endsAt: '11:40', subject: 'מתמטיקה' }] }).text, '10:55–11:40 · שיעור אחד');
+    assert.equal(schoolSummary('2026-10-20', { slots: [{ weekday: 3, period: 4, startsAt: '10:55', endsAt: '11:40', subject: 'מתמטיקה' }] }).text, '\u206610:55–11:40\u2069 · שיעור אחד');
   });
   test('כל השיעורים נספרים, גם פטורים: ביום ראשון יש "שיח אישי" פטור והוא נספר', () => {
     assert.equal(schoolSummary('2026-10-25', TIMETABLE).lessons, TIMETABLE.slots.filter((s) => s.weekday === 1).length);
@@ -114,7 +114,7 @@ describe('brief-view: משימות, בלי תקרה, באיחור, בלי תאר
 describe('brief-view: שורת המבחן (D15)', () => {
   test('ביום מבחן השורה "היום: ..." אחרי שורת בית הספר ולפני המשימות', () => {
     const lines = linesOf(composeBrief({ dateIso: '2026-10-26', timetable: TIMETABLE, tasks: [{ title: 'דף' }], pending: [] }).text);
-    assert.deepEqual(lines.slice(0, 4), ['בריף · יום שני 26.10', '08:15–15:45 · 9 שיעורים', 'היום: מבחן במתמטיקה ב-10:05', 'משימות פתוחות (1):']);
+    assert.deepEqual(lines.slice(0, 4), ['בריף · יום שני 26.10', '\u206608:15–15:45\u2069 · 9 שיעורים', 'היום: מבחן במתמטיקה ב-10:05', 'משימות פתוחות (1):']);
   });
   test('מבחן בלי שיעור של המקצוע באותו יום: בלי שעה (רביעי 18.11, תנ"ך)', () => {
     assert.ok(composeBrief({ dateIso: '2026-11-18', timetable: TIMETABLE }).text.includes('\nהיום: מבחן בתנ"ך\n'));
@@ -214,7 +214,7 @@ describe('brief-view: briefPushText (B-2)', () => {
     assert.equal(push('2026-10-27', 0), schoolSummary('2026-10-27', TIMETABLE).text);
   });
   test('יום מבחן: ההתראה נפתחת בשורת המבחן (עם שעה), ואחריה שורת בית הספר והמשימות', () => {
-    assert.equal(push('2026-10-26', 3), 'מבחן במתמטיקה ב-10:05 · 08:15–15:45 · 9 שיעורים · 3 משימות פתוחות');
+    assert.equal(push('2026-10-26', 3), 'מבחן במתמטיקה ב-10:05 · \u206608:15–15:45\u2069 · 9 שיעורים · 3 משימות פתוחות');
   });
   test('שבת עם משימות: "יום פנוי · N משימות פתוחות"; משימה אחת: "יום פנוי · משימה אחת פתוחה"', () => {
     assert.equal(push('2026-10-24', 3), 'יום פנוי · 3 משימות פתוחות');
@@ -259,7 +259,7 @@ describe('brief-view: briefCardData (כרטיס הבריף החי)', () => {
     const expected = composeBrief({ dateIso: '2026-10-26', timetable: TIMETABLE, tasks, pending: [{ id: 'q1', text: 'מומצא' }] });
     assert.equal(card.text, expected.text);
     assert.equal(card.title, 'בריף · יום שני 26.10');
-    assert.equal(card.school, '08:15–15:45 · 9 שיעורים');
+    assert.equal(card.school, '\u206608:15–15:45\u2069 · 9 שיעורים');
     assert.deepEqual(card.exams, ['היום: מבחן במתמטיקה ב-10:05']);
     assert.equal(card.freeDay, false);
   });
@@ -346,5 +346,24 @@ describe('brief-view: briefCardData (כרטיס הבריף החי)', () => {
 
   test('now לא תקין זורק RangeError (הקורא, api/chat.js, עוטף)', () => {
     assert.throws(() => briefCardData({ now: new Date(NaN), timetable: TIMETABLE }), RangeError);
+  });
+});
+
+// כיוון השעות בפסקה עברית (RTL): בלי בידוד LRI/PDI הציר מוצג הפוך (15:45–08:15). הכרטיס מצייר שעות בנפרד ולכן לא מושפע.
+describe('brief-view: בידוד כיווני של טווח השעות בשורת בית הספר', () => {
+  const school = schoolSummary('2026-10-26', TIMETABLE);
+  test('הטקסט עוטף את הטווח ב-LRI (U+2066) ו-PDI (U+2069), והמספר אחריו נשאר מחוץ לבידוד', () => {
+    assert.equal(school.text, '⁦08:15–15:45⁩ · 9 שיעורים');
+    assert.ok(school.text.startsWith('⁦') && school.text.indexOf('⁩') === school.text.indexOf('15:45') + 5);
+  });
+  test('startsAt, endsAt ו-lessons נשארים נקיים, בלי תווי בקרה', () => {
+    assert.deepEqual([school.startsAt, school.endsAt, school.lessons], ['08:15', '15:45', 9]);
+  });
+  test('כרטיס הבריף מחזיר אותן שעות נקיות, ושורת בית הספר בהודעה היא אותה שורה', () => {
+    const card = briefCardData({ now: new Date('2026-10-26T05:30:00.000Z'), timetable: TIMETABLE });
+    assert.equal(card.schoolStartsAt, '08:15');
+    assert.equal(card.schoolEndsAt, '15:45');
+    assert.equal(card.schoolLessons, 9);
+    assert.equal(card.text.split('\n')[1], school.text);
   });
 });

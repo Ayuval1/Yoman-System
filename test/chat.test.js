@@ -528,7 +528,7 @@ describe('chat: brief (כרטיס הבריף החי)', () => {
     const body = await (await getAt(sql, MONDAY_MORNING)).json();
     assert.equal(body.brief.dateIso, '2026-10-19');
     assert.equal(body.brief.title, 'בריף · יום שני 19.10');
-    assert.match(body.brief.school, /^08:15–\d\d:\d\d · \d+ שיעורים$/);
+    assert.match(body.brief.school, /^\u206608:15–\d\d:\d\d\u2069 · \d+ שיעורים$/);
     assert.match(body.brief.text, /משימות פתוחות \(1\):\n· דף תרגילים — בלי תאריך/);
     assert.equal(body.brief.freeDay, false);
   });
