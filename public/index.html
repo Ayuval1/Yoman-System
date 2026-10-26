@@ -385,6 +385,19 @@ function paintDate(now = new Date()) {
 }
 paintDate();
 
+// התאריך בכותרת מתעדכן גם כשהדף חוזר לחזית (visibilitychange / pageshow, למטה) וגם בחצות לפי שעון המכשיר.
+// החישוב מחדש בכל פעם מ-new Date(), לא 24 שעות קבועות: עומד במעבר שעון קיץ/חורף ובשינוי שעון.
+function msUntilNextMidnight(now = new Date()) {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+  return next.getTime() - now.getTime();
+}
+let midnightTimer = null;
+function scheduleMidnightPaint() {
+  clearTimeout(midnightTimer);
+  midnightTimer = setTimeout(() => { paintDate(); scheduleMidnightPaint(); }, msUntilNextMidnight());
+}
+scheduleMidnightPaint();
+
 // --- אין שירות-עובד (הכרעת שלב 4א): דחיפה הצהרתית, המערכת מציגה את ההתראה בעצמה ---
 // ⚠️ שירות-עובד שמציג התראה בעצמו מבטל את הפורמט ההצהרתי (ממצא 1, docs/05-chapter7/14).
 
@@ -1640,8 +1653,10 @@ composer.addEventListener('submit', async (event) => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') refresh();
+  if (document.visibilityState === 'visible') { paintDate(); scheduleMidnightPaint(); refresh(); }
 });
+// חזרה מ-bfcache (iOS): visibilitychange לא תמיד נורה.
+window.addEventListener('pageshow', () => { paintDate(); scheduleMidnightPaint(); });
 
 refresh();
 </script>
