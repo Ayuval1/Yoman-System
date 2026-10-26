@@ -87,6 +87,17 @@ describe('exam-line: examLineAt (B-3)', () => {
     assert.equal(line('2026-10-26T04:00:00Z'), null, '06:00');
     assert.equal(line('2026-10-26T04:01:00Z'), null, '06:01');
   });
+  test('בוקר החזרת השעון (25.10, ב-05:00 ו-05:30 ישראל = 03:00Z ו-03:30Z): "מחר" הוא 25.10 ולא 26.10', () => {
+    const exams = [{ date: '2026-10-25', type: 'מבדק', subject: 'אנגלית', makeup: false }, { date: '2026-10-26', type: 'מבחן', subject: 'מתמטיקה', makeup: false }];
+    assert.equal(line('2026-10-25T03:00:00Z', { timetable: null, exams }), 'מחר: מבדק באנגלית');
+    assert.equal(line('2026-10-25T03:30:00Z', { timetable: null, exams }), 'מחר: מבדק באנגלית');
+    assert.equal(line('2026-10-25T03:00:00Z'), null, 'בנתונים האמיתיים אין מבחן ב-25.10');
+  });
+  test('בוקר מעבר לשעון קיץ (26.3.2027, 05:59 ישראל = 02:59Z) וערב לפניו (25.3.2027 21:30 = 19:30Z): מבחן של 26.3', () => {
+    const exams = [{ date: '2027-03-26', type: 'מבחן', subject: 'אנגלית', makeup: false }];
+    assert.equal(line('2027-03-26T02:59:00Z', { timetable: null, exams }), 'מחר: מבחן באנגלית');
+    assert.equal(line('2027-03-25T19:30:00Z', { timetable: null, exams }), 'מחר: מבחן באנגלית');
+  });
   test('מחוץ לחלון ביום שיש בו מבחן אחר: צהריים לפני המבחן בלי שורה', () => {
     assert.equal(line('2026-10-25T10:00:00Z'), null);
   });
