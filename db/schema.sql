@@ -296,6 +296,7 @@ CREATE TABLE IF NOT EXISTS lesson_asks (
   had_homework     boolean,
   task_id          uuid        REFERENCES tasks(id),
   status           text        NOT NULL DEFAULT 'asked',
+  missed           boolean     NOT NULL DEFAULT false,   -- שלב 8.3-2: יציאה מוקדמת פספסה את הרצף. במסד החי נוספה ב-ALTER TABLE ... ADD COLUMN IF NOT EXISTS
   UNIQUE (subject, lesson_date, seq_start_period)
 );
 

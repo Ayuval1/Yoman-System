@@ -38,9 +38,9 @@ function homeworkDb() {
   const askOf = (message) => db.asks.find((a) => a.id === message.entity_id);
   const sql = fakeSql((text, values) => {
     if (text.startsWith('WITH a AS ( INSERT INTO lesson_asks')) {
-      const [subject, lessonDate, startPeriod, endAtIso, body, expiresIso] = values;
+      const [subject, lessonDate, startPeriod, endAtIso, missed, body, expiresIso] = values; // missed: שלב 8.3-2
       if (db.asks.some((a) => a.subject === subject && a.lesson_date === lessonDate && a.seq_start_period === startPeriod)) return [{ ask_id: null, message_id: null }];
-      const ask = { id: nextId(), subject, lesson_date: lessonDate, seq_start_period: startPeriod, seq_end_at: endAtIso, topic: null, had_homework: null, task_id: null, status: 'asked' };
+      const ask = { id: nextId(), subject, lesson_date: lessonDate, seq_start_period: startPeriod, seq_end_at: endAtIso, missed, topic: null, had_homework: null, task_id: null, status: 'asked' };
       db.asks.push(ask);
       const message = { id: nextId(), direction: 'out', body, kind: 'question', sent_at: new Date(NOW), awaiting_reply: true, reply_source_id: null, expires_at: expiresIso, entity_type: 'lesson_ask', entity_id: ask.id, attempt: 1, read_at: null };
       db.messages.push(message);
@@ -413,7 +413,7 @@ describe('chat: GET, open_tasks ופריט ה-pending', () => {
     const body = await (await get(sql)).json();
     assert.equal(body.pending.length, 1);
     assert.deepEqual(body.pending[0], {
-      id: messageId, kind: 'homework', at: NOW.toISOString(), subject: 'מתמטיקה', lesson_date: '2026-10-18',
+      id: messageId, kind: 'homework', at: NOW.toISOString(), subject: 'מתמטיקה', lesson_date: '2026-10-18', missed: false,
       buttons: [{ due: 'next', date: '2026-10-19' }], topic_allowed: true,
     });
     assert.ok(!('allowFreeText' in body.pending[0]) && !('text' in body.pending[0]), 'בלי "לא יודע" ובלי תיבת כתיבה חופשית');
