@@ -14,6 +14,7 @@ import { neon } from '@neondatabase/serverless';
 import { processSource } from '../lib/intake-process.js';
 import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
+import { syncEventForSource } from '../lib/event-sync.js';
 
 // נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -80,7 +81,7 @@ export function outcomeFor({ channel, result, failure = null }) {
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. processor (אופציונלי): החלפת צינור העיבוד, לבדיקות.
 // processTimeoutMs (אופציונלי): קיצור ההמתנה לעיבוד, כדי לבדוק תקיעה בלי לחכות 5 שניות.
-// sendQueue ו-now (אופציונליים): שליחה לתור והשעון של ההתראה המאוגדת, לבדיקות.
+// sendQueue ו-now (אופציונליים): שליחה לתור והשעון של ההתראה המאוגדת, לבדיקות. eventSync (אופציונלי): הכתיבה ליומן Google (שלב 8.3-4), לבדיקות.
 export async function handle(request, {
   sql,
   secret = process.env[SECRET_ENV_NAME],
@@ -88,6 +89,7 @@ export async function handle(request, {
   processTimeoutMs = PROCESS_TIMEOUT_MS,
   sendQueue = realSend,
   now = () => new Date(),
+  eventSync = syncEventForSource,
 }) {
   const startedAt = Date.now();
 
@@ -208,6 +210,15 @@ export async function handle(request, {
       }), NOTIFY_QUEUE_TIMEOUT_MS);
     } catch (error) {
       console.error('intake: שליחה לתור ההתראות נכשלה:', error?.name);
+    }
+  }
+  // כתיבה ליומן Google (שלב 8.3-4, lib/event-sync.js): רק אחרי שהעיבוד נרשם במסד, ולאירוע של המקור הזה בלבד (match_key 'source:<id>').
+  // בלי הגדרות Google או בלי חיבור: דילוג שקט. כל כשל נתפס ולא משנה את התשובה; כל קריאה ל-Google מוגבלת ב-FETCH_TIMEOUT_MS. הסריקה היומית משלימה מה שלא נכתב.
+  if (result?.status === 'recorded') {
+    try {
+      await eventSync({ sql, sourceId: String(row.id), now: now() });
+    } catch (error) {
+      console.error('intake: כתיבה ליומן נכשלה:', error?.name);
     }
   }
   return reply(200, typeof result?.reply === 'string' && result.reply !== '' ? result.reply : RECEIVED_REPLY);

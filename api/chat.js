@@ -14,10 +14,11 @@
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
-// פרטיות: אין טקסט הודעות בלוגים (רק שם שגיאה), ואין קריאת מודל או רשת. ה-GET מחזיר את טקסט ההודעות לסיכום היום (57 T11), לתצוגה באפליקציה בלבד. הלוגיקה שנבדקת יושבת ב-lib/chat-view.js.
+// פרטיות: אין טקסט הודעות בלוגים (רק שם שגיאה), ואין קריאת מודל. רשת: רק הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js). ה-GET מחזיר את טקסט ההודעות לסיכום היום (57 T11), לתצוגה באפליקציה בלבד. הלוגיקה שנבדקת יושבת ב-lib/chat-view.js.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
+import { syncEventAfterAnswer } from '../lib/event-sync.js';
 import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
 import { answerExam, loadExamAnswers } from '../lib/exam-ask.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
@@ -145,7 +146,8 @@ async function reviewWithExamLine(sql, timetable, now) {
 }
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date() } = {}) {
+// eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -214,6 +216,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable });
+    // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
+    // כל כשל נתפס ולא משנה את התשובה.
+    if (result.status === 'answered') {
+      try {
+        await eventSync({ sql, messageId: action.messageId, now: now() });
+      } catch (error) {
+        console.error('chat: כתיבה ליומן נכשלה:', error?.name);
+      }
+    }
     const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created ?? {}) : [];
     const pending = await loadPending(sql, timetable, now());
     const badge = await loadBadge(sql, now());

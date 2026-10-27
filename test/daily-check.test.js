@@ -33,6 +33,7 @@ function fakeSql({
       if (failIntake) throw failIntake;
       return [{ recorded: 0, unclassified: 0, duplicate: 0, failed: 0, no_outcome: 0, ...intake }];
     }
+    if (text.includes('FROM events')) return []; // סריקת האירועים (שלב 8.3-4): אין מה לכתוב
     if (text.includes('FROM google_credentials')) return creds ? [creds] : [];
     if (text.includes('FROM google_watch_channels')) {
       if (failWatch) throw new Error('boom');
@@ -161,7 +162,7 @@ test('כשל חלקי: watch נופל, בדיקת token עדיין רצה ושת
   const body = await res.json();
   assert.equal(body.google_token.ok, true);
   assert.equal(body.google_watch.ok, false);
-  assert.equal(sql.inserts.length, 4); // + שורת google-watch-renew-daily (גם החידוש קורא את הטבלה ונופל, ונרשם check_crashed) + שורת intake-daily
+  assert.equal(sql.inserts.length, 5); // + שורת google-watch-renew-daily (גם החידוש קורא את הטבלה ונופל, ונרשם check_crashed) + google-event-sync-daily + intake-daily
   assert.equal(sql.inserts.find((r) => r.probe === 'google-watch-daily').ok, false);
 });
 
@@ -208,8 +209,8 @@ test('intake-daily: שורה אחת ב-probe_log, ה-detail בצורה המדו�
   const body = await res.json();
   assert.deepEqual(intakeRow(sql), [{ probe: 'intake-daily', ok: true, detail: 'recorded=3; unclassified=2; duplicate=1; failed=1; no_outcome=0' }]);
   assert.deepEqual(body.intake_daily, { ok: true, recorded: 3, unclassified: 2, duplicate: 1, failed: 1, no_outcome: 0, logged: true });
-  assert.equal(sql.inserts.length, 4);
-  assert.deepEqual(sql.inserts.map((r) => r.probe), ['google-token-daily', 'google-watch-daily', 'google-watch-renew-daily', 'intake-daily']);
+  assert.equal(sql.inserts.length, 5); // כולל google-event-sync-daily (שלב 8.3-4)
+  assert.deepEqual(sql.inserts.map((r) => r.probe), ['google-token-daily', 'google-watch-daily', 'google-watch-renew-daily', 'google-event-sync-daily', 'intake-daily']);
 });
 
 test('intake-daily: יום בלי הודעות - אפסים, ok=true', async () => {
@@ -272,7 +273,7 @@ test('intake-daily: הספירה קורסת - ok=false, reason=check_crashed, ש
   const body = JSON.parse(text);
   assert.deepEqual(body.intake_daily, { ok: false, reason: 'check_crashed', logged: true });
   assert.deepEqual(intakeRow(sql), [{ probe: 'intake-daily', ok: false, detail: 'reason=check_crashed' }]);
-  assert.equal(sql.inserts.length, 4);
+  assert.equal(sql.inserts.length, 5); // כולל google-event-sync-daily (שלב 8.3-4)
   assert.deepEqual(sql.inserts.find((r) => r.probe === 'google-token-daily'), { probe: 'google-token-daily', ok: true, detail: 'days_since_connected=8 calendars=2' });
   assert.equal(sql.inserts.find((r) => r.probe === 'google-watch-daily').ok, true);
   assert.deepEqual(sql.inserts.find((r) => r.probe === 'google-watch-renew-daily'), { probe: 'google-watch-renew-daily', ok: true, detail: 'renewed=0 failed=0 skipped=0' });
