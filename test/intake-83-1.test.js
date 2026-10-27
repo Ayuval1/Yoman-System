@@ -701,10 +701,12 @@ describe('8.3-1: pendingQuestion ו-answerQuestion', () => {
     });
     assert.equal(pendingQuestion({ source: typedSource(MSG2), facts: SAVED_EVENT, timetable: TIMETABLE }).text, CARD2);
   });
-  test('pendingQuestion: אחרי תשובת confirm אין שאלה (yes ו-no)', () => {
-    for (const value of ['yes', 'no']) {
-      assert.equal(pendingQuestion({ source: typedSource(MSG1), facts: [...SAVED_EARLY, fact('confirm', value)], timetable: TIMETABLE }), null, value);
-      assert.equal(pendingQuestion({ source: typedSource(MSG2), facts: [...SAVED_EVENT, fact('confirm', value)], timetable: TIMETABLE }), null, value);
+  // שלב 8.3-3: אחרי "לא נכון" השאלה הבאה היא "מה לא נכון?" (test/intake-83-3.test.js); "נכון" נשאר בלי שאלה.
+  test('pendingQuestion: אחרי confirm=yes אין שאלה; אחרי confirm=no: "מה לא נכון?" (8.3-3)', () => {
+    const fix = { field: 'fix', text: 'מה לא נכון?', buttons: ['השעה', 'התאריך', 'לא קורה'], allowFreeText: false };
+    for (const [value, expected] of [['yes', null], ['no', fix]]) {
+      assert.deepEqual(pendingQuestion({ source: typedSource(MSG1), facts: [...SAVED_EARLY, fact('confirm', value)], timetable: TIMETABLE }), expected, value);
+      assert.deepEqual(pendingQuestion({ source: typedSource(MSG2), facts: [...SAVED_EVENT, fact('confirm', value)], timetable: TIMETABLE }), expected, value);
     }
   });
   test('pendingQuestion: שעה חסרה נשאלת לפני האישור; שעה unknown: אין כרטיס אישור', () => {
@@ -714,18 +716,21 @@ describe('8.3-1: pendingQuestion ו-answerQuestion', () => {
     assert.equal(pendingQuestion({ source: typedSource('אני הולך מהבית ספר'), facts: [...noTime, fact('time', UNKNOWN_VALUE)], timetable: TIMETABLE }), null);
   });
 
+  // שלב 8.3-3: "לא נכון" כבר אינו סוגר: הוא פותח את "מה לא נכון?" (done=false). שאר הבדיקה (עובדה אחת, בלי "נרשם" נוסף, בלי כרטיס שני) זהה.
   for (const [label, answer, value] of [['נכון', 'נכון', 'yes'], ['לא נכון', 'לא נכון', 'no']]) {
     test(`answerQuestion "${label}": העובדה confirm=${value} נשמרת, השאלה נסגרת, ואין בועת "נרשם" נוספת`, async () => {
       for (const [text, saved, reply] of [[MSG1, SAVED_EARLY, 'נרשם · יציאה מוקדמת · שני 19.10'], [MSG2, SAVED_EVENT, 'נרשם · אירוע אישי · בדיקה רפואית · שני 19.10']]) {
         const sql = answerDb({ src: typedSource(text), facts: saved });
         const result = await answerQuestion({ sql, messageId: MSG_ID, answer, now: new Date(MONDAY_0830), timetable: TIMETABLE });
-        assert.deepEqual(result, { done: true, reply, status: 'answered', created: { answerSourceId: null, bubbleId: null, questionId: null } });
+        const expected = value === 'yes' ? { done: true, reply } : { done: false, reply: 'מה לא נכון?' };
+        assert.deepEqual(result, { ...expected, status: 'answered', created: { answerSourceId: null, bubbleId: null, questionId: null } });
         const writes = writesOf(sql);
         assert.equal(writes.length, 1, 'פקודה אחת אטומית');
         assert.ok(writes[0].text.includes('UPDATE messages SET awaiting_reply = false'), 'השאלה נסגרת');
         assert.deepEqual(factsJsonOf(writes[0]), [{ field: 'confirm', value, origin: 'read' }], 'רק העובדה החדשה');
         assert.equal(writes[0].values.filter((v) => typeof v === 'string' && v.startsWith('נרשם')).length, 0, 'אין בועת "נרשם" נוספת');
-        assert.equal(writes[0].values.filter((v) => typeof v === 'string' && v.endsWith('נכון?')).length, 0, 'אין שאלה חדשה');
+        assert.equal(writes[0].values.filter((v) => typeof v === 'string' && v.endsWith('נכון?') && v !== 'מה לא נכון?').length, 0, 'אין כרטיס אישור חדש');
+        assert.equal(writes[0].values.filter((v) => v === 'מה לא נכון?').length, value === 'no' ? 2 : 0, 'רק אחרי "לא נכון": השאלה "מה לא נכון?" (8.3-3)');
         assert.doesNotMatch(writes[0].text, /\bDELETE\b/);
       }
     });
