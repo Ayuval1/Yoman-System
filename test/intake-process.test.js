@@ -63,9 +63,10 @@ const atomicOf = (sql) => {
 const jsonRowsOf = (call) => JSON.parse(call.values.find((value) => typeof value === 'string' && /^\[.*\]$/s.test(value)));
 // סדר הפרמטרים בפקודת התשובה של answerQuestion (מאז שלב 8.2א-1: שורת תשובה, סימון מקור ובועה):
 // [messageId, answerText, sourceId, certainty, rowsJson, sourceId, markProcessed, nextText, sourceId, attempt, nextText, bubble, sourceId, bubble, sourceId,
-//  messageId, pattern, pattern, messageId, pattern]
+//  messageId, pattern, pattern, messageId, pattern,
+//  שלב 8.3-3 (נוספו בסוף, הסדר הקודם לא השתנה): eventInsertJson, eventUpdateJson, eventCancelJson, fixBubble, sourceId, fixBubble, sourceId, fixBubble]
 const answerParams = (call) => {
-  assert.equal(call.values.length, 20, 'מספר הפרמטרים בפקודת התשובה');
+  assert.equal(call.values.length, 28, 'מספר הפרמטרים בפקודת התשובה');
   return {
     messageId: call.values[0],
     answerText: call.values[1],
@@ -782,7 +783,8 @@ describe('מבנה פקודות ה-SQL: כל כתיבה תלויה בתפיסה 
     // מאז שלב 8.2א-1: גם שורת התשובה (sources) ובועה (messages) לפני העובדות והדפוס.
     test('בפקודה בדיוק חמש הכנסות (שורת תשובה, עובדות, שאלה, בועה, דפוס), וכולן INSERT ... SELECT ולא VALUES', async () => {
       const inserts = [...(await run()).matchAll(/INSERT INTO (\w+) \([^)]*\) (SELECT|VALUES)/g)].map((m) => [m[1], m[2]]);
-      assert.deepEqual(inserts, [['sources', 'SELECT'], ['facts', 'SELECT'], ['messages', 'SELECT'], ['messages', 'SELECT'], ['candidate_rules', 'SELECT']]);
+      // שלב 8.3-3: נוספו בסוף שורת האירוע (events) ובועת התיקון (messages), גם הן INSERT ... SELECT.
+      assert.deepEqual(inserts, [['sources', 'SELECT'], ['facts', 'SELECT'], ['messages', 'SELECT'], ['messages', 'SELECT'], ['candidate_rules', 'SELECT'], ['events', 'SELECT'], ['messages', 'SELECT']]);
     });
   });
 });
@@ -1221,7 +1223,7 @@ describe('8.2א-1: answerQuestion: שורת תשובה, בועה ושאלת "מ�
     assert.match(call.text, /^WITH closed AS \( UPDATE messages SET awaiting_reply = false, read_at = now\(\), reply_source_id = gen_random_uuid\(\) WHERE id = \?::uuid AND kind = 'question' AND awaiting_reply = true RETURNING id, reply_source_id \)/);
     assert.match(call.text, /ans AS \( INSERT INTO sources \(id, channel, sender, raw_content, content_hash, received_at, processed_at\) SELECT closed\.reply_source_id, 'app', 'answer', \?::text, NULL::text, now\(\), now\(\) FROM closed RETURNING id \)/);
     assert.equal(answerParams(call).answerText, 'אלגברה', 'התשובה כפי שנשלחה');
-    assert.match(call.text, /SELECT \(SELECT count\(\*\) FROM closed\)::int AS closed, \(SELECT id FROM ans\) AS answer_source_id, \(SELECT id FROM b\) AS bubble_id, \(SELECT id FROM m\) AS question_id$/);
+    assert.match(call.text, /SELECT \(SELECT count\(\*\) FROM closed\)::int AS closed, \(SELECT id FROM ans\) AS answer_source_id, coalesce\(\(SELECT id FROM b\), \(SELECT id FROM fb\)\) AS bubble_id, \(SELECT id FROM m\) AS question_id$/);
   });
 
   test('קריטריון 5: כל הכנסה בפקודת התשובה תלויה ב-closed, ואין DELETE', async () => {
@@ -1233,13 +1235,17 @@ describe('8.2א-1: answerQuestion: שורת תשובה, בועה ושאלת "מ�
       inserts += 1;
       assert.match(m[2], /FROM closed\b/, `ההכנסה ל-${m[1]} תלויה ב-closed`);
     }
-    assert.equal(inserts, 5);
+    assert.equal(inserts, 7, 'שלב 8.3-3: + events ובועת התיקון');
     let updates = 0;
     for (const m of text.matchAll(/UPDATE (sources|candidate_rules) SET .*? WHERE (.*?) RETURNING id/g)) {
       updates += 1;
       assert.ok(m[2].includes('EXISTS (SELECT 1 FROM closed)'), `העדכון של ${m[1]} תלוי ב-closed`);
     }
     assert.equal(updates, 2);
+    // שלב 8.3-3: שני העדכונים של events (תיקון ו"לא קורה") תלויים גם הם ב-closed.
+    const eventUpdates = [...text.matchAll(/UPDATE events SET .*? WHERE (.*?) RETURNING events\.id/g)];
+    assert.equal(eventUpdates.length, 2);
+    for (const m of eventUpdates) assert.ok(m[1].includes('EXISTS (SELECT 1 FROM closed)'), 'העדכון של events תלוי ב-closed');
     assert.doesNotMatch(text, /\bDELETE\b/);
   });
 
