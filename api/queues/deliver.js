@@ -1,5 +1,6 @@
 // צרכן התור של משבצות ההודעה (בלוק 3, 8.10.2026): מקבל את ההודעה המושהית ברגע היעד ורושם ב-probe_log מתי הגיעה בפועל.
-// שלב B-1 (docs/08-chapter8/68): במשבצת brief נכתבת הודעת הבוקר ל-messages (deliverBrief למטה). שלב B-2: אחרי ההודעה נשלחת גם התראת הבוקר (כל יום). close עדיין תשתית תזמון והתראת סיכום בלבד.
+// שלב B-1 (docs/08-chapter8/68): במשבצת brief נכתבת הודעת הבוקר ל-messages (deliverBrief למטה). שלב B-2: אחרי ההודעה נשלחת גם התראת הבוקר (כל יום).
+// שלב C-1 (docs/08-chapter8/90): במשבצת close נכתבת הודעת הסגירה של 21:00 ל-messages ונשלחת התראה בכל ערב (deliverClose למטה), במקום התראת הסיכום של M.2.
 // מאז שלב 8.2א-3 יש סוג שלישי, notify: התראה מאוגדת על הודעת מערכת שנוצרה מהודעה שהועברה (lib/chat-notify.js), באותו נושא ובלי שינוי ב-vercel.json.
 // שלב 8.6-1 (docs/08-chapter8/60): סוג רביעי, homework: שאלת "היו שיעורי בית?" אחת לרצף שיעורים (נוצרת ב-cron-plan של 01:00 UTC, מגיעה 3 דקות אחרי סוף הרצף). ראו deliverHomework למטה.
 // התור הוא בטא (queue/v2beta). המסירה at-least-once, ולכן הכתיבה אידמפוטנטית: אותה משבצת נרשמת פעם אחת.
@@ -8,8 +9,9 @@
 import { neon } from '@neondatabase/serverless';
 import { QueueClient } from '@vercel/queue';
 import { parseSlotMessage, planNotify } from '../../lib/message-slots.js';
-import { sendChatNotification, sendReviewNotification, sendBriefNotification } from '../../lib/chat-notify.js';
+import { sendChatNotification, sendBriefNotification, sendClosingNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
+import { closingWindow, closingDates, loadReceived, composeClosing, closingPushText } from '../../lib/closing-view.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTimetable } from '../../lib/timetable.js';
 import { examLineAt } from '../../lib/exam-line.js';
@@ -23,7 +25,7 @@ const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון
 
 // handleDelivery מקבל את המסד והשעון מבחוץ כדי שאפשר לבדוק בלי מסד אמיתי ובלי תור.
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
-// ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief (B-1): אחרי הרישום הקיים, כותב את הודעת הבוקר ל-messages. close (שלב M.2, docs/09-security/57 T10): אחרי הרישום הקיים, התראה אחת על סיכום היום אם יש הודעות לסימון.
+// ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief (B-1): אחרי הרישום הקיים, כותב את הודעת הבוקר ל-messages. close (C-1, docs/08-chapter8/90): אחרי הרישום הקיים, הודעת הסגירה והתראה בכל ערב.
 // homework (שלב 8.6-1, docs/08-chapter8/60 סעיפים 3-5): אחרי הרישום הקיים, יוצר את שאלת שיעורי הבית של הרצף ושולח התראה כללית אחת. timetable (אופציונלי, לבדיקות): במקום טעינה מהמסד.
 export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable }) {
   const parsed = parseSlotMessage(message);
@@ -56,9 +58,9 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
     SELECT 'message-slot', ${ok}, ${detail}
     WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'message-slot' AND detail LIKE ${`slot=${parsed.slotKey};%`})
   `;
-  // M.2 (57 T10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), התראה אחת על סיכום היום. הזמן לספירה הוא targetAt (21:00 של המשבצת), לא רגע ההגעה.
-  // כל כשל כאן (ספירה, דחיפה, רישום) נתפס ולא נזרק: זריקה הייתה גורמת לניסיון חוזר של התור, והשורה הקיימת כבר נכתבה.
-  if (parsed.kind === 'close') await notifyReview({ sql, parsed, detail, ok, pushHandle, secret, timetable });
+  // C-1 (docs/08-chapter8/90 E9, E10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), הודעת הסגירה בצ'אט והתראה אחת בכל ערב (deliverClose למטה).
+  // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
+  if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
@@ -209,37 +211,80 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, sent: outcome.sent };
 }
 
-// התראת סיכום היום במשבצת close. נרשמת ב-probe_log כ-chat-notify (שורה אחת למשבצת). לא זורקת אף פעם.
-// B-3 (68 D11, D12): שורת המבחן של הערב (examLineAt, לפי targetAt = 21:00 של המשבצת) מועברת להתראה; יש מבחן מחר = התראה גם בלי הודעות לסימון.
-// מערכת השעות: הזרקה (בדיקות) או loadTimetable (לא זורקת; null = בלי שעה). ב-probe_log נרשם exam=1/0 בלבד, בלי טקסט.
-async function notifyReview({ sql, parsed, detail, ok, pushHandle, secret, timetable }) {
-  let outcome;
-  let examLine = null;
-  try {
-    const targetAt = new Date(parsed.targetAt);
-    const table = timetable === undefined ? await loadTimetable(sql) : timetable;
-    examLine = examLineAt(targetAt, { timetable: table, answers: await loadExamAnswers(sql) }); // loadExamAnswers לא זורק: כשל = מפה ריקה
-  } catch (error) {
-    console.error('queue-deliver: חישוב שורת המבחן נכשל:', error?.name); // רק שם השגיאה
-    examLine = null;
+// הודעת הסגירה של 21:00 (C-1, docs/08-chapter8/90 E1-E11), בדפוס של deliverBrief. נקראת אחרי שורת message-slot, שנכתבת ראשונה וללא שינוי.
+// הודעה אחת למשבצת (E9): entity_type='close' ו-entity_id = briefEntityId(slotKey) (מיובא, לא מועתק), הכנסה עם WHERE NOT EXISTS, sent_at = read_at = targetAt (לא נספרת באייקון).
+// הזמן הוא targetAt, לא השעון (E8, E11): חלון "נקלט", "מחר", שורת המבחן ומצב ההתראה מחושבים ממנו, ולכן ניסיון חוזר או הגעה אחרי חצות מחשבים אותו דבר.
+// השאלות נטענות עם deliveredAt, כמו בבוקר (תוקף שאלה, expires_at, נבדק מול רגע ההגעה).
+// כשל (E9): מערכת השעות נטענת עם rethrowDbError; כשל מסד בכל טעינה (מערכת השעות, "נקלט", משימות, שאלות) נזרק עד הניסיון האחרון (deliveryCount >= MAX_DELIVERIES),
+// ואז ההודעה נשלחת חלקית: החלק שנכשל מושמט, ו-composeClosing לא טוען ריקנות (null = לא נטען). מערכת שעות חסרה = שורת מבחן בלי שעה. loadExamAnswers לא זורק.
+// בניגוד לבוקר, כל הנתונים נטענים גם כשההודעה כבר קיימת [הצעה]: נוסח ההתראה נגזר מאותם נתונים כמו ההודעה (כולל "נקלטו N" ושאלות), והגעה כפולה נדירה.
+// ההתראה (E5, E10): sendClosingNotification, בכל ערב, רק אחרי שההודעה נוצרה או כבר קיימת; מחליפה את התראת הסיכום של M.2 (הנוסח כולל אותה לפי state.review).
+// כשל דחיפה זמני וכשל מסד בקריאת מצב הדחיפה נזרקים עד הניסיון האחרון, כמו בבוקר. ב-probe_log נרשמים exam=0/1, created, badge, sent בלבד, בלי טקסט.
+async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable }) {
+  const targetAt = new Date(parsed.targetAt);
+  const dateIso = parsed.slotKey.slice('close-'.length);
+  const { tomorrowIso } = closingDates(targetAt);
+  const entityId = briefEntityId(parsed.slotKey);
+  const existing = await sql`SELECT 1 AS found FROM messages WHERE entity_type = 'close' AND entity_id = ${entityId}::uuid LIMIT 1`;
+  const exists = Array.isArray(existing) && existing.length > 0;
+
+  const lastAttempt = deliveryCount !== null && deliveryCount >= MAX_DELIVERIES;
+  // טעינה אחת: כשל נזרק לניסיון חוזר, ובניסיון האחרון מחזיר null (החלק מושמט). בקונסול רק שם השגיאה.
+  const loadPart = async (label, load) => {
+    try {
+      return await load();
+    } catch (error) {
+      if (!lastAttempt) throw error;
+      console.error(`queue-deliver: הסגירה נשלחת בלי ${label}:`, error?.name);
+      return null;
+    }
+  };
+  const table = timetable === undefined ? await loadPart('מערכת השעות', () => loadTimetable(sql, { rethrowDbError: true })) : timetable;
+  const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
+  const examLine = examLineAt(targetAt, { timetable: table, answers });
+  const received = await loadPart('נקלט היום', () => loadReceived(sql, closingWindow(targetAt)));
+  const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));
+  const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
+  const closing = composeClosing({
+    dateIso, tomorrowIso, examLine, tasks, pending,
+    received: received ? received.lines : null, notUnderstood: received ? received.notUnderstood : 0,
+  });
+
+  let created = false;
+  if (!exists) {
+    const rows = await sql`
+      INSERT INTO messages (direction, body, kind, sent_at, awaiting_reply, reply_source_id, expires_at, entity_type, entity_id, attempt, read_at)
+      SELECT 'out', ${closing.text}::text, 'update', ${parsed.targetAt}::timestamptz, false, NULL::uuid, NULL::timestamptz, 'close', ${entityId}::uuid, NULL::integer, ${parsed.targetAt}::timestamptz
+      WHERE NOT EXISTS (SELECT 1 FROM messages WHERE entity_type = 'close' AND entity_id = ${entityId}::uuid)
+      RETURNING id
+    `;
+    created = Array.isArray(rows) && rows.length > 0;
   }
+
+  let outcome;
   try {
-    outcome = await sendReviewNotification({ sql, slotKey: parsed.slotKey, now: new Date(parsed.targetAt), pushHandle, secret, examLine });
+    const body = (state) => closingPushText({ examLine, reviewDue: state.review, receivedCount: closing.received, notUnderstoodCount: closing.notUnderstood, pendingCount: closing.pending, openTasks: closing.tasks, partial: closing.partial });
+    outcome = await sendClosingNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret, body, now: targetAt });
   } catch (error) {
-    console.error('queue-deliver: התראת הסיכום נכשלה:', error?.name); // רק שם השגיאה
+    // כשל מסד בקריאת מצב הדחיפה: ההודעה כבר נשמרה והניסיון החוזר אידמפוטנטי, ולכן זורקים עד הניסיון האחרון (כמו בבוקר).
+    if (!lastAttempt) throw error;
+    console.error('queue-deliver: התראת הסגירה נכשלה:', error?.name); // רק שם השגיאה
     outcome = { sent: false, reason: 'error', badge: null };
   }
-  const sentOk = outcome.sent || outcome.reason === 'review-zero'; // "אין הודעות לסימון" תקין; כשל בדחיפה, סוד חסר או שגיאה אינם
-  const reviewDetail = `${detail}; exam=${examLine ? 1 : 0}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  const transient = outcome.reason === 'push-error' || (outcome.reason === 'push-status' && outcome.status >= 500);
+  if (transient && !lastAttempt) throw new Error(`queue-deliver: התראת הסגירה נכשלה זמנית (${outcome.reason})`);
+  const sentOk = outcome.sent;
+  const notifyDetail = `${detail}; exam=${examLine ? 1 : 0}; created=${created}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
   try {
     await sql`
       INSERT INTO probe_log (probe, ok, detail)
-      SELECT 'chat-notify', ${ok && sentOk}, ${reviewDetail}
+      SELECT 'chat-notify', ${ok && sentOk}, ${notifyDetail}
       WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
     `;
   } catch (error) {
-    console.error('queue-deliver: רישום התראת הסיכום נכשל:', error?.name);
+    console.error('queue-deliver: רישום התראת הסגירה נכשל:', error?.name);
   }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, push: { sent: outcome.sent, reason: outcome.reason ?? null } };
 }
 
 // נוצר בעצלות: בדיקות שמייבאות את הקובץ לא יוצרות לקוח תור.

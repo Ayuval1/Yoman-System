@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { notifyText, loadNotifyState, sendChatNotification, sendReviewNotification, sendBriefNotification, PUSH_TITLE, SITE_ORIGIN, REVIEW_PUSH_BODY } from '../lib/chat-notify.js';
+import { notifyText, loadNotifyState, sendChatNotification, sendReviewNotification, sendBriefNotification, sendClosingNotification, PUSH_TITLE, SITE_ORIGIN, REVIEW_PUSH_BODY } from '../lib/chat-notify.js';
 import { fakeSql, captureConsole, FAKE_CRON, REVIEW_NOW, reviewRow } from './helpers.js';
 
 const SLOT = 'notify-1792000080';
@@ -292,5 +292,55 @@ describe('chat-notify: sendBriefNotification (B-2)', () => {
   });
   test('כשל מסד בקריאת המצב נזרק', async () => {
     await assert.rejects(() => sendBriefNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: BRIEF_SLOT, pushHandle: fakePush(), secret: FAKE_CRON, body: BODY }), /db down/);
+  });
+});
+
+// C-1 (docs/08-chapter8/90 E5, E9, E10): התראת הסגירה של 21:00. אותו מבנה כמו sendBriefNotification; body יכול להיות פונקציה של המצב (כדי לכלול את סיכום M.2).
+describe('chat-notify: sendClosingNotification (C-1)', () => {
+  const CLOSE_SLOT = 'close-2026-10-16';
+  const closeSql = ({ due = [], ...extra } = {}) => fakeSql((text) => (text.includes('FROM intake_outcomes o') ? due : [{ pending: 1, unread: 0, open_tasks: 2, has_unseen: false, ...extra }]));
+  test('נשלחת בלי תלות ב-hasUnseen: בקשה אחת עם הכותרת, הגוף, navigate, app_badge מלא ו-dedupe_key=מפתח המשבצת', async () => {
+    const push = fakePush();
+    const sql = closeSql();
+    const out = await sendClosingNotification({ sql, slotKey: CLOSE_SLOT, pushHandle: push, secret: FAKE_CRON, body: 'יום שקט', now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: true, status: 200, badge: 3, review: 0 });
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: 'יום שקט', navigate: '/', app_badge: 3, dedupe_key: CLOSE_SLOT });
+    assert.equal(push.seen[0].request.headers.get('authorization'), `Bearer ${FAKE_CRON}`);
+    assert.equal(push.seen[0].deps.sql, sql);
+  });
+  test('נשלחת גם כשה-badge הוא 0 (ערב שקט, E5)', async () => {
+    const push = fakePush();
+    const out = await sendClosingNotification({ sql: closeSql({ pending: 0, open_tasks: 0 }), slotKey: CLOSE_SLOT, pushHandle: push, secret: FAKE_CRON, body: 'יום שקט', now: REVIEW_NOW });
+    assert.deepEqual(out, { sent: true, status: 200, badge: 0, review: 0 });
+    assert.equal(push.seen[0].body.app_badge, 0);
+  });
+  test('body כפונקציה מקבל את המצב (review מהסיכום), בלי קריאה נוספת למסד', async () => {
+    const push = fakePush();
+    const sql = closeSql({ due: [reviewRow(1)] });
+    const seen = [];
+    const out = await sendClosingNotification({ sql, slotKey: CLOSE_SLOT, pushHandle: push, secret: FAKE_CRON, body: (state) => { seen.push(state); return state.review ? 'סיכום היום מחכה לסימון' : 'יום שקט'; }, now: REVIEW_NOW });
+    assert.equal(out.review, 1);
+    assert.equal(out.badge, 4);
+    assert.equal(seen.length, 1);
+    assert.equal(push.seen[0].body.body, 'סיכום היום מחכה לסימון');
+    assert.equal(sql.calls.length, 2, 'שאילתת המצב וספירת הסיכום בלבד');
+    assert.ok(sql.calls.every((c) => !/raw_content|\bbody\b/.test(c.text)));
+  });
+  test('app_badge נחתך ל-9999; בלי סוד: no-secret; 500: push-status; זריקה: push-error ושם השגיאה בלבד בלוג', async (t) => {
+    const logged = captureConsole(t);
+    const big = fakePush();
+    await sendClosingNotification({ sql: closeSql({ unread: 20000 }), slotKey: CLOSE_SLOT, pushHandle: big, secret: FAKE_CRON, body: 'x', now: REVIEW_NOW });
+    assert.equal(big.seen[0].body.app_badge, 9999);
+    const none = fakePush();
+    assert.deepEqual(await sendClosingNotification({ sql: closeSql(), slotKey: CLOSE_SLOT, pushHandle: none, secret: '', body: 'x', now: REVIEW_NOW }), { sent: false, reason: 'no-secret', badge: 3, review: 0 });
+    assert.equal(none.seen.length, 0);
+    assert.deepEqual(await sendClosingNotification({ sql: closeSql(), slotKey: CLOSE_SLOT, pushHandle: fakePush(500), secret: FAKE_CRON, body: 'x', now: REVIEW_NOW }), { sent: false, reason: 'push-status', status: 500, badge: 3, review: 0 });
+    const boom = fakePush(() => { throw Object.assign(new Error(`secret ${FAKE_CRON}`), { name: 'BoomError' }); });
+    assert.deepEqual(await sendClosingNotification({ sql: closeSql(), slotKey: CLOSE_SLOT, pushHandle: boom, secret: FAKE_CRON, body: 'x', now: REVIEW_NOW }), { sent: false, reason: 'push-error', status: null, badge: 3, review: 0 });
+    assert.match(logged.text(), /BoomError/);
+    assert.doesNotMatch(logged.text(), new RegExp(FAKE_CRON));
+  });
+  test('כשל מסד בקריאת המצב נזרק', async () => {
+    await assert.rejects(() => sendClosingNotification({ sql: fakeSql(() => { throw new Error('db down'); }), slotKey: CLOSE_SLOT, pushHandle: fakePush(), secret: FAKE_CRON, body: 'x' }), /db down/);
   });
 });
