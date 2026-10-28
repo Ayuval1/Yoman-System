@@ -271,171 +271,306 @@ describe('queue-deliver: handleDelivery עם notify', () => {
 });
 
 // ---------------------------------------------------------------------------
-// שלב M.2 (docs/09-security/57, T10): משבצת close: אחרי שורת message-slot הקיימת, התראה אחת על סיכום היום אם יש הודעות לסימון.
-// 21:00 בישראל ב-16.10.2026 = 18:00Z (UTC+3). שורות המועמד מ-reviewRow בתוך החלון של אותו רגע. כל הטקסטים מומצאים.
+// שלב C-1 (docs/08-chapter8/90 E1-E11): משבצת close: אחרי שורת message-slot הקיימת, הודעת סגירה אחת בצ'אט והתראה אחת בכל ערב (במקום התראת הסיכום של M.2).
+// 21:00 בישראל ב-16.10.2026 (שישי) = 18:00Z (UTC+3). מסד מדומה בזיכרון שמפרש את הפקודות לפי צורתן; ה-SQL לא הורץ מול Postgres אמיתי. כל הטקסטים מומצאים.
 // ---------------------------------------------------------------------------
-describe('queue-deliver: משבצת close והתראת הסיכום (קריטריון 10)', () => {
+describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () => {
   const CLOSE = { kind: 'close', slotKey: 'close-2026-10-16', targetAt: '2026-10-16T18:00:00.000Z' };
   const DELIVERED = new Date('2026-10-16T18:00:00.900Z');
   const SECRET_TEXT = 'טקסט-מזהה-של-הודעה-מומצאת';
-  // sql מדומה: שאילתת הספירה של הסיכום (FROM intake_outcomes o) מחזירה את due; שאילתת המצב מחזירה state; כל השאר ריק. failOn: טקסט שגורם לזריקה.
-  const db = ({ due = [reviewRow(1, { text: SECRET_TEXT }), reviewRow(2)], state = { pending: 1, unread: 0, has_unseen: true }, failOn } = {}) => fakeSql((text) => {
-    if (failOn && text.includes(failOn)) throw Object.assign(new Error(`db down ${SECRET_TEXT}`), { name: 'NeonDbError' });
-    if (text.includes('FROM intake_outcomes o')) return due;
-    return text.includes('has_unseen') ? [state] : [];
-  });
+  const QUIET_STATE = { pending: 0, unread: 0, open_tasks: 0, has_unseen: false };
+  const PENDING_ROWS = [{ id: 'q1', body: 'היו שיעורי בית?', sent_at: '2026-10-16T12:00:00.000Z', entity_type: 'lesson_ask', subject: 'פיזיקה', lesson_date: '2026-10-16' }];
+  // מסד מדומה. due: שורות הסיכום של M.2 (countReviewDue); state: שאילתת המצב; sources/facts: "נקלט היום"; tasks; pending; ttRows; failOn: טקסט שגורם לזריקה; onQuery: זריקה מותנית.
+  const closeDb = ({ due = [], state = QUIET_STATE, sources = [], facts = [], tasks = [], pending = [], ttRows = [], failOn, onQuery } = {}) => {
+    const st = { messages: [], probe: [] };
+    const sql = fakeSql((text, values, index) => {
+      onQuery?.(text, index, st);
+      if (failOn && text.includes(failOn)) throw Object.assign(new Error(`db down ${SECRET_TEXT}`), { name: 'NeonDbError' });
+      if (text.includes('INSERT INTO probe_log')) {
+        if (!st.probe.some((p) => p.slot === values[2] && p.probe === (text.includes("'chat-notify'") ? 'chat-notify' : 'message-slot'))) st.probe.push({ slot: values[2], probe: text.includes("'chat-notify'") ? 'chat-notify' : 'message-slot', ok: values[0], detail: values[1] });
+        return [];
+      }
+      if (text.includes('FROM intake_outcomes o JOIN sources s')) return due;
+      if (text.includes('has_unseen')) return [state];
+      if (text.includes("FROM sources s WHERE s.channel IN ('shortcut', 'app')")) return sources;
+      if (text.includes('JOIN facts f ON f.source_id = t.id::uuid')) return facts;
+      if (text.includes('FROM timetable_slots')) return ttRows;
+      if (text.includes('FROM tasks t')) return tasks;
+      if (text.includes('FROM messages m LEFT JOIN sources s')) return pending;
+      if (text.includes("SELECT 1 AS found FROM messages WHERE entity_type = 'close'")) return st.messages.filter((m) => m.entity_id === values[0]).map(() => ({ found: 1 }));
+      if (text.includes('INSERT INTO messages')) {
+        const [body, sentAt, entityId, readAt] = values;
+        if (st.messages.some((m) => m.entity_id === entityId)) return [];
+        st.messages.push({ entity_type: 'close', entity_id: entityId, body, sent_at: sentAt, read_at: readAt });
+        return [{ id: `m${st.messages.length}` }];
+      }
+      return [];
+    });
+    sql.state = st;
+    return sql;
+  };
   const fakePush = (status = 200) => {
-    const handle = async (request) => { handle.seen.push({ request, body: JSON.parse(await request.clone().text()) }); return new Response('ok', { status }); };
+    const handle = async (request) => {
+      handle.seen.push({ request, body: JSON.parse(await request.clone().text()) });
+      if (typeof status === 'function') return status();
+      return new Response('ok', { status });
+    };
     handle.seen = [];
     return handle;
   };
   const writesTo = (sql, probe) => sql.calls.filter((c) => c.text.includes('INSERT INTO probe_log') && c.text.includes(`'${probe}'`));
-  const run = (sql, push, extra = {}) => handleDelivery(CLOSE, { deliveryCount: 1 }, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON, timetable: null, ...extra }); // B-3: timetable מוזרק (null), כדי שטעינת מערכת השעות לא תוסיף שורות לקונסול
+  const bodiesOf = (sql) => sql.state.messages.map((m) => m.body);
+  const run = (sql, push, extra = {}, count = 1, message = CLOSE) => handleDelivery(message, { deliveryCount: count }, { sql, now: () => DELIVERED, pushHandle: push, secret: FAKE_CRON, timetable: null, ...extra });
 
-  test('יש הודעות לסימון: שורת message-slot קודם (ללא שינוי), ואז דחיפה אחת עם הנוסח הקבוע, app_badge מלא ו-dedupe_key של המשבצת, ורישום chat-notify', async () => {
-    const sql = db();
+  test('ערב שקט: message-slot קודם (ללא שינוי), הודעת סגירה אחת "לא נקלטו", ודחיפה "יום שקט" עם app_badge 0 ו-dedupe_key של המשבצת (E5)', async () => {
+    const sql = closeDb();
     const push = fakePush();
     const out = await run(sql, push);
-    assert.deepEqual({ stored: out.stored, slotKey: out.slotKey, lateSeconds: out.lateSeconds, ok: out.ok }, { stored: true, slotKey: CLOSE.slotKey, lateSeconds: 0.9, ok: true });
+    assert.deepEqual({ stored: out.stored, slotKey: out.slotKey, lateSeconds: out.lateSeconds, ok: out.ok, created: out.created, push: out.push },
+      { stored: true, slotKey: CLOSE.slotKey, lateSeconds: 0.9, ok: true, created: true, push: { sent: true, reason: null } });
     assert.match(sql.calls[0].text, /INSERT INTO probe_log \(probe, ok, detail\) SELECT 'message-slot', \?, \? WHERE NOT EXISTS/, 'הרישום הקיים הוא הראשון');
     assert.equal(sql.calls[0].values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1`);
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום. אין משימות פתוחות ואין שאלות.']);
     assert.equal(push.seen.length, 1);
-    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: 'סיכום היום מחכה לסימון', navigate: '/', app_badge: 2, dedupe_key: CLOSE.slotKey });
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: 'יום שקט', navigate: '/', app_badge: 0, dedupe_key: CLOSE.slotKey });
     const [notifyWrite] = writesTo(sql, 'chat-notify');
     assert.match(notifyWrite.text, /SELECT 'chat-notify', \?, \? WHERE NOT EXISTS \(SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE \?\)/);
     assert.equal(notifyWrite.values[0], true);
-    assert.equal(notifyWrite.values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1; exam=0; badge=2; sent=true`); // B-3: נוסף exam=0
+    assert.equal(notifyWrite.values[1], `slot=${CLOSE.slotKey}; target_utc=${CLOSE.targetAt}; delivered_utc=${DELIVERED.toISOString()}; late_s=0.9; delivery_count=1; exam=0; created=true; badge=0; sent=true`);
     assert.equal(notifyWrite.values[2], `slot=${CLOSE.slotKey};%`);
-    assert.ok(sql.calls.indexOf(notifyWrite) > 0);
   });
-  test('הזמן לספירה הוא targetAt, לא רגע ההגעה: הודעה שנקלטה אחרי targetAt שייכת לסיכום הבא גם כשההתראה הגיעה מאוחר', async () => {
-    const push = fakePush();
-    await run(db(), push, { now: () => new Date('2026-10-16T18:05:00Z') });
-    assert.equal(push.seen.length, 1, 'ההודעות נקלטו לפני targetAt, ולכן בחלון');
-    const sqlLate = db({ due: [reviewRow(1, { recorded_at: new Date('2026-10-16T18:03:00Z'), received_at: new Date('2026-10-16T18:02:00Z') })] });
-    const pushLate = fakePush();
-    await run(sqlLate, pushLate, { now: () => new Date('2026-10-16T18:05:00Z') });
-    assert.equal(pushLate.seen.length, 0);
+  test('השורה נכתבת כמו שהוגדר (E9): kind update, sent_at = read_at = targetAt, entity_type close, entity_id = briefEntityId(slotKey), WHERE NOT EXISTS', async () => {
+    const sql = closeDb();
+    await run(sql, fakePush());
+    const inserts = sql.find('INSERT INTO messages');
+    assert.equal(inserts.length, 1);
+    const [insert] = inserts;
+    assert.match(insert.text, /INSERT INTO messages \(direction, body, kind, sent_at, awaiting_reply, reply_source_id, expires_at, entity_type, entity_id, attempt, read_at\) SELECT 'out', \?::text, 'update', \?::timestamptz, false, NULL::uuid, NULL::timestamptz, 'close', \?::uuid, NULL::integer, \?::timestamptz WHERE NOT EXISTS \(SELECT 1 FROM messages WHERE entity_type = 'close' AND entity_id = \?::uuid\)/);
+    assert.equal(insert.values[1], CLOSE.targetAt, 'sent_at');
+    assert.equal(insert.values[3], CLOSE.targetAt, 'read_at מלא: לא נספרת באייקון');
+    assert.equal(insert.values[2], briefEntityId(CLOSE.slotKey));
+    assert.equal(insert.values[2], insert.values[4]);
+    const insertAt = sql.calls.indexOf(insert);
+    assert.ok(insertAt > 0 && writesTo(sql, 'chat-notify').every((c) => sql.calls.indexOf(c) > insertAt), 'ההודעה לפני רישום ההתראה');
   });
-  test('אין הודעות לסימון: אין דחיפה, שורת message-slot נכתבת כרגיל, ונרשם chat-notify עם הסיבה (ok=true)', async () => {
-    const sql = db({ due: [] });
-    const push = fakePush();
-    const out = await run(sql, push);
-    assert.equal(push.seen.length, 0);
-    assert.equal(out.ok, true);
-    assert.equal(writesTo(sql, 'message-slot').length, 1);
-    const [notifyWrite] = writesTo(sql, 'chat-notify');
-    assert.equal(notifyWrite.values[0], true);
-    assert.match(notifyWrite.values[1], /badge=1; sent=false; reason=review-zero$/);
-  });
-  test('בלי תוכן הודעה בגוף הדחיפה, בפרמטרים של הרישום ובקונסול', async (t) => {
-    const cap = captureConsole(t);
-    const sql = db();
+  test('ערב עם תוכן: "נקלט" מהעובדות לפי הסדר, "לא הובנו", "להגשה מחר", משימות ושאלות; ההתראה במספרים בלבד', async () => {
+    const sql = closeDb({
+      state: { pending: 1, unread: 0, open_tasks: 2, has_unseen: false },
+      sources: [{ id: 's1', duplicate: false, raw_content: SECRET_TEXT }, { id: 's2', duplicate: false }, { id: 's3', duplicate: false }, { id: 's4', duplicate: true }],
+      facts: [
+        { source_id: 's1', field: 'date', value: '2026-10-18' }, { source_id: 's1', field: 'subject', value: 'מתמטיקה' }, { source_id: 's1', field: 'type', value: 'exam' },
+        { source_id: 's3', field: 'date', value: '2026-10-17' }, { source_id: 's3', field: 'topic', value: 'תור לספר' }, { source_id: 's3', field: 'type', value: 'personal_event' },
+      ],
+      tasks: [{ id: 'b', title: 'דף תרגילים', subject: null, due_at: null, media_count: 0 }, { id: 'a', title: 'חוברת באנגלית', subject: 'אנגלית', due_at: '2026-10-17T06:00:00.000Z', media_count: 0 }],
+      pending: PENDING_ROWS,
+    });
     const push = fakePush();
     await run(sql, push);
+    assert.deepEqual(bodiesOf(sql), [[
+      'סגירה · יום שישי 16.10',
+      'נקלט היום (2):',
+      '· מבחן · מתמטיקה · ראשון 18.10',
+      '· אירוע אישי · תור לספר · שבת 17.10',
+      'לא הובנו: 1',
+      'להגשה מחר: חוברת באנגלית',
+      'משימות פתוחות (2):',
+      '· חוברת באנגלית — עד שבת 17.10',
+      '· דף תרגילים — בלי תאריך',
+      'שאלות שממתינות: שיעורי בית בפיזיקה',
+    ].join('\n')]);
+    assert.equal(push.seen[0].body.body, 'נקלטו 2 · לא הובנו 1 · שאלה אחת ממתינה · 2 משימות פתוחות');
+    assert.equal(push.seen[0].body.app_badge, 3);
+    assert.ok(!JSON.stringify(push.seen[0].body).includes('אנגלית'), 'בלי כותרת משימה בהתראה');
+  });
+  test('הודעות לסימון (M.2): ההתראה כוללת "סיכום היום מחכה לסימון" וה-badge כולל את הסיכום (E10)', async () => {
+    const sql = closeDb({ due: [reviewRow(1, { text: SECRET_TEXT }), reviewRow(2)], state: { pending: 1, unread: 0, open_tasks: 0, has_unseen: true }, pending: PENDING_ROWS });
+    const push = fakePush();
+    await run(sql, push);
+    assert.equal(push.seen.length, 1);
+    assert.deepEqual(push.seen[0].body, { title: 'מערכת יומן', body: 'סיכום היום מחכה לסימון · שאלה אחת ממתינה', navigate: '/', app_badge: 2, dedupe_key: CLOSE.slotKey });
+  });
+  test('הזמן הוא targetAt, לא רגע ההגעה (E8, E11): מסירה אחרי חצות שומרת את החלון, הכותרת ו"מחר" של המשבצת', async () => {
+    const sql = closeDb({ tasks: [{ id: 'a', title: 'חוברת', subject: null, due_at: '2026-10-17T06:00:00.000Z', media_count: 0 }] });
+    await run(sql, fakePush(), { now: () => new Date('2026-10-16T21:30:00.000Z') }); // 00:30 בישראל, כבר 17.10
+    const [received] = sql.find("FROM sources s WHERE s.channel IN ('shortcut', 'app')");
+    assert.deepEqual(received.values, ['2026-10-15T18:00:00.000Z', CLOSE.targetAt]);
+    const text = bodiesOf(sql)[0];
+    assert.ok(text.startsWith('סגירה · יום שישי 16.10\n'), text);
+    assert.ok(text.includes('להגשה מחר: חוברת'), 'מחר = 17.10 לפי המשבצת');
+  });
+  test('חלון "נקלט" במעבר שעון (25.10.2026): מ-24.10 18:00Z עד 25.10 19:00Z (25 שעות)', async () => {
+    const sql = closeDb();
+    await run(sql, fakePush(), { now: () => new Date('2026-10-25T19:00:00.500Z') }, 1, { kind: 'close', slotKey: 'close-2026-10-25', targetAt: '2026-10-25T19:00:00.000Z' });
+    assert.deepEqual(sql.find("FROM sources s WHERE s.channel IN ('shortcut', 'app')")[0].values, ['2026-10-24T18:00:00.000Z', '2026-10-25T19:00:00.000Z']);
+  });
+  test('שבת (24.10): ההודעה נוצרת וההתראה נשלחת (E5)', async () => {
+    const sql = closeDb();
+    const push = fakePush();
+    await run(sql, push, { now: () => new Date('2026-10-24T18:00:01Z') }, 1, { kind: 'close', slotKey: 'close-2026-10-24', targetAt: '2026-10-24T18:00:00.000Z' });
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום שבת 24.10\nלא נקלטו הודעות היום. אין משימות פתוחות ואין שאלות.']);
+    assert.equal(push.seen.length, 1);
+    assert.equal(push.seen[0].body.dedupe_key, 'close-2026-10-24');
+  });
+  test('הגעה כפולה: הודעה אחת (אין INSERT שני), הדחיפה מנוסה שוב עם אותו dedupe_key ואותו נוסח', async () => {
+    const sql = closeDb({ tasks: [{ id: 'b', title: 'דף', subject: null, due_at: null, media_count: 0 }] });
+    const push = fakePush();
+    const first = await run(sql, push);
+    const second = await run(sql, push, {}, 2);
+    assert.equal(first.created, true);
+    assert.equal(second.created, false);
+    assert.equal(sql.find('INSERT INTO messages').length, 1);
+    assert.equal(bodiesOf(sql).length, 1);
+    assert.equal(push.seen.length, 2);
+    assert.equal(new Set(push.seen.map((s) => s.body.dedupe_key)).size, 1);
+    assert.equal(push.seen[1].body.body, push.seen[0].body.body);
+    assert.match(writesTo(sql, 'chat-notify')[1].values[1], /; created=false; /);
+    assert.match(writesTo(sql, 'chat-notify')[0].text, /WHERE NOT EXISTS/);
+  });
+  test('פרטיות: אין raw_content בשאילתות, ואין טקסט הודעה בהודעה, בדחיפה, בפרמטרים ובקונסול', async (t) => {
+    const cap = captureConsole(t);
+    const sql = closeDb({
+      due: [reviewRow(1, { text: SECRET_TEXT })],
+      sources: [{ id: 's1', duplicate: false, raw_content: SECRET_TEXT }, { id: 's2', duplicate: false, raw_content: SECRET_TEXT }],
+      facts: [{ source_id: 's1', field: 'type', value: 'exam' }, { source_id: 's1', field: 'subject', value: 'מתמטיקה' }, { source_id: 's1', field: 'date', value: '2026-10-18' }],
+    });
+    const push = fakePush();
+    await run(sql, push);
+    // החריג היחיד: שאילתת השאלות הפתוחות המשותפת לבוקר (loadPending, lib/chat-pending.js) קוראת raw_content לגזירת כפתורים; הטקסט לא יוצא ממנה להודעה (pendingLine: מקצוע או מספר).
+    const ownQueries = sql.calls.filter((c) => !c.text.includes('FROM messages m LEFT JOIN sources s'));
+    assert.ok(ownQueries.every((c) => !c.text.includes('raw_content')), 'שאילתות הסגירה עצמה לא קוראות טקסט הודעה');
+    assert.ok(!bodiesOf(sql)[0].includes(SECRET_TEXT));
     assert.ok(!JSON.stringify(push.seen[0].body).includes(SECRET_TEXT));
-    assert.ok(!JSON.stringify(sql.calls.map((c) => c.values)).includes(SECRET_TEXT));
-    assert.ok(sql.calls.every((c) => !c.text.includes('raw_content')), 'ההתראה לא קוראת טקסט הודעה בכלל');
+    assert.ok(!JSON.stringify(sql.state.probe).includes(SECRET_TEXT));
+    assert.ok(!writesTo(sql, 'chat-notify')[0].values[1].includes('מבחן'));
     assert.equal(cap.lines.length, 0);
   });
-  test('כשל דחיפה (סטטוס או זריקה) לא נזרק ולא משנה את שורת message-slot: chat-notify נרשם ok=false', async (t) => {
+  test('כשל דחיפה זמני (500 או זריקה) לפני הניסיון האחרון: נזרק לניסיון חוזר, וההודעה נשמרה פעם אחת', async (t) => {
     captureConsole(t);
-    const sqlA = db();
-    const outA = await run(sqlA, fakePush(500));
+    const sql500 = closeDb();
+    await assert.rejects(() => run(sql500, fakePush(500)), /נכשלה זמנית/);
+    assert.equal(bodiesOf(sql500).length, 1);
+    const sqlThrow = closeDb();
+    await assert.rejects(() => run(sqlThrow, async () => { throw new Error('net'); }), /נכשלה זמנית/);
+    const sql4xx = closeDb();
+    const out4xx = await run(sql4xx, fakePush(401));
+    assert.deepEqual(out4xx.push, { sent: false, reason: 'push-status' }, '4xx לא נזרק');
+  });
+  test('כשל דחיפה בניסיון האחרון: לא נזרק, message-slot נשארת, chat-notify נרשם ok=false עם הסיבה', async (t) => {
+    const cap = captureConsole(t);
+    const sqlA = closeDb();
+    const outA = await run(sqlA, fakePush(500), {}, 5);
     assert.equal(outA.stored, true);
+    assert.equal(outA.ok, false);
     assert.equal(writesTo(sqlA, 'message-slot').length, 1);
     assert.equal(writesTo(sqlA, 'chat-notify')[0].values[0], false);
     assert.match(writesTo(sqlA, 'chat-notify')[0].values[1], /sent=false; reason=push-status; push_status=500$/);
-    const sqlB = db();
-    await run(sqlB, async () => { throw new Error('boom'); });
+    const sqlB = closeDb();
+    await run(sqlB, async () => { throw Object.assign(new Error('boom סודי'), { name: 'BoomError' }); }, {}, 5);
     assert.match(writesTo(sqlB, 'chat-notify')[0].values[1], /reason=push-error/);
+    assert.ok(cap.text().includes('BoomError') && !cap.text().includes('סודי'));
   });
-  test('בלי סוד: לא נשלח, נרשם reason=no-secret ו-ok=false', async () => {
-    const sql = db();
+  test('בלי סוד: ההודעה נוצרת, לא נשלח, נרשם reason=no-secret ו-ok=false', async () => {
+    const sql = closeDb();
     const push = fakePush();
-    await run(sql, push, { secret: '' });
+    const out = await run(sql, push, { secret: '' });
+    assert.equal(out.created, true);
     assert.equal(push.seen.length, 0);
-    assert.match(writesTo(sql, 'chat-notify')[0].values[1], /reason=no-secret/);
+    assert.match(writesTo(sql, 'chat-notify')[0].values[1], /reason=no-secret$/);
     assert.equal(writesTo(sql, 'chat-notify')[0].values[0], false);
   });
-  test('כשל מסד בספירה: לא נזרק, שורת message-slot כבר נכתבה, נרשם reason=error בלי טקסט, והקונסול רק עם שם השגיאה', async (t) => {
+  test('כשל מסד בקריאת מצב הדחיפה: נזרק לניסיון חוזר (ההודעה כבר קיימת); בניסיון האחרון reason=error, והקונסול רק עם שם השגיאה', async (t) => {
     const cap = captureConsole(t);
-    const sql = db({ failOn: 'has_unseen' });
+    const retry = closeDb({ failOn: 'has_unseen' });
+    await assert.rejects(() => run(retry, fakePush()), { name: 'NeonDbError' });
+    assert.equal(bodiesOf(retry).length, 1, 'ההודעה נשמרה לפני הכשל');
+    const last = closeDb({ failOn: 'has_unseen' });
     const push = fakePush();
-    const out = await run(sql, push);
+    const out = await run(last, push, {}, 5);
     assert.equal(out.stored, true);
     assert.equal(push.seen.length, 0);
-    assert.equal(writesTo(sql, 'message-slot').length, 1);
-    const [notifyWrite] = writesTo(sql, 'chat-notify');
+    const [notifyWrite] = writesTo(last, 'chat-notify');
     assert.equal(notifyWrite.values[0], false);
     assert.match(notifyWrite.values[1], /badge=null; sent=false; reason=error$/);
-    assert.deepEqual(cap.lines, ['queue-deliver: התראת הסיכום נכשלה: NeonDbError']);
+    assert.deepEqual(cap.lines, ['queue-deliver: התראת הסגירה נכשלה: NeonDbError']);
     assert.ok(!cap.text().includes(SECRET_TEXT));
   });
-  test('כשל מסד גם ברישום chat-notify: לא נזרק (שורת message-slot כבר נכתבה), בקונסול שם השגיאה בלבד', async (t) => {
+  test('כשל מסד ברישום chat-notify: לא נזרק, בקונסול שם השגיאה בלבד', async (t) => {
     const cap = captureConsole(t);
-    const sql = db({ failOn: "SELECT 'chat-notify'" });
+    const sql = closeDb({ failOn: "SELECT 'chat-notify'" });
     const out = await run(sql, fakePush());
     assert.equal(out.stored, true);
-    assert.deepEqual(cap.lines, ['queue-deliver: רישום התראת הסיכום נכשל: NeonDbError']);
-    assert.ok(!cap.text().includes(SECRET_TEXT));
+    assert.equal(out.created, true);
+    assert.deepEqual(cap.lines, ['queue-deliver: רישום התראת הסגירה נכשל: NeonDbError']);
   });
-  // B-3 (68 D11, D12): משבצת close של 25.10.2026 (21:00 ישראל אחרי מעבר השעון = 19:00Z), מבחן מחר ב-26.10.
+  test('כשל בטעינת "נקלט", המשימות או השאלות בניסיון 1 עד 4: נזרק לניסיון חוזר, בלי הודעה ובלי דחיפה', async (t) => {
+    captureConsole(t);
+    for (const failOn of ["FROM sources s WHERE s.channel IN ('shortcut', 'app')", 'FROM tasks t', 'FROM messages m LEFT JOIN sources s', 'FROM timetable_slots']) {
+      for (const count of [1, 4]) {
+        const sql = closeDb({ failOn });
+        const push = fakePush();
+        await assert.rejects(() => run(sql, push, { timetable: undefined }, count), /db down/, `${failOn} ${count}`);
+        assert.equal(bodiesOf(sql).length, 0);
+        assert.equal(push.seen.length, 0);
+      }
+    }
+  });
+  test('plan B בניסיון האחרון: החלק שנכשל מושמט, ואין טענת ריקנות', async (t) => {
+    const cap = captureConsole(t);
+    const receivedDown = closeDb({ failOn: "FROM sources s WHERE s.channel IN ('shortcut', 'app')", tasks: [{ id: 'b', title: 'דף', subject: null, due_at: null, media_count: 0 }] });
+    await run(receivedDown, fakePush(), {}, 5);
+    assert.deepEqual(bodiesOf(receivedDown), ['סגירה · יום שישי 16.10\nמשימות פתוחות (1):\n· דף — בלי תאריך']);
+    const tasksDown = closeDb({ failOn: 'FROM tasks t' });
+    const push = fakePush();
+    await run(tasksDown, push, {}, 5);
+    assert.deepEqual(bodiesOf(tasksDown), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום'], 'בלי "אין משימות פתוחות"');
+    assert.equal(push.seen[0].body.body, 'הסגירה של היום מחכה', 'לא "יום שקט" כשחלק לא נטען');
+    assert.ok(cap.text().includes('NeonDbError') && !cap.text().includes(SECRET_TEXT));
+  });
+  // B-3 (68 D11, D12), עכשיו בתוך ההודעה (E7): משבצת close של 25.10.2026 (19:00Z אחרי מעבר השעון), מבחן מחר ב-26.10.
   const CLOSE_EXAM = { kind: 'close', slotKey: 'close-2026-10-25', targetAt: '2026-10-25T19:00:00.000Z' };
-  const runExam = (sql, push, extra = {}) => handleDelivery(CLOSE_EXAM, { deliveryCount: 1 }, { sql, now: () => new Date('2026-10-25T19:00:00.900Z'), pushHandle: push, secret: FAKE_CRON, ...extra });
-  test('B-3: מבחן מחר ובלי הודעות לסימון: דחיפה נשלחת עם שורת המבחן, ו-probe_log כולל exam=1 (בלי טקסט)', async () => {
-    const sql = db({ due: [] });
+  const runExam = (sql, push, extra = {}, count = 1) => handleDelivery(CLOSE_EXAM, { deliveryCount: count }, { sql, now: () => new Date('2026-10-25T19:00:00.900Z'), pushHandle: push, secret: FAKE_CRON, ...extra });
+  test('B-3: מבחן מחר: השורה בהודעה ובהתראה, ו-probe_log כולל exam=1 (בלי טקסט)', async () => {
+    const sql = closeDb();
     const push = fakePush();
     const timetable = { slots: [{ weekday: 2, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'מתמטיקה', teacher: null, room: null }] };
     const out = await runExam(sql, push, { timetable });
     assert.equal(out.ok, true);
-    assert.equal(push.seen.length, 1);
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום ראשון 25.10\nלא נקלטו הודעות היום\nמחר: מבחן במתמטיקה ב-10:05']);
     assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה ב-10:05');
     const [notifyWrite] = writesTo(sql, 'chat-notify');
-    assert.equal(notifyWrite.values[0], true);
-    assert.match(notifyWrite.values[1], /; exam=1; badge=1; sent=true$/);
+    assert.match(notifyWrite.values[1], /; exam=1; created=true; badge=0; sent=true$/);
     assert.ok(!notifyWrite.values[1].includes('מבחן'), 'ב-probe_log אין טקסט השורה');
   });
   test('B-3: מבחן מחר והודעות לסימון: הנוסח המשולב', async () => {
     const push = fakePush();
     const inWindow = { recorded_at: new Date('2026-10-25T10:00:00Z'), received_at: new Date('2026-10-25T09:59:00Z') }; // בתוך חלון הסיכום של 25.10
-    await runExam(db({ due: [reviewRow(1, inWindow), reviewRow(2, inWindow)] }), push, { timetable: null });
+    await runExam(closeDb({ due: [reviewRow(1, inWindow), reviewRow(2, inWindow)] }), push, { timetable: null });
     assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה · סיכום היום מחכה לסימון');
   });
-  test('B-3: כשל בטעינת מערכת השעות לא זורק: השורה בלי שעה, הדחיפה נשלחת, exam=1', async (t) => {
+  test('B-3: כשל בטעינת מערכת השעות בניסיון האחרון: השורה בלי שעה, הדחיפה נשלחת, exam=1', async (t) => {
     captureConsole(t);
-    const sql = db({ due: [], failOn: 'FROM timetable_slots' });
+    const sql = closeDb({ failOn: 'FROM timetable_slots' });
     const push = fakePush();
-    const out = await runExam(sql, push); // timetable לא מוזרק: נטען מהמסד וקורס
+    const out = await runExam(sql, push, {}, 5); // timetable לא מוזרק: נטען מהמסד וקורס
     assert.equal(out.stored, true);
+    assert.ok(bodiesOf(sql)[0].includes('\nמחר: מבחן במתמטיקה'));
     assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה');
     assert.match(writesTo(sql, 'chat-notify')[0].values[1], /; exam=1; /);
   });
-  test('כשל בכתיבת message-slot עצמה עדיין נזרק (ניסיון חוזר של התור), ולא נשלחת התראה', async () => {
-    const sql = db({ failOn: "SELECT 'message-slot'" });
+  test('כשל בכתיבת message-slot עצמה עדיין נזרק (ניסיון חוזר של התור), בלי הודעה ובלי התראה', async () => {
+    const sql = closeDb({ failOn: "SELECT 'message-slot'" });
     const push = fakePush();
     await assert.rejects(() => run(sql, push), /db down/);
     assert.equal(push.seen.length, 0);
+    assert.equal(bodiesOf(sql).length, 0);
   });
-  test('הגעה כפולה: אותו dedupe_key בשתי הדחיפות (push-send מסנן), והרישומים מוגנים ב-WHERE NOT EXISTS לפי המשבצת', async () => {
-    const push = fakePush();
-    await run(db(), push);
-    await run(db(), push);
-    assert.equal(push.seen.length, 2);
-    assert.equal(new Set(push.seen.map((s) => s.body.dedupe_key)).size, 1);
-    assert.equal(push.seen[0].body.dedupe_key, CLOSE.slotKey);
-    const sql = db();
-    await run(sql, push);
-    assert.match(writesTo(sql, 'chat-notify')[0].text, /WHERE NOT EXISTS/);
-    assert.match(writesTo(sql, 'message-slot')[0].text, /WHERE NOT EXISTS/);
-  });
-  test('brief (B-2): דחיפת הבוקר אחת, ובלי טקסט סיכום או הודעה בגוף', async () => {
-    const sql = db();
+  test('brief (B-2): דחיפת הבוקר אחת, ובלי נוסח הסגירה', async () => {
+    const sql = closeDb();
     const push = fakePush();
     await handleDelivery(MSG, {}, { sql, now: at(MSG.targetAt), pushHandle: push, secret: FAKE_CRON });
     assert.equal(push.seen.length, 1);
     assert.equal(push.seen[0].body.dedupe_key, MSG.slotKey);
-    assert.notEqual(push.seen[0].body.body, 'סיכום היום מחכה לסימון');
+    assert.notEqual(push.seen[0].body.body, 'יום שקט');
   });
 });
 
@@ -826,9 +961,13 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     assert.equal(push.seen[0].body, 'הבריף של היום מחכה');
   });
 
-  test('close ו-homework לא נגעו: משבצת close לא כותבת הודעת בריף', async () => {
+  test('C-1: משבצת close כותבת הודעת סגירה אחת (entity_type close) ולא הודעת בריף', async () => {
     const sql = briefDb();
     await handleDelivery({ kind: 'close', slotKey: 'close-2026-10-26', targetAt: '2026-10-26T19:00:00.000Z' }, { deliveryCount: 1 }, { sql, now: () => new Date('2026-10-26T19:00:01Z'), pushHandle: async () => new Response('ok'), secret: FAKE_CRON });
-    assert.equal(sql.find('INSERT INTO messages').length, 0);
+    const inserts = sql.find('INSERT INTO messages');
+    assert.equal(inserts.length, 1);
+    assert.match(inserts[0].text, /'update', \?::timestamptz, false, NULL::uuid, NULL::timestamptz, 'close', \?::uuid/);
+    assert.ok(!inserts[0].text.includes("'brief'"));
+    assert.ok(inserts[0].values[0].startsWith('סגירה · יום שני 26.10'));
   });
 });
