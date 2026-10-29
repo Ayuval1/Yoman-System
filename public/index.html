@@ -1229,8 +1229,9 @@ const rvCloseBtn = document.getElementById('rvClose');
 
 function reviewStrip() {
   const total = state.review.total;
-  const row = el('button', 'mini');
-  row.type = 'button';
+  // בלי הודעות (רק שורת מבחן) אין מה לפתוח, ולכן div ולא כפתור. .mini נראה אותו דבר בשניהם (border-box גלובלי, font: inherit).
+  const row = el(total > 0 ? 'button' : 'div', 'mini');
+  if (total > 0) row.type = 'button';
   // הנחה, לא אומת: ביחיד "הודעה אחת ממתינה לסימון" (57 כותב רק את הרבים).
   const reviewLabel = total === 1 ? 'סיכום היום · הודעה אחת ממתינה לסימון' : `סיכום היום · ${total} הודעות ממתינות לסימון`;
   const examLine = state.review.examLine;

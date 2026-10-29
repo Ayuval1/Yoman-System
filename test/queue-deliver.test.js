@@ -526,6 +526,24 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
     assert.equal(push.seen[0].body.body, 'הסגירה של היום מחכה', 'לא "יום שקט" כשחלק לא נטען');
     assert.ok(cap.text().includes('NeonDbError') && !cap.text().includes(SECRET_TEXT));
   });
+  test('plan B: כשל בטעינת השאלות (loadPending) בניסיון 5: הודעה אחת בלי טענת "אין שאלות", והדחיפה לא "יום שקט" (ביקורת C-1)', async (t) => {
+    const cap = captureConsole(t);
+    const PENDING_QUERY = 'FROM messages m LEFT JOIN sources s';
+    // ערב ריק חוץ מהשאלות שנכשלו: בלי החלק החלקי ההודעה הייתה "אין משימות פתוחות ואין שאלות" והדחיפה "יום שקט".
+    const sql = closeDb({ failOn: PENDING_QUERY });
+    const push = fakePush();
+    const out = await run(sql, push, {}, 5);
+    assert.equal(out.stored, true);
+    assert.equal(out.created, true);
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום'], 'בלי "אין משימות פתוחות ואין שאלות"');
+    assert.equal(push.seen.length, 1);
+    assert.equal(push.seen[0].body.body, 'הסגירה של היום מחכה', 'partial מועבר לנוסח הדחיפה');
+    // עם משימה פתוחה: המשימות נשארות בהודעה, רק שורת השאלות מושמטת.
+    const withTask = closeDb({ failOn: PENDING_QUERY, tasks: [{ id: 'b', title: 'דף', subject: null, due_at: null, media_count: 0 }] });
+    await run(withTask, fakePush(), {}, 5);
+    assert.deepEqual(bodiesOf(withTask), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום\nמשימות פתוחות (1):\n· דף — בלי תאריך']);
+    assert.ok(cap.text().includes('queue-deliver: הסגירה נשלחת בלי השאלות: NeonDbError') && !cap.text().includes(SECRET_TEXT));
+  });
   // B-3 (68 D11, D12), עכשיו בתוך ההודעה (E7): משבצת close של 25.10.2026 (19:00Z אחרי מעבר השעון), מבחן מחר ב-26.10.
   const CLOSE_EXAM = { kind: 'close', slotKey: 'close-2026-10-25', targetAt: '2026-10-25T19:00:00.000Z' };
   const runExam = (sql, push, extra = {}, count = 1) => handleDelivery(CLOSE_EXAM, { deliveryCount: count }, { sql, now: () => new Date('2026-10-25T19:00:00.900Z'), pushHandle: push, secret: FAKE_CRON, ...extra });
