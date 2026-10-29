@@ -254,6 +254,15 @@ def ensure_line(text, line):
     return "\n".join(kept).rstrip() + "\n\n" + line + "\n"
 
 
+def ensure_trailer(text, trailer):
+    """הודעת commit שכבר נושאת שורת Co-Authored-By כלשהי (גם של מודל אחר) נשארת כמו שהיא, אחרי נרמול;
+    אחרת trailer נוסף בסוף, כמו ensure_line. כך לא נוצרות שתי שורות Co-Authored-By."""
+    normalized = text.replace("\r\n", "\n")
+    if any(l.strip().lower().startswith("co-authored-by:") for l in normalized.split("\n")):
+        return normalized.rstrip() + "\n"
+    return ensure_line(normalized, trailer)
+
+
 def read_text_file(path, label, rep):
     try:
         text = Path(path).read_text(encoding="utf-8-sig")
@@ -366,7 +375,7 @@ def main():
     for s, p, old in changes:
         print(f"  {'A' if s == '?' else s:<5} {(old + ' -> ') if old else ''}{p}")
     if message and body:
-        message, body = ensure_line(message, TRAILER), ensure_line(body, PR_FOOTER)
+        message, body = ensure_trailer(message, TRAILER), ensure_line(body, PR_FOOTER)
         print(f"\nהודעת commit:\n  " + "\n  ".join(message.rstrip().splitlines()))
         print(f"כותרת PR: {a.pr_title}")
     if rep.fails:

@@ -294,6 +294,23 @@ describe('8.3-1: המילון, personal_event', () => {
     assert.equal(valueOf(extract('בדיקה רפואית ב-23:30'), 'end_time'), '23:59');
     assert.equal(valueOf(extract('בדיקה רפואית ב-9:15'), 'end_time'), '10:15');
   });
+  test('"בדיקת עיניים" ו"בדיקת שיניים" הן ביטוי אירוע של שתי מילים, כמו "בדיקת דם"', () => {
+    for (const [text, title] of [
+      ['בדיקת עיניים היום ב-18:00', 'בדיקת עיניים'],
+      ['בדיקת שיניים מחר ב-9:00', 'בדיקת שיניים'],
+      ['מחר יש לי בדיקת עיניים ב-18:00', 'בדיקת עיניים'],
+      ['ובדיקת עיניים מחר ב-18:00', 'בדיקת עיניים'],
+    ]) {
+      assert.equal(typeOf(text), 'personal_event', text);
+      const result = extract(text);
+      assert.equal(result.type, 'personal_event', text);
+      assert.equal(valueOf(result, 'topic'), title, text);
+      assert.equal(result.understood, true, text);
+    }
+    assert.equal(valueOf(extract('בדיקת עיניים היום ב-18:00'), 'time'), '18:00');
+    // "בדיקת" בלי דם / עיניים / שיניים אינה אירוע; "משפחה" ו"ילדים" שייכים ל"רופא", לא ל"בדיקת"
+    for (const text of ['בדיקת עיניים היום', 'בדיקת משפחה ב-18:00', 'בדיקת ילדים ב-18:00', 'בדיקת שיעורי בית ב-18:00']) assert.notEqual(typeOf(text), 'personal_event', text);
+  });
   test('לא מזוהים: בלי שעה, תאריך בלבד, "הרופא אמר", "בתור", שלילה, ערוץ קיצור', () => {
     const NEGATIVE = [
       'בדיקה רפואית היום',

@@ -412,6 +412,16 @@ describe('public/index.html: שורת המבחן בפס הסיכום (B-3)', () 
     assert.equal(row.listeners.click, undefined);
     assert.equal(env.opened, 0);
   });
+  test('רק מבחן (total 0): הפס הוא div ולא כפתור (אין מה לפתוח), ועם הודעות הוא כפתור type=button', () => {
+    const { row } = strip({ total: 0, items: [], examLine: 'מחר: מבחן במתמטיקה' });
+    assert.equal(row.tag, 'div');
+    assert.equal(row.cls, 'mini');
+    assert.equal(row.type, undefined);
+    const withItems = strip({ total: 2, items: [], examLine: 'מחר: מבחן במתמטיקה' }).row;
+    assert.equal(withItems.tag, 'button');
+    assert.equal(withItems.cls, 'mini');
+    assert.equal(withItems.type, 'button');
+  });
   test('מבחן והודעות: "<שורת המבחן> · <התווית הקיימת>", עם חץ ופתיחה בלחיצה', () => {
     const { row, env } = strip({ total: 2, items: [], examLine: 'מחר: מבחן במתמטיקה' });
     assert.equal(labelOf(row), 'מחר: מבחן במתמטיקה · סיכום היום · 2 הודעות ממתינות לסימון');

@@ -7,8 +7,12 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { handle as handleReal, outcomeFor } from '../api/intake.js';
+import { syncEventForSource } from '../lib/event-sync.js';
 // שלב 8.2א-3: ברירת המחדל של handle היא שליחה אמיתית לתור; הבדיקות הישנות לא נוגעות בו, ולכן כאן תור מדומה שאינו עושה כלום.
-const handle = (request, deps) => handleReal(request, { sendQueue: async () => {}, ...deps });
+// שלב 8.3-4: הכתיבה ליומן קוראת את הגדרות Google מ-process.env. כאן היא רצה עם סביבה ריקה (דילוג "config_missing", כמו במכונה בלי הגדרות),
+// כדי שהבדיקות לא ישתנו כשמשתני GOOGLE_* מוגדרים במחשב שמריץ אותן.
+const eventSync = (args) => syncEventForSource({ ...args, env: {} });
+const handle = (request, deps) => handleReal(request, { sendQueue: async () => {}, eventSync, ...deps });
 
 import { RECEIVED_REPLY, DUPLICATE_REPLY } from '../lib/intake-questions.js';
 import { fakeSql, captureConsole, formRequest, timeoutError, FAKE_SECRET } from './helpers.js';
