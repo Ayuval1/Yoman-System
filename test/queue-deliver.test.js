@@ -280,8 +280,8 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
   const SECRET_TEXT = 'טקסט-מזהה-של-הודעה-מומצאת';
   const QUIET_STATE = { pending: 0, unread: 0, open_tasks: 0, has_unseen: false };
   const PENDING_ROWS = [{ id: 'q1', body: 'היו שיעורי בית?', sent_at: '2026-10-16T12:00:00.000Z', entity_type: 'lesson_ask', subject: 'פיזיקה', lesson_date: '2026-10-16' }];
-  // מסד מדומה. due: שורות הסיכום של M.2 (countReviewDue); state: שאילתת המצב; sources/facts: "נקלט היום"; tasks; pending; ttRows; failOn: טקסט שגורם לזריקה; onQuery: זריקה מותנית.
-  const closeDb = ({ due = [], state = QUIET_STATE, sources = [], facts = [], tasks = [], pending = [], ttRows = [], failOn, onQuery } = {}) => {
+  // מסד מדומה. due: שורות הסיכום של M.2 (countReviewDue); state: שאילתת המצב; sources/facts: "נקלט היום"; doneTasks/answered: "בוצע היום" (C-2); tasks; pending; ttRows; failOn: טקסט שגורם לזריקה; onQuery: זריקה מותנית.
+  const closeDb = ({ due = [], state = QUIET_STATE, sources = [], facts = [], doneTasks = [], answered = [], tasks = [], pending = [], ttRows = [], failOn, onQuery } = {}) => {
     const st = { messages: [], probe: [] };
     const sql = fakeSql((text, values, index) => {
       onQuery?.(text, index, st);
@@ -295,6 +295,8 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
       if (text.includes("FROM sources s WHERE s.channel IN ('shortcut', 'app')")) return sources;
       if (text.includes('JOIN facts f ON f.source_id = t.id::uuid')) return facts;
       if (text.includes('FROM timetable_slots')) return ttRows;
+      if (text.includes('FROM tasks d')) return doneTasks;
+      if (text.includes('FROM messages m LEFT JOIN lesson_asks la')) return answered;
       if (text.includes('FROM tasks t')) return tasks;
       if (text.includes('FROM messages m LEFT JOIN sources s')) return pending;
       if (text.includes("SELECT 1 AS found FROM messages WHERE entity_type = 'close'")) return st.messages.filter((m) => m.entity_id === values[0]).map(() => ({ found: 1 }));
@@ -543,6 +545,48 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
     await run(withTask, fakePush(), {}, 5);
     assert.deepEqual(bodiesOf(withTask), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום\nמשימות פתוחות (1):\n· דף — בלי תאריך']);
     assert.ok(cap.text().includes('queue-deliver: הסגירה נשלחת בלי השאלות: NeonDbError') && !cap.text().includes(SECRET_TEXT));
+  });
+  // C-2 (E6): שורת "בוצע היום" באותו חלון כמו "נקלט", בין "נקלט" ל"מחר"; ההתראה לא משתנה.
+  test('C-2: "בוצע היום" בהודעה, באותו חלון כמו "נקלט"; נוסח ההתראה לא משתנה', async () => {
+    const sql = closeDb({
+      state: { pending: 0, unread: 0, open_tasks: 1, has_unseen: false },
+      doneTasks: [{ title: 'חוברת באנגלית', done_at: '2026-10-16T09:00:00.000Z' }],
+      answered: [{ entity_type: 'lesson_ask', subject: 'פיזיקה' }, { entity_type: 'source', subject: null }],
+      tasks: [{ id: 'b', title: 'דף', subject: null, due_at: null, media_count: 0 }],
+    });
+    const push = fakePush();
+    await run(sql, push);
+    assert.deepEqual(bodiesOf(sql), [[
+      'סגירה · יום שישי 16.10',
+      'לא נקלטו הודעות היום',
+      'בוצע היום: חוברת באנגלית · ענית על שיעורי בית בפיזיקה · ועוד שאלה אחת',
+      'משימות פתוחות (1):',
+      '· דף — בלי תאריך',
+    ].join('\n')]);
+    for (const needle of ['FROM tasks d', 'FROM messages m LEFT JOIN lesson_asks la']) {
+      assert.deepEqual(sql.find(needle)[0].values, ['2026-10-15T18:00:00.000Z', CLOSE.targetAt], needle);
+    }
+    assert.equal(push.seen[0].body.body, 'משימה אחת פתוחה', 'בלי "בוצע" בהתראה');
+  });
+  test('C-2: ערב שבו רק בוצע משהו: לא "אין משימות פתוחות ואין שאלות"', async () => {
+    const sql = closeDb({ doneTasks: [{ title: 'חוברת', done_at: '2026-10-16T09:00:00.000Z' }] });
+    await run(sql, fakePush());
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום\nבוצע היום: חוברת']);
+  });
+  test('C-2: כשל בטעינת "בוצע היום" בניסיון 1 עד 4 נזרק; בניסיון 5 השורה מושמטת, אין טענת ערב שקט, והדחיפה "הסגירה של היום מחכה"', async (t) => {
+    const cap = captureConsole(t);
+    for (const failOn of ['FROM tasks d', 'FROM messages m LEFT JOIN lesson_asks la']) {
+      const retry = closeDb({ failOn });
+      await assert.rejects(() => run(retry, fakePush(), {}, 4), /db down/, failOn);
+      assert.equal(bodiesOf(retry).length, 0);
+      const last = closeDb({ failOn, doneTasks: [{ title: 'חוברת', done_at: '2026-10-16T09:00:00.000Z' }] });
+      const push = fakePush();
+      const out = await run(last, push, {}, 5);
+      assert.equal(out.created, true);
+      assert.deepEqual(bodiesOf(last), ['סגירה · יום שישי 16.10\nלא נקלטו הודעות היום'], failOn);
+      assert.equal(push.seen[0].body.body, 'הסגירה של היום מחכה');
+    }
+    assert.ok(cap.text().includes('queue-deliver: הסגירה נשלחת בלי בוצע היום: NeonDbError') && !cap.text().includes(SECRET_TEXT));
   });
   // B-3 (68 D11, D12), עכשיו בתוך ההודעה (E7): משבצת close של 25.10.2026 (19:00Z אחרי מעבר השעון), מבחן מחר ב-26.10.
   const CLOSE_EXAM = { kind: 'close', slotKey: 'close-2026-10-25', targetAt: '2026-10-25T19:00:00.000Z' };

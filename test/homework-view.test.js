@@ -307,7 +307,7 @@ describe('homework-view: task_done (קריטריון 5)', () => {
     const t = await twoTasks();
     await markTaskDone(t.sql, t[0].id);
     const call = t.sql.calls.at(-1);
-    assert.equal(call.text, "UPDATE tasks SET status = 'done' WHERE id = ?::uuid AND status = 'open' RETURNING id");
+    assert.equal(call.text, "UPDATE tasks SET status = 'done', done_at = now() WHERE id = ?::uuid AND status = 'open' RETURNING id");
     assert.deepEqual(call.values, [t[0].id]);
   });
   test('דרך הנקודה: done ואז closed (200 בשני המקרים), ו-open_tasks ו-badge מתעדכנים', async () => {

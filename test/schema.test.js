@@ -64,6 +64,11 @@ describe('db/schema.sql', () => {
     assert.match(tables.find((x) => x.name === 'media').body, /^\s*task_id\s+uuid\s+REFERENCES tasks\(id\)/m);
   });
 
+  test('C-2 (docs/08-chapter8/90 E6, H2): tasks.done_at timestamptz בלי DEFAULT (משימות ישנות נשארות ריקות)', () => {
+    const tasks = tables.find((x) => x.name === 'tasks').body;
+    assert.match(tasks, /^\s*done_at\s+timestamptz\s*$/m);
+  });
+
   test('intake_checks: בדיוק חמש העמודות של 46, outcome_id מפנה ל-intake_outcomes, ובלי עמודת טקסט או שם', () => {
     const t = tables.find((x) => x.name === 'intake_checks');
     const columns = t.body.split('\n').map((line) => /^\s*(\w+)\s+(\w+)/.exec(line)).filter(Boolean).map((m) => `${m[1]} ${m[2]}`);
