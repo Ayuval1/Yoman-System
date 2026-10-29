@@ -30,4 +30,11 @@
 **שונו:** `lib/intake-dictionary.js`, `lib/intake-facts.js`, `public/index.html`, `.claude/skills/yoman-builder/scripts/close-session.py`, `test/intake-83-1.test.js`, `test/intake-title.test.js`, `test/brief-card-screen.test.js`, `test/intake-outcomes.test.js`, `test/queue-deliver.test.js`, `docs/08-chapter8/35`, `65`, `68`, `90`, `docs/01-foundation/01`, `05` (הוספה בלבד).
 **נוצרו:** פתק 94.
 
+## ➕ תוספת 29.10.2026 (אותו יום): שורת מקור בכרטיס שאלה — נבנה
+- **מה:** כל כרטיס שאלה ממתינה מציג שורה אפורה קטנה (`.csrc`, `var(--label2)`) מעל השאלה. שיעורי בית: "שיעור 3 · אתמול · רביעי 28.10" לפי `lesson_date`. מבחן ושאלה כללית: "אתמול · רביעי 28.10" לפי `at` ביום של ישראל. "היום"/"אתמול" רק כשמתאים.
+- **שרת:** `loadPending` שולף `la.seq_start_period AS period`; `pendingFromRows` מוסיף `period` לפריט שיעורי בית (null כשלא מספר שלם).
+- **קבצים:** `lib/chat-pending.js`, `lib/chat-view.js`, `public/index.html`, `test/question-source.test.js` (חדש), `test/homework-view.test.js`.
+- **הוכחה:** 2,050 בדיקות עוברות (11 חדשות). מצביעים שבורים: 65 (ללא שינוי).
+- **לא נבדק:** מראה השורה על האייפון. הנחה, לא אומת: Neon מחזיר `integer` כמספר (אם כמחרוזת, השורה תופיע בלי "שיעור N").
+
 </div>
