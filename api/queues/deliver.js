@@ -11,7 +11,7 @@ import { QueueClient } from '@vercel/queue';
 import { parseSlotMessage, planNotify } from '../../lib/message-slots.js';
 import { sendChatNotification, sendBriefNotification, sendClosingNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
-import { closingWindow, closingDates, loadReceived, composeClosing, closingPushText } from '../../lib/closing-view.js';
+import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTimetable } from '../../lib/timetable.js';
 import { examLineAt } from '../../lib/exam-line.js';
@@ -215,7 +215,7 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
 // הודעה אחת למשבצת (E9): entity_type='close' ו-entity_id = briefEntityId(slotKey) (מיובא, לא מועתק), הכנסה עם WHERE NOT EXISTS, sent_at = read_at = targetAt (לא נספרת באייקון).
 // הזמן הוא targetAt, לא השעון (E8, E11): חלון "נקלט", "מחר", שורת המבחן ומצב ההתראה מחושבים ממנו, ולכן ניסיון חוזר או הגעה אחרי חצות מחשבים אותו דבר.
 // השאלות נטענות עם deliveredAt, כמו בבוקר (תוקף שאלה, expires_at, נבדק מול רגע ההגעה).
-// כשל (E9): מערכת השעות נטענת עם rethrowDbError; כשל מסד בכל טעינה (מערכת השעות, "נקלט", משימות, שאלות) נזרק עד הניסיון האחרון (deliveryCount >= MAX_DELIVERIES),
+// כשל (E9): מערכת השעות נטענת עם rethrowDbError; כשל מסד בכל טעינה (מערכת השעות, "נקלט", "בוצע היום", משימות, שאלות) נזרק עד הניסיון האחרון (deliveryCount >= MAX_DELIVERIES),
 // ואז ההודעה נשלחת חלקית: החלק שנכשל מושמט, ו-composeClosing לא טוען ריקנות (null = לא נטען). מערכת שעות חסרה = שורת מבחן בלי שעה. loadExamAnswers לא זורק.
 // בניגוד לבוקר, כל הנתונים נטענים גם כשההודעה כבר קיימת [הצעה]: נוסח ההתראה נגזר מאותם נתונים כמו ההודעה (כולל "נקלטו N" ושאלות), והגעה כפולה נדירה.
 // ההתראה (E5, E10): sendClosingNotification, בכל ערב, רק אחרי שההודעה נוצרה או כבר קיימת; מחליפה את התראת הסיכום של M.2 (הנוסח כולל אותה לפי state.review).
@@ -243,10 +243,11 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
   const examLine = examLineAt(targetAt, { timetable: table, answers });
   const received = await loadPart('נקלט היום', () => loadReceived(sql, closingWindow(targetAt)));
+  const done = await loadPart('בוצע היום', () => loadDone(sql, closingWindow(targetAt))); // C-2 (E6): אותו חלון כמו "נקלט"
   const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
   const closing = composeClosing({
-    dateIso, tomorrowIso, examLine, tasks, pending,
+    dateIso, tomorrowIso, examLine, tasks, pending, done,
     received: received ? received.lines : null, notUnderstood: received ? received.notUnderstood : 0,
   });
 

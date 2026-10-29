@@ -277,7 +277,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- subject (שלב 8.6-1, מפרט 60 "איך נשמר מה"): המקצוע של שיעורי בית; ל-tasks לא הייתה עמודת מקצוע. ריק למשימה אישית. הנחה, לא אומת: שם העמודה.
   subject           text,
   -- created_at (שלב 8.6-1): מתי נוצרה, לסדר יציב ברשימת "פתוחות" (אחרי due_at). הנחה, לא אומת: שם העמודה. במסד החי נוספה ב-ALTER עם DEFAULT now(); שורות ישנות מקבלות את רגע ההרצה.
-  created_at        timestamptz DEFAULT now()
+  created_at        timestamptz DEFAULT now(),
+  -- done_at (שלב C-2, docs/08-chapter8/90 E6, H2): מתי יובל סימן "בוצע", לשורת "בוצע היום" בסגירה של 21:00. בלי DEFAULT. במסד החי נוספה ב-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_at timestamptz שיובל מריץ; משימות שנסגרו לפני כן נשארות ריקות.
+  done_at           timestamptz
 );
 
 -- ---------------------------------------------------------------------------
