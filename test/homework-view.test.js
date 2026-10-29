@@ -413,9 +413,9 @@ describe('chat: GET, open_tasks ופריט ה-pending', () => {
     const body = await (await get(sql)).json();
     assert.equal(body.pending.length, 1);
     assert.deepEqual(body.pending[0], {
-      id: messageId, kind: 'homework', at: NOW.toISOString(), subject: 'מתמטיקה', lesson_date: '2026-10-18', missed: false,
+      id: messageId, kind: 'homework', at: NOW.toISOString(), subject: 'מתמטיקה', lesson_date: '2026-10-18', period: null, missed: false,
       buttons: [{ due: 'next', date: '2026-10-19' }], topic_allowed: true,
-    });
+    }); // period: null, כי ה-sql המדומה לא מחזיר את seq_start_period (שורת מקור בכרטיס, הכרעת יובל 29.10.2026)
     assert.ok(!('allowFreeText' in body.pending[0]) && !('text' in body.pending[0]), 'בלי "לא יודע" ובלי תיבת כתיבה חופשית');
   });
   test('תשובה באיחור: הכפתור שתאריכו עבר לא מוצג (buttons ריק) אבל השאלה עדיין ממתינה ונספרת', async () => {

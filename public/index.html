@@ -126,6 +126,7 @@
   .expanded .ctxt { padding-top: 18px; }
   /* הנחה, לא אומת: המראה של שורת "לא הבנתי" / "לא נשלח" בתוך הכרטיס. אין לה הדמיה; ענבר = "דורש אותך". */
   .cnote { font-size: 14px; line-height: 1.4; color: var(--amber); padding: 8px 18px 0; }
+  .csrc { font-size: 13px; line-height: 1.3; color: var(--label2); padding: 15px 18px 0; margin-bottom: -12px; } /* שורת המקור מעל טקסט השאלה; margin שלילי כדי לא להכפיל את הריווח העליון של .ctxt */
 
   /* כפתורים זה מתחת לזה, ברוחב מלא (buttons.html, אפשרות א'; 03-design-rules "שאלות עם כפתורים") */
   .opts { display: flex; flex-direction: column; gap: 8px; padding: 15px 18px 0; }
@@ -763,6 +764,7 @@ function questionCard(question, { withHead, count }) {
     head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
     card.append(head);
   }
+  appendSource(card, question);
   card.append(el('div', 'ctxt', question.text ?? ''));
   const note = state.notes.get(question.id);
   if (note) {
@@ -837,6 +839,44 @@ function dueLabel(iso) {
   }
 }
 
+// רגע (Date) -> YYYY-MM-DD לפי היום בישראל. ריק כשאינו תאריך.
+function israelYmd(at) {
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at);
+    const pick = (type) => parts.find((part) => part.type === type)?.value;
+    return `${pick('year')}-${pick('month')}-${pick('day')}`;
+  } catch {
+    return '';
+  }
+}
+
+// שורת המקור של שאלה ממתינה: מאיזה שיעור, איזה יום, איזה תאריך. הכרעת יובל 29.10.2026 (שורת מקור בכרטיס שאלה).
+// שיעורי בית: "שיעור 3 · אתמול · רביעי 28.10" לפי תאריך השיעור (lesson_date), לא לפי זמן השליחה.
+// שאר השאלות (מבחן, שאלה כללית): "אתמול · רביעי 28.10" לפי הרגע שהשאלה הגיעה (at), ביום של ישראל. אין להן מספר שיעור, ולכן בלי "שיעור N".
+// "היום" / "אתמול" רק כשזה המצב; ישן יותר: רק היום בשבוע והתאריך. חלק חסר מדולג; בלי תאריך תקין אין שורה בכלל (ריק).
+function questionSource(question, now = new Date()) {
+  const ymd = question.kind === 'homework' ? String(question.lesson_date ?? '') : israelYmd(new Date(question.at ?? ''));
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  if (!match) return '';
+  const day = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (day.toISOString().slice(0, 10) !== ymd) return ''; // תאריך שלא קיים (31.2)
+  const today = israelYmd(now);
+  const yesterday = today ? new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10) : '';
+  const parts = [];
+  if (question.kind === 'homework' && Number.isInteger(question.period)) parts.push(`שיעור ${question.period}`);
+  if (ymd === today) parts.push('היום');
+  else if (ymd === yesterday) parts.push('אתמול');
+  parts.push(`${DAYS[day.getUTCDay()]} ${ymdLabel(ymd)}`);
+  return parts.join(' · ');
+}
+
+// מוסיף את שורת המקור לכרטיס, מעל טקסט השאלה. בלי תאריך תקין: כלום.
+function appendSource(card, question) {
+  const source = questionSource(question);
+  if (source) card.append(el('div', 'csrc', source));
+}
+
 // הטקסט של שאלה ממתינה, כולל שאלת שיעורי בית (שנגזרת מהמקצוע) ושאלת המבחן במדעים (שנגזרת מסוג המבחן ומהתאריך).
 function questionText(question) {
   if (question.kind === 'exam') {
@@ -859,6 +899,7 @@ function homeworkCard(question, { withHead, count }) {
     head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
     card.append(head);
   }
+  appendSource(card, question); // גם בכרטיס "השיעור הבא כבר עבר"
   const dates = homeworkDates(question);
 
   // אין כפתור תאריך (השיעור הבא כבר עבר): טקסט, וכפתור "סגור" שמסתיר את הכרטיס בדף בלבד. השרת פוקע אותו לבד (expires_at). לא שולחים "לא היו".
@@ -933,6 +974,7 @@ function examCard(question, { withHead, count }) {
     head.append(el('span', 'dot'), el('span', 'clbl', 'ממתין לתשובה'), el('span', 'cnt tnum', count));
     card.append(head);
   }
+  appendSource(card, question);
   card.append(el('div', 'ctxt', questionText(question)));
   const note = state.notes.get(question.id);
   if (note) {
