@@ -49,6 +49,31 @@ describe('C-3: composeClosing, בית ספר של מחר ובלוק הפירוט
       assert.ok(!out.text.includes('שיעור'), dateIso);
     }
   });
+  test('מחר בלי לימודים (שישי, שבת, חופשה) כשמערכת השעות נטענה: "מחר: אין בית ספר"; כשהמערכת חסרה: שום דבר (לא טוענים ריקנות)', () => {
+    for (const [dateIso, timetable] of [[FRIDAY, TIMETABLE], ['2026-10-31', TIMETABLE], ['2026-12-07', { slots: [slot(1, '08:15', '09:00', 'מתמטיקה', { weekday: 2 })] }]]) {
+      const out = composeClosing({ dateIso: '2026-01-01', tomorrowIso: dateIso, received: [], tasks: [], pending: [], timetable });
+      assert.ok(out.text.split('\n').includes('מחר: אין בית ספר'), dateIso);
+    }
+    for (const timetable of [null, { slots: [] }]) {
+      const out = composeClosing({ dateIso: '2026-01-01', tomorrowIso: FRIDAY, received: [], tasks: [], pending: [], timetable });
+      assert.ok(!out.text.includes('אין בית ספר'));
+    }
+  });
+  test('שישי עם ריצה: "מחר: אין בית ספר" ואז הריצה, בסדר הזה (הכרעת יובל 2.11)', () => {
+    const out = composeClosing({
+      dateIso: '2026-10-29', tomorrowIso: FRIDAY, received: [], tasks: [], pending: [], timetable: TIMETABLE,
+      trainings: [{ title: 'ריצה', startsAt: '2026-10-30T04:30:00+02:00' }],
+    });
+    assert.deepEqual(out.text.split('\n').slice(-3), ['מחר: אין בית ספר', 'אימונים מחר (1):', '· ריצה · 04:30']);
+  });
+  test('שישי (אין שיעורים) עם ריצה: הריצה מוצגת, ואין שורת בית ספר (הכרעת יובל 2.11)', () => {
+    const out = composeClosing({
+      dateIso: '2026-10-29', tomorrowIso: FRIDAY, received: [], tasks: [], pending: [], timetable: TIMETABLE,
+      trainings: [{ title: 'ריצה', startsAt: '2026-10-30T04:30:00+02:00' }],
+    });
+    assert.ok(out.text.includes('· ריצה · 04:30'));
+    assert.ok(!out.text.includes('שיעור') && !out.text.includes(D));
+  });
   test('סדר מלא: נקלט, בוצע, מחר: בית ספר, אימונים, אירועים, מבחן, להגשה מחר, ואז משימות פתוחות', () => {
     const out = composeClosing({
       dateIso: TODAY, received: ['אירוע אישי · תור'], notUnderstood: 0, done: { tasks: [{ title: 'דף', done_at: '2026-10-27T10:00:00.000Z' }], answered: [] },
