@@ -597,7 +597,8 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
     const timetable = { slots: [{ weekday: 2, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'מתמטיקה', teacher: null, room: null }] };
     const out = await runExam(sql, push, { timetable });
     assert.equal(out.ok, true);
-    assert.deepEqual(bodiesOf(sql), ['סגירה · יום ראשון 25.10\nלא נקלטו הודעות היום\nמחר: מבחן במתמטיקה ב-10:05']);
+    // C-3: יש מערכת שעות, ולכן "מחר" כולל גם את שורת בית הספר ובלוק הפירוט לפני שורת המבחן; ההתראה לטלפון (H6) לא משתנה.
+    assert.deepEqual(bodiesOf(sql), ['סגירה · יום ראשון 25.10\nלא נקלטו הודעות היום\nמחר: ⁦10:05–10:50⁩ · שיעור אחד\n⁣\nמתמטיקה · 10:05\n⁣\nמחר: מבחן במתמטיקה ב-10:05']);
     assert.equal(push.seen[0].body.body, 'מחר: מבחן במתמטיקה ב-10:05');
     const [notifyWrite] = writesTo(sql, 'chat-notify');
     assert.match(notifyWrite.values[1], /; exam=1; created=true; badge=0; sent=true$/);
