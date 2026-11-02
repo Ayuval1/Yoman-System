@@ -56,6 +56,18 @@ describe('buildQuestion: ניסוח, כפתורים ו"לא יודע"', () => {
     assert.deepEqual(question.buttons, ['שיעור 5 · אנגלית', 'שיעור 6 · אנגלית', UNKNOWN_BUTTON]);
     assert.deepEqual(buildQuestion({ field: 'lesson', candidates: ['5', '6'] }).buttons, ['שיעור 5', 'שיעור 6', UNKNOWN_BUTTON]);
   });
+  test('ביטול עם כמה שיעורים של אותו מקצוע: כפתור ראשון "כל השיעורים" (שיעורים 7, 8, 9 ביחד), ותשובה עליו נשמרת כולם', () => {
+    const question = buildQuestion({ type: 'cancel', field: 'lesson', candidates: ['5', '6'], timetable: TIMETABLE, date: '2026-10-11' });
+    assert.deepEqual(question.buttons, ['כל השיעורים · 5, 6', 'שיעור 5 · אנגלית', 'שיעור 6 · אנגלית', UNKNOWN_BUTTON]);
+    assert.equal(applyAnswer({ facts: [], field: 'lesson', answer: question.buttons[0] })[0].value, '5,6');
+    const three = buildQuestion({ type: 'cancel', field: 'lesson', candidates: ['7', '8', '9'] });
+    assert.equal(three.buttons[0], 'כל השיעורים · 7, 8, 9');
+    assert.equal(applyAnswer({ facts: [], field: 'lesson', answer: three.buttons[0] })[0].value, '7,8,9');
+  });
+  test('כפתור "כל השיעורים" רק בביטול, ורק כשיש יותר ממועמד אחד', () => {
+    assert.ok(!buildQuestion({ type: 'exam', field: 'lesson', candidates: ['5', '6'] }).buttons.some((b) => b.startsWith('כל השיעורים')));
+    assert.ok(!buildQuestion({ type: 'cancel', field: 'lesson', candidates: ['5'] }).buttons.some((b) => b.startsWith('כל השיעורים')));
+  });
   test('שיעור בלי מועמדים: כל שיעורי אותו יום', () => {
     const question = buildQuestion({ field: 'lesson', timetable: TIMETABLE, date: '2026-10-12' });
     assert.deepEqual(question.buttons, ['שיעור 3 · מתמטיקה', 'שיעור 7 · פיזיקה', 'שיעור 8 · פיזיקה', UNKNOWN_BUTTON]);
@@ -195,6 +207,19 @@ describe('answerPattern: דפוס לרישום ב-candidate_rules', () => {
     assert.equal(answerPattern({ type: 'exam', field: 'subject', rootsThatFellThrough: [] }), null);
     assert.equal(answerPattern({ type: 'exam', field: 'subject' }), null);
     assert.throws(() => answerPattern({ type: 'x', field: 'subject', rootsThatFellThrough: ['בוחן'] }), RangeError);
+  });
+});
+
+describe('formatReply: שיעורים בביטול', () => {
+  const base = { subject: 'פיזיקה', date: '2026-11-02', weekday: 'שני' };
+  test('ביטול: השיעורים מוצגים אחרי המקצוע ("שיעור 7" ליחיד, "שיעורים 7, 8, 9" לכמה)', () => {
+    assert.equal(formatReply({ type: 'cancel', lesson: '7,8,9', ...base }), 'נרשם · ביטול · פיזיקה · שיעורים 7, 8, 9 · שני 2.11');
+    assert.equal(formatReply({ type: 'cancel', lesson: '7', ...base }), 'נרשם · ביטול · פיזיקה · שיעור 7 · שני 2.11');
+  });
+  test('בלי שיעור, שיעור לא ידוע או סוג אחר: הנוסח כמו קודם', () => {
+    assert.equal(formatReply({ type: 'cancel', ...base }), 'נרשם · ביטול · פיזיקה · שני 2.11');
+    assert.equal(formatReply({ type: 'cancel', lesson: UNKNOWN_VALUE, ...base }), 'נרשם · ביטול · פיזיקה · שני 2.11');
+    assert.equal(formatReply({ type: 'exam', lesson: '7', ...base }), 'נרשם · מבחן · פיזיקה · שני 2.11');
   });
 });
 

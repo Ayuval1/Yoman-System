@@ -256,6 +256,13 @@
     font-size: 13.5px; font-weight: var(--fw-bold); color: inherit; opacity: .85;
   }
 
+  /* "פירוט ›": אותו מראה כמו "עוד ›". שטח המגע 44px לפחות, בלי להגדיל את הבועה (שוליים שליליים). */
+  .more-txt.detail-btn {
+    display: flex; align-items: center; box-sizing: border-box; min-height: 44px;
+    margin: -12px 0; text-align: start; cursor: pointer;
+  }
+  .txt.detail[hidden] { display: none; }
+
   /* היום הראשון: מסך ריק (03-design-rules "היום הראשון"; states.html) */
   .empty { margin: auto 0; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 24px; }
   .emark { width: 64px; height: 64px; opacity: .22; margin-bottom: 20px; }
@@ -599,6 +606,7 @@ const state = {
   drafts: new Map(),    // id שאלה -> מה שהוקלד בתיבה שבכרטיס, כדי שלא יימחק ברענון
   busy: new Set(),      // שאלות שתשובה עליהן בדרך: הכפתורים נעולים
   expanded: new Set(),  // בועות ארוכות שנפתחו ב"עוד ›"
+  detailOpen: new Set(), // בלוקי פירוט שנפתחו ב"פירוט ›" (שורד רענון של הצ'אט)
   review: { total: 0, items: [], examLine: null }, // סיכום היום (M.2): הממתינים לסימון, כפי שהשרת החזיר; examLine = שורת המבחן של הערב (B-3, 68 D11)
   rvOpen: false,        // המסך המלא פתוח
   rvRows: [],           // השורות שמוצגות בו: הממתינים, ועוד מה שסומן בזמן שהוא פתוח (נעלם בסגירה או ברענון)
@@ -663,8 +671,52 @@ function timeNode(className, iso) {
 
 // --- טקסט של בועה: עד 6 שורות, ואם יש יותר: "עוד ›" ---
 const clampQueue = [];
+// פירוט בהודעה: בלוק שמוקף בשתי שורות שתוכנן בלבד U+2063 (מפריד בלתי נראה). בלי שני מפרידים (או בלוק ריק): null, וההודעה כמו תמיד.
+// בלקוח ישן המפריד נראה כשורה ריקה, לא מזיק.
+const DETAIL_MARK = '⁣';
+function splitDetail(text) {
+  if (typeof text !== 'string' || !text.includes(DETAIL_MARK)) return null;
+  const lines = text.split('\n');
+  const isMark = (line) => line.replace(/^\s+|\s+$/g, '') === DETAIL_MARK;
+  const first = lines.findIndex(isMark);
+  if (first === -1) return null;
+  const second = lines.findIndex((line, i) => i > first && isMark(line));
+  if (second === -1) return null;
+  const trimEdges = (part) => part.join('\n').replace(/^\s*\n/, '').replace(/\n\s*$/, '');
+  const detail = trimEdges(lines.slice(first + 1, second));
+  if (detail.trim() === '') return null;
+  return { before: trimEdges(lines.slice(0, first)), detail, after: trimEdges(lines.slice(second + 1)) };
+}
+
 // lines=2 ו-label: לסיכום היום (57, Q2): שתי שורות ו"הצג הכול ›". ברירת המחדל: 6 שורות ו"עוד ›".
-function textBlock(text, key, { lines, label } = {}) {
+// הודעה עם בלוק פירוט: הטקסט שלפניו ואחריו נחתכים כל אחד לפי הכלל הרגיל; הבלוק עצמו מוסתר מאחורי "פירוט ›" ולא נספר בחיתוך.
+function textBlock(text, key, opts = {}) {
+  const parts = splitDetail(text);
+  if (!parts) return clampedBlock(text, key, opts);
+  const out = document.createDocumentFragment();
+  if (parts.before.trim() !== '') out.append(clampedBlock(parts.before, key + ':a', opts));
+  const open = state.detailOpen.has(key);
+  const detailId = 'det-' + key;
+  const toggle = el('button', 'more-txt detail-btn', open ? 'פחות' : 'פירוט ›');
+  toggle.type = 'button';
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.setAttribute('aria-controls', detailId);
+  const detail = el('div', 'txt detail', parts.detail); // textContent בלבד, לעולם לא innerHTML
+  detail.id = detailId;
+  detail.hidden = !open;
+  toggle.addEventListener('click', () => {
+    const nowOpen = detail.hidden;
+    detail.hidden = !nowOpen;
+    toggle.setAttribute('aria-expanded', String(nowOpen));
+    toggle.textContent = nowOpen ? 'פחות' : 'פירוט ›';
+    if (nowOpen) state.detailOpen.add(key); else state.detailOpen.delete(key);
+  });
+  out.append(toggle, detail);
+  if (parts.after.trim() !== '') out.append(clampedBlock(parts.after, key + ':b', opts));
+  return out;
+}
+
+function clampedBlock(text, key, { lines, label } = {}) {
   const node = el('div', 'txt', text ?? '');
   if (!state.expanded.has(key)) {
     node.classList.add('clamp');

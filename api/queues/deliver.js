@@ -13,6 +13,9 @@ import { sendChatNotification, sendBriefNotification, sendClosingNotification } 
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
 import { loadPending } from '../../lib/chat-pending.js';
+import { loadTomorrowEvents, loadGoogleTomorrow } from '../../lib/closing-tomorrow.js';
+import { loadTrainingsForDate } from '../../lib/training-source.js';
+import { googleConfigFromEnv } from '../../lib/google.js';
 import { loadTimetable } from '../../lib/timetable.js';
 import { examLineAt } from '../../lib/exam-line.js';
 import { sequenceFromKey } from '../../lib/homework-schedule.js';
@@ -27,7 +30,7 @@ const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
 // ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief (B-1): אחרי הרישום הקיים, כותב את הודעת הבוקר ל-messages. close (C-1, docs/08-chapter8/90): אחרי הרישום הקיים, הודעת הסגירה והתראה בכל ערב.
 // homework (שלב 8.6-1, docs/08-chapter8/60 סעיפים 3-5): אחרי הרישום הקיים, יוצר את שאלת שיעורי הבית של הרצף ושולח התראה כללית אחת. timetable (אופציונלי, לבדיקות): במקום טעינה מהמסד.
-export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable }) {
+export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable, googleConfig, googleFetch, loadTrainings }) {
   const parsed = parseSlotMessage(message);
   if (!parsed.ok) {
     // הודעה פגומה לא תתתקן בניסיון חוזר: רושמים ומאשרים (לא זורקים), כדי שלא תיכנס ללולאת ניסיונות.
@@ -60,7 +63,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   `;
   // C-1 (docs/08-chapter8/90 E9, E10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), הודעת הסגירה בצ'אט והתראה אחת בכל ערב (deliverClose למטה).
   // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
-  if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
+  if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
@@ -218,9 +221,12 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
 // כשל (E9): מערכת השעות נטענת עם rethrowDbError; כשל מסד בכל טעינה (מערכת השעות, "נקלט", "בוצע היום", משימות, שאלות) נזרק עד הניסיון האחרון (deliveryCount >= MAX_DELIVERIES),
 // ואז ההודעה נשלחת חלקית: החלק שנכשל מושמט, ו-composeClosing לא טוען ריקנות (null = לא נטען). מערכת שעות חסרה = שורת מבחן בלי שעה. loadExamAnswers לא זורק.
 // בניגוד לבוקר, כל הנתונים נטענים גם כשההודעה כבר קיימת [הצעה]: נוסח ההתראה נגזר מאותם נתונים כמו ההודעה (כולל "נקלטו N" ושאלות), והגעה כפולה נדירה.
+// "מחר" המלא (C-3, בקשת יובל 29.10.2026): שורת בית ספר + פירוט (מהמערכת שכבר נטענה), אימונים (lib/training-source.js, כרגע [] כי אין מקור), אירועי events של מחר, ואירועי Google של מחר (קריאה בלבד, lib/closing-tomorrow.js).
+// נטענים רק כשההודעה עוד לא קיימת (נוסח ההתראה לא תלוי בהם). כשל מסד באירועים/אימונים: כמו שאר הטעינות (נזרק עד הניסיון האחרון, ואז מושמט). כשל Google לא נזרק (ניסיון חוזר של התור לא יעזור לו):
+// החלק מושמט ונרשם ב-probe_log כ-'closing-google' עם קוד קצר בלבד, בלי כותרות, פעם אחת למשבצת. אירוע Google שה-external_id שלו כבר ב-events לא מוצג שוב.
 // ההתראה (E5, E10): sendClosingNotification, בכל ערב, רק אחרי שההודעה נוצרה או כבר קיימת; מחליפה את התראת הסיכום של M.2 (הנוסח כולל אותה לפי state.review).
 // כשל דחיפה זמני וכשל מסד בקריאת מצב הדחיפה נזרקים עד הניסיון האחרון, כמו בבוקר. ב-probe_log נרשמים exam=0/1, created, badge, sent בלבד, בלי טקסט.
-async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable }) {
+async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig = googleConfigFromEnv(), googleFetch = fetch, loadTrainings = loadTrainingsForDate }) {
   const targetAt = new Date(parsed.targetAt);
   const dateIso = parsed.slotKey.slice('close-'.length);
   const { tomorrowIso } = closingDates(targetAt);
@@ -246,8 +252,32 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   const done = await loadPart('בוצע היום', () => loadDone(sql, closingWindow(targetAt))); // C-2 (E6): אותו חלון כמו "נקלט"
   const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
+  let trainings = [];
+  let events = [];
+  let googleFailure = null;
+  if (!exists) {
+    trainings = await loadPart('האימונים', () => loadTrainings(tomorrowIso));
+    const dbEvents = await loadPart('אירועי מחר', () => loadTomorrowEvents(sql, tomorrowIso));
+    events = dbEvents ? [...dbEvents.events] : null;
+    if (dbEvents) {
+      const google = await loadGoogleTomorrow({ sql, config: googleConfig, tomorrowIso, excludeIds: dbEvents.externalIds, fetchImpl: googleFetch });
+      if (google.ok) events.push(...google.events);
+      else googleFailure = String(google.reason).replace(/[^A-Za-z0-9_ ()]/g, '').slice(0, 80); // כבר קוד קצר (shortReason); ניקוי נוסף רק כהגנה
+    }
+  }
+  if (googleFailure !== null) {
+    try {
+      await sql`
+        INSERT INTO probe_log (probe, ok, detail)
+        SELECT 'closing-google', false, ${`slot=${parsed.slotKey}; google_tomorrow=omitted; reason=${googleFailure}`}
+        WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'closing-google' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+      `;
+    } catch (error) {
+      console.error('queue-deliver: רישום כשל Google של הסגירה נכשל:', error?.name);
+    }
+  }
   const closing = composeClosing({
-    dateIso, tomorrowIso, examLine, tasks, pending, done,
+    dateIso, tomorrowIso, examLine, tasks, pending, done, timetable: table, trainings, events,
     received: received ? received.lines : null, notUnderstood: received ? received.notUnderstood : 0,
   });
 

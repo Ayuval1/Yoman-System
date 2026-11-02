@@ -662,16 +662,16 @@ describe('8.3-1: קליטה ב-processSource', () => {
   });
   test('הודעה 3 והודעה 4 בצינור: 3 נרשמת כמו היום, 4 שואלת מקצוע', async () => {
     const third = await intake(MSG3);
-    assert.deepEqual(third.result, { status: 'recorded', reply: 'נרשם · ביטול · פיזיקה · שני 19.10' });
+    assert.deepEqual(third.result, { status: 'recorded', reply: 'נרשם · ביטול · פיזיקה · שיעורים 7, 8, 9 · שני 19.10' });
     assert.equal(third.call.values.includes('איזה מקצוע?'), false);
     const fourth = await intake(MSG4);
     assert.equal(fourth.result.status, 'recorded');
     assert.equal(fourth.result.reply, 'התקבל');
     assert.ok(fourth.call.values.includes('איזה מקצוע?'));
   });
-  test('"שני השיעורים האחרונים בוטלו היום": נרשם · ביטול · פיזיקה · שני 19.10', async () => {
+  test('"שני השיעורים האחרונים בוטלו היום": נרשם · ביטול · פיזיקה · שיעורים 8, 9 · שני 19.10', async () => {
     const { result, call } = await intake('שני השיעורים האחרונים בוטלו היום');
-    assert.deepEqual(result, { status: 'recorded', reply: 'נרשם · ביטול · פיזיקה · שני 19.10' });
+    assert.deepEqual(result, { status: 'recorded', reply: 'נרשם · ביטול · פיזיקה · שיעורים 8, 9 · שני 19.10' });
     assert.deepEqual(factsJsonOf(call).map((f) => `${f.field}=${f.value}:${f.origin}`), ['type=cancel:read', 'subject=פיזיקה:inferred', 'date=2026-10-19:inferred', 'lesson=8,9:inferred']);
   });
   test('ערוץ הקיצור: אותו משפט לא נרשם כיציאה מוקדמת (נופל כמו היום)', async () => {
@@ -791,7 +791,7 @@ describe('8.3-1: pendingQuestion ו-answerQuestion', () => {
     const sql = answerDb({ src, facts: saved });
     const result = await answerQuestion({ sql, messageId: MSG_ID, answer: 'היום · שני 19.10.2026', now: new Date(MONDAY_0830), timetable: TIMETABLE });
     assert.equal(result.done, true);
-    assert.equal(result.reply, 'נרשם · ביטול · פיזיקה · שני 19.10');
+    assert.equal(result.reply, 'נרשם · ביטול · פיזיקה · שיעורים 8, 9 · שני 19.10');
     assert.deepEqual(factsJsonOf(writesOf(sql)[0]).map((f) => `${f.field}=${f.value}:${f.origin}`).sort(), ['date=2026-10-19:read', 'lesson=8,9:inferred', 'subject=פיזיקה:inferred']);
   });
 });
