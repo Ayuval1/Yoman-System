@@ -340,7 +340,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
     const res = await get(sql);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'quota', 'review']); // 8.6-1: נוסף open_tasks; כרטיס הבריף: נוסף brief
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'google_connected', 'items', 'open_tasks', 'pending', 'quota', 'review']); // 8.6-1: נוסף open_tasks; כרטיס הבריף: נוסף brief
     assert.deepEqual(body.review, {
       total: 2,
       items: [
@@ -581,7 +581,7 @@ describe('chat: brief (כרטיס הבריף החי)', () => {
     const body = await res.json();
     assert.equal(body.brief, null);
     assert.deepEqual(body.open_tasks.map((x) => x.id), [uuid(1)]);
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'quota', 'review']);
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'google_connected', 'items', 'open_tasks', 'pending', 'quota', 'review']);
     assert.deepEqual(cap.lines, ['chat: בניית הבריף נכשלה: TypeError']);
   });
 });
@@ -622,5 +622,41 @@ describe('chat: review.exam_line (B-3)', () => {
     const res = await handle(req(URL_CHAT, { method: 'GET', headers: H }), { sql: chatDb(), secret: FAKE_SECRET, now: () => EVENING });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).review.exam_line, 'מחר: מבחן במתמטיקה');
+  });
+});
+
+// כפתור "חבר Google": GET מחזיר google_connected מתוך google_credentials (בדיקה זולה, בלי פענוח ובלי רשת). כשל = null, לא שובר את ה-GET.
+describe('chat: GET google_connected', () => {
+  const withGoogle = (answer) => fakeSql((text) => {
+    if (text.includes('FROM google_credentials')) {
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }
+    if (text.includes('AS unread')) return [{ pending: 0, unread: 0 }];
+    return [];
+  });
+
+  test('שורה עם token תקין: true; השאילתה לפי account = primary ובודקת invalid_grant, בלי כתיבה', async () => {
+    const sql = withGoogle([{ connected: true }]);
+    const body = await (await get(sql)).json();
+    assert.equal(body.google_connected, true);
+    const call = sql.find('FROM google_credentials')[0];
+    assert.match(call.text, /last_error NOT LIKE 'invalid_grant%'/);
+    assert.deepEqual(call.values, ['primary']);
+    assert.equal(writesOf(sql).length, 0);
+  });
+
+  test('אין שורה: false; ההרשאה נדחתה (connected=false מהמסד): false', async () => {
+    assert.equal((await (await get(withGoogle([]))).json()).google_connected, false);
+    assert.equal((await (await get(withGoogle([{ connected: false }]))).json()).google_connected, false);
+  });
+
+  test('כשל בקריאה: null, 200, ורק שם השגיאה בלוג', async (t) => {
+    const cap = captureConsole(t);
+    const res = await get(withGoogle(Object.assign(new Error('secret detail'), { name: 'NeonDbError' })));
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).google_connected, null);
+    assert.ok(cap.lines.includes('chat: בדיקת החיבור ל-Google נכשלה: NeonDbError'));
+    assert.ok(!cap.text().includes('secret detail'));
   });
 });
