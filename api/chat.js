@@ -30,6 +30,7 @@ import { loadTimetable } from '../lib/timetable.js';
 import { examLineAt } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
+import { googleDayFromEnv } from '../lib/free-check.js';
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
@@ -167,7 +168,8 @@ async function loadGoogleConnected(sql) {
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
 // eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer } = {}) {
+// googleDay (בלוק 3ב-2): אירועי Google של יום, לבדיקת התנגשות כשתשובה ב"לא זמין" משלימה תאריך או שעה. בלי הגדרות Google: undefined.
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }) } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -237,7 +239,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge, brief });
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
-    const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable });
+    const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable, googleDay });
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
     // כל כשל נתפס ולא משנה את התשובה.
     if (result.status === 'answered') {
