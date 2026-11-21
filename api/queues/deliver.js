@@ -22,6 +22,7 @@ import { sequenceFromKey } from '../../lib/homework-schedule.js';
 import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
 import { loadAbsenceRows, decideAbsence } from '../../lib/homework-absence.js';
 import { createExamAsks, loadExamAnswers } from '../../lib/exam-ask.js';
+import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
 const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון האחרון הבריף נשלח גם בלי מערכת השעות (D10 ז)
@@ -100,6 +101,9 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   // B-3ב (68 H13): שאלת "איזה מקצוע במדעים?" נוצרת לפני טעינת השאלות, כדי שתופיע גם בבריף ("שאלות שממתינות"). לא זורקת: כשל (כולל טבלה שלא נוצרה) נרשם והבריף ממשיך.
   // הנחה, לא אומת: "היום" לחלון הוא תאריך המשבצת (dateIso, כמו שאר הבריף), לא השעון.
   await createExamAsks({ sql, todayIso: dateIso, now: deliveredAt });
+  // שאלת החופשה היומית וכרטיס המסגרת (lib/vacation-ask.js, 03-personal-weights-rules.md §5.1): ביום בטווח חופשה, לפני טעינת השאלות, כדי שייספרו בבריף. לא זורק.
+  // הכרטיס נוצר כאן רק ביום הראשון ורק אם הסגירה של אתמול לא יצרה אותו (WHERE NOT EXISTS). "היום" = תאריך המשבצת.
+  await ensureVacationMorning({ sql, dateIso, now: deliveredAt });
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
   let partial = false;
   let tasks = [];
@@ -259,6 +263,8 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   const received = await loadPart('נקלט היום', () => loadReceived(sql, closingWindow(targetAt)));
   const done = await loadPart('בוצע היום', () => loadDone(sql, closingWindow(targetAt))); // C-2 (E6): אותו חלון כמו "נקלט"
   const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));
+  // כרטיס המסגרת של חופשה שמתחילה מחר (lib/vacation-ask.js), לפני טעינת השאלות כדי שייספר בסגירה. לא זורק. "היום" = תאריך המשבצת.
+  await ensureVacationEvening({ sql, dateIso, now: deliveredAt });
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
   let trainings = [];
   let events = [];
