@@ -66,24 +66,44 @@ describe('public/index.html: ח-3 מרגיש כמו אפליקציה', () => {
   });
 });
 
-describe('public/index.html: ח-4 לחיצה ארוכה על הודעה', () => {
-  test('שכבה: אלמנט עם טשטוש, כפתורי העתק והגב בגובה 44px', () => {
+describe('public/index.html: ח-4 לחיצה ארוכה על הודעה (דפוס וואטסאפ)', () => {
+  test('שכבה: רקע מטושטש, תפריט בסגנון iOS עם "הגב" ואז "העתק", שורות 44px עם סמל, קו מפריד', () => {
     assert.match(html, /id="mm"/);
-    assert.match(html, /id="mmCopy">העתק</);
-    assert.match(html, /id="mmReply">הגב</);
-    assert.match(css, /\.mm \{[^}]*backdrop-filter: blur/);
-    assert.match(css, /\.mm-btn \{[^}]*min-height: 44px/);
+    assert.match(css, /\.mm-back \{[^}]*backdrop-filter: blur/);
+    const menu = /<div class="mm-menu" id="mmMenu" role="menu">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? '';
+    const rows = [...menu.matchAll(/id="(mm\w+)" role="menuitem"><span>([^<]+)<\/span><svg/g)].map((m) => [m[1], m[2]]);
+    assert.deepEqual(rows, [['mmReply', 'הגב'], ['mmCopy', 'העתק']]);
+    assert.match(css, /\.mm-row \{[^}]*min-height: 44px/);
+    assert.match(css, /\.mm-row \+ \.mm-row \{[^}]*border-top: \.5px solid var\(--sep\)/);
     assert.match(css, /\.quote-x \{[^}]*width: 44px; height: 44px/);
   });
 
-  test('מאזינים: 500ms, ביטול ב-10px, גלילה, contextmenu', () => {
-    assert.match(script, /HOLD_MS = 500/);
-    assert.match(script, /HOLD_MOVE_PX = 10/);
+  test('מאזינים: 400ms, כיווץ בזמן החזקה, ביטול ב-8px, גלילה, contextmenu', () => {
+    assert.match(script, /HOLD_MS = 400/);
+    assert.match(script, /HOLD_MOVE_PX = 8/);
+    assert.match(css, /\.me\.pressing, \.sysb\.pressing \{ transform: scale\(\.96\)/);
     assert.match(script, /addEventListener\('touchstart'/);
-    assert.match(script, /addEventListener\('touchmove'/);
     assert.match(script, /addEventListener\('scroll', cancelHold/);
     assert.match(script, /addEventListener\('contextmenu'/);
     assert.match(script, /closest\('\.me, \.sysb'\)/);
+  });
+
+  test('פתיחה במקום: עותק במיקום הבועה, הרמה בקפיץ, תפריט לצד הבועה, גבולות האזור הבטוח', () => {
+    assert.match(script, /bubble\.getBoundingClientRect\(\)/);
+    assert.match(script, /LIFT_EASE = 'cubic-bezier\(\.2, \.9, \.3, 1\.2\)'/);
+    assert.match(script, /const alignLeft = centerX < vw \/ 2/);
+    assert.match(css, /\.mm \{[^}]*safe-area-inset-top[^}]*safe-area-inset-bottom/);
+    assert.match(script, /duration: 180/); // סגירה הפוכה
+  });
+
+  test('החלקה לתגובה: נעילת ציר ב-10px, עד 70px, "הגב" אחרי 55px, touchmove לא פסיבי, pan-y על בועות', () => {
+    assert.match(script, /AXIS_LOCK_PX = 10/);
+    assert.match(script, /SWIPE_MAX_PX = 70/);
+    assert.match(script, /SWIPE_REPLY_PX = 55/);
+    assert.match(script, /SWIPE_DIR = document\.documentElement\.dir === 'rtl' \? -1 : 1/);
+    assert.match(script, /addEventListener\('touchmove', [\s\S]*?event\.preventDefault\(\);[\s\S]*?\}, \{ passive: false \}\)/);
+    assert.match(script, /if \(reply && meta\) startReply\(meta\)/);
+    assert.match(css, /\.me, \.sysb \{ touch-action: pan-y; \}/);
   });
 
   test('העתק: clipboard עם גיבוי והודעת "הועתק"', () => {
@@ -92,14 +112,38 @@ describe('public/index.html: ח-4 לחיצה ארוכה על הודעה', () => 
     assert.match(script, /'הועתק'/);
   });
 
-  test('הגב: שורת ציטוט עם ביטול, ו-reply_to נשלח לקליטה', () => {
+  test('הגב: שורת ציטוט עם שם, פס הדגשה וביטול, ו-reply_to נשלח לקליטה', () => {
     assert.match(html, /id="quote"/);
+    assert.match(html, /id="quoteWho"/);
     assert.match(html, /id="quoteX"/);
+    assert.match(css, /\.quote-box::before \{[^}]*inset-inline-start: 0[^}]*background: var\(--accent\)/);
+    assert.match(script, /meta\.role === 'user' \? 'את\/ה' : 'המערכת'/);
     assert.match(script, /fields\.reply_to = String\(quoted\.id\)/);
+    assert.match(script, /fields\.reply_to_role = quoted\.role/);
     assert.match(script, /new URLSearchParams\(fields\)/);
   });
 
-  test('תנועה מופחתת: האנימציה של השכבה מכובדת', () => {
-    assert.match(css, /prefers-reduced-motion: reduce\) \{ \.mm \{ animation: none/);
+  test('תנועה מופחתת: בלי כיווץ, רק דהייה, ב-CSS וב-JS', () => {
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{\r?\n([\s\S]*?)\r?\n  \}/.exec(css)?.[1] ?? '';
+    assert.match(reduced, /\.me\.pressing, \.sysb\.pressing \{ transform: none/);
+    assert.match(reduced, /\.quote:not\(\[hidden\]\) \{ animation-name: fade-in/);
+    assert.match(script, /matchMedia\('\(prefers-reduced-motion: reduce\)'\)/);
+    assert.match(script, /const grow = reduce \? 1 : 1\.03/);
+  });
+});
+
+describe('public/index.html: כרטיס "נגמרה מכסת ה-AI"', () => {
+  test('quota מהשרת נקרא, ושדה חסר (שרת ישן) = אין כרטיס', () => {
+    assert.match(script, /state\.quota = validQuota\(data\?\.quota\)/);
+    assert.match(script, /if \(!quota \|\| typeof quota !== 'object'\) return null/);
+  });
+
+  test('הכרטיס: כותרת, מגבלה, חוזר ושורת "נשמרות", באזור משלו מעל האזור הנעוץ', () => {
+    assert.match(script, /'⚠️ נגמרה מכסת ה-AI'/);
+    assert.match(script, /line\('מגבלה', quota\.kind_label/);
+    assert.match(script, /line\('חוזר', quota\.returns_label/);
+    assert.match(script, /נשמרות ויטופלו אוטומטית כשהמכסה חוזרת/);
+    assert.ok(html.indexOf('id="quotaPin"') < html.indexOf('id="pin"'), 'מעל האזור הנעוץ');
+    assert.match(script, /function render\(\) \{\r?\n  renderQuota\(\);/);
   });
 });
