@@ -340,7 +340,7 @@ describe('chat: GET review (סעיף 6 ב-57)', () => {
     const res = await get(sql);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'review']); // 8.6-1: נוסף open_tasks; כרטיס הבריף: נוסף brief
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'quota', 'review']); // 8.6-1: נוסף open_tasks; כרטיס הבריף: נוסף brief
     assert.deepEqual(body.review, {
       total: 2,
       items: [
@@ -581,7 +581,7 @@ describe('chat: brief (כרטיס הבריף החי)', () => {
     const body = await res.json();
     assert.equal(body.brief, null);
     assert.deepEqual(body.open_tasks.map((x) => x.id), [uuid(1)]);
-    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'review']);
+    assert.deepEqual(Object.keys(body).sort(), ['badge', 'brief', 'items', 'open_tasks', 'pending', 'quota', 'review']);
     assert.deepEqual(cap.lines, ['chat: בניית הבריף נכשלה: TypeError']);
   });
 });
