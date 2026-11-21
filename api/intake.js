@@ -8,13 +8,17 @@
 // התראה מאוגדת (שלב 8.2א-3, docs/08-chapter8/47 "8.2א-3"; 35, D5): רק להודעה שהועברה (ערוץ shortcut) שהמערכת הבינה (status recorded), אחרי רישום התוצאה ולפני התשובה,
 // נשלחת לתור הודעת notify מושהית (חלון של 120 שניות, lib/message-slots.js); הצרכן (api/queues/deliver.js) בודק מצב ושולח דחיפה אחת. הודעה מוקלדת (app) לעולם לא נשלחת לתור.
 // כשל בשליחה לתור נתפס, נרשם בשם השגיאה בלבד, ולא משנה את התשובה לקיצור.
-// מה היא לא עושה: אין קריאה למודל, אין תמונות.
+// בלוק 3ב-1 (אפיון-מורחב ה-2, ח-1): כל הודעה מובנת קודם במוח (lib/intake-brain.js -> lib/brain/ask.js, הדרך היחידה למודל), בתוך הצינור, אחרי בדיקת הכפילות.
+// המוח לא זמין (אין מפתח, אין מודלים שעברו, מכסה, כשל): הנתיב של הקוד בלי שינוי. "הגב": השדות reply_to (uuid) ו-reply_to_role (user / system)
+// נטענים כהקשר לפרומפט בלבד; ערך לא תקין או חסר = מתעלמים בשקט.
+// מה היא לא עושה: אין תמונות.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { processSource } from '../lib/intake-process.js';
 import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
 import { syncEventForSource } from '../lib/event-sync.js';
+import { understandSource, parseReplyTo } from '../lib/intake-brain.js';
 
 // נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -31,8 +35,12 @@ const SENDER_FIELD = 'sender';
 const CHANNEL_FIELD = 'channel';
 // הנחה, לא אומת: תקרת אורך לטקסט (תווים). 100,000 היא בחירה שלי, מעל כל הודעת וואטסאפ רגילה, כדי שהודעה ענקית לא תיכתב למסד. אף מסמך לא קובע ערך.
 const MAX_TEXT_LENGTH = 100_000;
-// הנחה, לא אומת: 5 שניות לעיבוד אחרי השמירה. אף מסמך לא קובע ערך; Fluid Compute פעיל, ו-maxDuration של נקודה זו לא נמדד.
-const PROCESS_TIMEOUT_MS = 5000;
+// הנחה, לא אומת: 20 שניות לעיבוד אחרי השמירה (היה 5 עד בלוק 3ב-1; עכשיו כולל עד 10 שניות של המוח, lib/intake-brain.js UNDERSTAND_TIMEOUT_MS).
+// אף מסמך לא קובע ערך; Fluid Compute פעיל, ו-maxDuration של נקודה זו לא נמדד.
+const PROCESS_TIMEOUT_MS = 20000;
+// שדות "הגב" ב-Form (public/index.html שולח אותם כשמגיבים לבועה).
+const REPLY_TO_FIELD = 'reply_to';
+const REPLY_ROLE_FIELD = 'reply_to_role';
 const NOTIFY_QUEUE_TIMEOUT_MS = 3000;
 // הערוצים של נקודה זו. הערוץ שהתקבל נשלח לצינור העיבוד, ורק הקיצור הוא התנאי לרישום ב-intake_outcomes (46, D17: נמדדות רק הודעות מהקיצור).
 // הסינון לפי הערוץ עצמו ולא לפי הסטטוס skipped, כי מאז שלב 8.2א-1 ערוץ app מעובד (docs/08-chapter8/47, "תלויות", סעיף 2). אותם ערכים כתובים גם כמחרוזת ב-INSERT ל-sources.
@@ -80,7 +88,7 @@ export function outcomeFor({ channel, result, failure = null }) {
 }
 
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. processor (אופציונלי): החלפת צינור העיבוד, לבדיקות.
-// processTimeoutMs (אופציונלי): קיצור ההמתנה לעיבוד, כדי לבדוק תקיעה בלי לחכות 5 שניות.
+// processTimeoutMs (אופציונלי): קיצור ההמתנה לעיבוד, כדי לבדוק תקיעה בלי לחכות 20 שניות. understand (אופציונלי): הבנה במוח (lib/intake-brain.js), לבדיקות.
 // sendQueue ו-now (אופציונליים): שליחה לתור והשעון של ההתראה המאוגדת, לבדיקות. eventSync (אופציונלי): הכתיבה ליומן Google (שלב 8.3-4), לבדיקות.
 export async function handle(request, {
   sql,
@@ -90,6 +98,7 @@ export async function handle(request, {
   sendQueue = realSend,
   now = () => new Date(),
   eventSync = syncEventForSource,
+  understand = understandSource,
 }) {
   const startedAt = Date.now();
 
@@ -136,6 +145,8 @@ export async function handle(request, {
   const senderRaw = form.get(SENDER_FIELD);
   // מה שלא ידוע נשאר לא ידוע: בלי שולח - NULL.
   const sender = typeof senderRaw === 'string' && senderRaw.length > 0 ? senderRaw : null;
+  // "הגב": לא תקין או חסר = null, בלי שגיאה.
+  const replyTo = parseReplyTo(form.get(REPLY_TO_FIELD), form.get(REPLY_ROLE_FIELD));
 
   let contentHash;
   let saved;
@@ -177,8 +188,9 @@ export async function handle(request, {
   let result = null;
   let failure = null;
   try {
+    const source = { id: row.id, channel, raw_content: text, content_hash: contentHash, received_at: receivedAt };
     result = await withTimeout(
-      processor({ sql, source: { id: row.id, channel, raw_content: text, content_hash: contentHash, received_at: receivedAt } }),
+      processor({ sql, source, understand: () => understand({ sql, source, replyTo, now: now() }) }),
       processTimeoutMs,
     );
   } catch (error) {

@@ -105,7 +105,7 @@ describe('intake_outcomes: failed', () => {
     assert.deepEqual(cap.lines, ['intake: עיבוד נכשל: TimeoutError']);
   });
 
-  test('ברירת המחדל נשארת 5 שניות: ב-4,999 אין תשובה, ב-5,000 יש, והתוצאה timeout', async (t) => {
+  test('ברירת המחדל 20 שניות (מבלוק 3ב-1, כולל המוח): ב-19,999 אין תשובה, ב-20,000 יש, והתוצאה timeout', async (t) => {
     captureConsole(t);
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const flush = async () => { for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
@@ -113,13 +113,13 @@ describe('intake_outcomes: failed', () => {
     let res;
     send({ sql, processor: () => new Promise(() => {}) }).then((value) => { res = value; });
     await flush();
-    t.mock.timers.tick(4999);
+    t.mock.timers.tick(19999);
     await flush();
     assert.equal(res, undefined, 'עדיין ממתינים לעיבוד');
     assert.equal(outcomesOf(sql).length, 0);
     t.mock.timers.tick(1);
     await flush();
-    assert.ok(res, 'התשובה חזרה אחרי 5 שניות');
+    assert.ok(res, 'התשובה חזרה אחרי 20 שניות');
     assert.equal(await res.text(), RECEIVED_REPLY);
     assert.deepEqual(outcomesOf(sql).map((call) => call.values), [[SRC_ID, 'failed', 'timeout']]);
   });
