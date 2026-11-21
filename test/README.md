@@ -66,6 +66,9 @@ node --test test/intake.test.js
 | `google-watch-start.test.js` | פתיחת ערוצי watch: הרשאות, כפילויות, כשלים חלקיים, פרטיות |
 | `google-webhook.test.js` | קליטת התראות מ-Google: זיהוי ערוץ, אימות טוקן, מונים |
 | `gate-probe.test.js` | בדיקת השער מול Gemini: ציון, סף 90%, עצירה ב-429, פרטיות |
+| `brain-models.test.js` | רשת המודלים של המוח (בלוק 3א): מי ברשימה (מעבר אחרון ב-30 יום, 18/20), סדר, סיווג 429, שעת החזרה בחצות פסיפיק, מודל פנוי הבא |
+| `brain-ask.test.js` | קריאה למוח (בלוק 3א): מעבר למודל הבא על 429, 5xx, רשת ותשובה לא בפורמט; שורות `brain-quota`; no-pool / exhausted / failed; המפתח והטקסט לא דולפים |
+| `brain-quota-card.test.js` | כרטיס "נגמרה מכסת ה-AI" (בלוק 3א): השדה `quota` ב-GET של הצ'אט, תוויות בשעון ישראל, וההתראה האחת לאייפון |
 | `default-exports.test.js` | שהעטיפה של כל נקודה נטענת ודוחה בקשות לא מתאימות |
 
 קבצי עזר (לא בדיקות): `helpers.js` (מסד ו-fetch מזויפים) ו-`google-fixtures.js` (נתוני Google מומצאים).

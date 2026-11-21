@@ -10,6 +10,7 @@
 //   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
 //   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול פריט { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (שאלת "איזה מקצוע במדעים?").
 //   POST { action: 'exam', message_id, answer: 'פיזיקה' | 'כימיה' | 'אחר' } -> { status: 'answered' | 'closed', pending, badge, review }   (closed = כבר נסגרה / פגה / לא קיימת, לא נכתב דבר; review מחושב מחדש כדי שהפס יתעדכן)
+//   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
@@ -27,6 +28,7 @@ import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
 import { examLineAt } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
+import { loadQuotaCard } from '../lib/brain/state.js';
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
@@ -177,7 +179,8 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const badge = await loadBadge(sql, now());
       const openTasks = await loadOpenTasks(sql);
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
-      return json({ items, pending, badge, review, open_tasks: openTasks, brief });
+      const quota = await loadQuotaCard(sql, now()); // לא זורק: כשל = null
+      return json({ items, pending, badge, review, open_tasks: openTasks, brief, quota });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);
