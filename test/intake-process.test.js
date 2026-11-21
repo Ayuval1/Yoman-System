@@ -907,7 +907,7 @@ describe('api/intake.js מחובר לצינור', () => {
   });
 });
 
-describe('בלי קריאת מודל ובלי רשת', () => {
+describe('גישה למודל ולרשת רק דרך lib/brain/ask.js (בלוק 3ב-1)', () => {
   const root = new URL('../', import.meta.url);
   const files = [
     ...readdirSync(new URL('lib/', root)).filter((name) => name.startsWith('intake-') && name.endsWith('.js')).map((name) => `lib/${name}`),
@@ -915,16 +915,20 @@ describe('בלי קריאת מודל ובלי רשת', () => {
     'api/intake.js',
   ];
 
-  test('הקבצים הנכונים נסרקים (כולל intake-process.js)', () => {
+  test('הקבצים הנכונים נסרקים (כולל intake-process.js ו-intake-brain.js)', () => {
     assert.ok(files.includes('lib/intake-process.js'));
-    assert.equal(files.length, 9, files.join(', ')); // 7 מודולי intake-*, timetable, ו-api/intake.js
+    assert.ok(files.includes('lib/intake-brain.js'));
+    assert.equal(files.length, 11, files.join(', ')); // 9 מודולי intake-* (כולל intake-brain ו-intake-brain-retry), timetable, ו-api/intake.js
   });
 
   for (const file of files) {
-    test(`${file}: אין fetch(, anthropic, gemini, openai`, () => {
+    test(`${file}: אין fetch(, anthropic, openai, כתובת Gemini; המוח רק דרך ./brain/ask.js`, () => {
       // ההגדרה export default { fetch(request) {...} } של api/intake.js היא ה-handler של Vercel, לא קריאת רשת.
+      // ב-lib/intake-brain.js "fetchFn = fetch" הוא ברירת מחדל שמועברת ל-askBrain, לא קריאה: אין "fetch(" בקובץ.
       const text = readFileSync(new URL(file, root), 'utf8').replace(/^[ \t]*fetch\(request\) \{$/m, '');
-      assert.doesNotMatch(text, /fetch\(|anthropic|gemini|openai/i);
+      assert.doesNotMatch(text, /fetch\(|anthropic|openai|generativelanguage|x-goog-api-key/i);
+      const brainImports = [...text.matchAll(/^import .* from '([^']*brain\/[^']+)';$/gm)].map((m) => m[1]);
+      assert.deepEqual(brainImports, file === 'lib/intake-brain.js' ? ['./brain/ask.js'] : []);
     });
   }
 

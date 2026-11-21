@@ -824,11 +824,19 @@ describe('8.3-1: review-view', () => {
   });
 });
 
-describe('8.3-1: אין AI ואין כתיבה ליומן בקבצי הקליטה', () => {
-  test('אין generativelanguage / anthropic / googleapis בקבצי הקליטה', () => {
-    for (const file of ['api/intake.js', 'lib/intake-dictionary.js', 'lib/intake-facts.js', 'lib/intake-questions.js', 'lib/intake-text.js', 'lib/intake-process.js', 'lib/intake-dates.js', 'lib/intake-intent.js']) {
+describe('בלוק 3ב-1: הגישה למודל בקבצי הקליטה רק דרך lib/brain/ask.js', () => {
+  const INTAKE_FILES = ['api/intake.js', 'lib/intake-dictionary.js', 'lib/intake-facts.js', 'lib/intake-questions.js', 'lib/intake-text.js', 'lib/intake-process.js', 'lib/intake-dates.js', 'lib/intake-intent.js', 'lib/intake-brain.js', 'lib/intake-brain-retry.js'];
+  test('אין generativelanguage / anthropic / googleapis / מפתח Gemini בקבצי הקליטה', () => {
+    for (const file of INTAKE_FILES) {
       const code = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-      assert.doesNotMatch(code, /generativelanguage|anthropic|googleapis/i, file);
+      assert.doesNotMatch(code, /generativelanguage|anthropic|googleapis|x-goog-api-key/i, file);
+    }
+  });
+  test('רק lib/intake-brain.js מייבא את המוח, ורק מ-./brain/ask.js', () => {
+    for (const file of INTAKE_FILES) {
+      const code = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+      const brainImports = [...code.matchAll(/^import .* from '([^']*brain\/[^']+)';$/gm)].map((m) => m[1]);
+      assert.deepEqual(brainImports, file === 'lib/intake-brain.js' ? ['./brain/ask.js'] : [], file);
     }
   });
 });
