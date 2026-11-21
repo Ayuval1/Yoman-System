@@ -508,6 +508,29 @@ describe('gate-probe: model=rotate (רוטציה יומית לפי ListModels)',
     assert.equal(probeDetail(sql).values[0], false);
     assert.match(probeDetail(sql).values[1], /not-run: s02/);
   });
+  test('כמה משבצות ביום: slots=3 בודקות שלושה מודלים שונים באותו יום, וביום הבא ממשיכות מהבאים', async () => {
+    const LIST5 = ['a', 'b', 'c', 'd', 'e'].map((x) => entry(`models/gemini-${x}-flash`));
+    const pick = async (d, slot) => {
+      const { deps, fetchFn } = setup({ route: routeWith(LIST5) });
+      await handle(get(`?model=rotate&slot=${slot}&slots=3`), { ...deps, sentences: mk(20), now: atDay(d) });
+      return gens(fetchFn)[0].url.match(/models\/gemini-(.)-flash:/)[1];
+    };
+    // יום 0: אינדקסים 0,1,2; יום 1: 3,4,0 (מודולו 5)
+    assert.deepEqual([await pick(0, 0), await pick(0, 1), await pick(0, 2)], ['a', 'b', 'c']);
+    assert.deepEqual([await pick(1, 0), await pick(1, 1), await pick(1, 2)], ['d', 'e', 'a']);
+  });
+  test('slot ו-slots לא תקינים - 400 בלי קריאה לרשת', async () => {
+    for (const q of ['?model=rotate&slot=3&slots=3', '?model=rotate&slots=0', '?model=rotate&slot=x', '?model=rotate&slots=100']) {
+      const { deps, fetchFn } = setup();
+      assert.equal((await handle(get(q), deps)).status, 400, q);
+      assert.equal(fetchFn.calls.length, 0, q);
+    }
+  });
+  test('ברירת מחדל slot=0 slots=1: אותה בחירה כמו לפני ההרחבה, וה-detail מציין slot', async () => {
+    const { deps, sql } = setup({ route: routeWith(LIST) });
+    await run(deps, atDay(DAY));
+    assert.match(probeDetail(sql).values[1], /model=gemini-b-flash; pool=3; slot=0\/1/);
+  });
   test('הרשימה הסגורה נשארת לערכים אחרים: ערך לא מוכר עדיין 400', async () => {
     const { deps, fetchFn } = setup();
     assert.equal((await handle(get('?model=rotat'), deps)).status, 400);

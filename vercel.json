@@ -4,7 +4,10 @@
     { "path": "/api/ops?task=cron-plan&slot=1", "schedule": "0 1 * * *" },
     { "path": "/api/ops?task=cron-plan&slot=2", "schedule": "0 14 * * *" },
     { "path": "/api/ops?task=daily-check", "schedule": "30 4 * * *" },
-    { "path": "/api/ops?task=gate-probe&from=0&model=rotate", "schedule": "50 4 * * *" }
+    { "path": "/api/ops?task=gate-probe&from=0&model=rotate&slot=0&slots=4", "schedule": "50 4 * * *" },
+    { "path": "/api/ops?task=gate-probe&from=0&model=rotate&slot=1&slots=4", "schedule": "50 6 * * *" },
+    { "path": "/api/ops?task=gate-probe&from=0&model=rotate&slot=2&slots=4", "schedule": "50 8 * * *" },
+    { "path": "/api/ops?task=gate-probe&from=0&model=rotate&slot=3&slots=4", "schedule": "50 10 * * *" }
   ],
   "functions": {
     "api/queues/deliver.js": {
