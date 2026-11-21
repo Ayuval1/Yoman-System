@@ -19,6 +19,7 @@ import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
 import { syncEventForSource } from '../lib/event-sync.js';
 import { understandSource, parseReplyTo } from '../lib/intake-brain.js';
+import { googleDayFromEnv } from '../lib/free-check.js';
 
 // נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -99,6 +100,8 @@ export async function handle(request, {
   now = () => new Date(),
   eventSync = syncEventForSource,
   understand = understandSource,
+  // בלוק 3ב-2: אירועי Google של יום ("אני פנוי?", התנגשות ב"לא זמין"). בלי הגדרות Google: undefined, ו-Google לא נבדק.
+  googleDay = googleDayFromEnv({ sql }),
 }) {
   const startedAt = Date.now();
 
@@ -190,7 +193,7 @@ export async function handle(request, {
   try {
     const source = { id: row.id, channel, raw_content: text, content_hash: contentHash, received_at: receivedAt };
     result = await withTimeout(
-      processor({ sql, source, understand: () => understand({ sql, source, replyTo, now: now() }) }),
+      processor({ sql, source, understand: () => understand({ sql, source, replyTo, now: now() }), googleDay }),
       processTimeoutMs,
     );
   } catch (error) {

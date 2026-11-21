@@ -270,10 +270,10 @@ describe('C-3: loadGoogleTomorrow (קריאה בלבד)', () => {
     }
     assert.equal((await cases['events 403 ביומן אחד']()).ok, false, 'הכול או כלום: לא רשימה חלקית');
   });
-  test('listCalendarEvents: מחזיר רק id/title/startsAt/startDate/endDate', async () => {
+  test('listCalendarEvents: מחזיר רק id/title/startsAt/endsAt/startDate/endDate', async () => {
     const f = googleFetch({ events: { [CAL_A]: [gEvent('e1', 'א', timed(at('08', '00')))] } });
     const out = await listCalendarEvents({ accessToken: ACCESS_TOKEN, calendarId: CAL_A, timeMin: 'a', timeMax: 'b', fetchImpl: f });
-    assert.deepEqual(out, { ok: true, events: [{ id: 'e1', title: 'א', startsAt: '2026-10-28T06:00:00.000Z', startDate: null, endDate: null }] });
+    assert.deepEqual(out, { ok: true, events: [{ id: 'e1', title: 'א', startsAt: '2026-10-28T06:00:00.000Z', endsAt: '2026-10-28T06:00:00.000Z', startDate: null, endDate: null }] });
   });
 });
 

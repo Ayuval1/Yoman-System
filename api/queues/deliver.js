@@ -9,7 +9,7 @@
 import { neon } from '@neondatabase/serverless';
 import { QueueClient } from '@vercel/queue';
 import { parseSlotMessage, planNotify } from '../../lib/message-slots.js';
-import { sendChatNotification, sendBriefNotification, sendClosingNotification } from '../../lib/chat-notify.js';
+import { sendChatNotification, sendBriefNotification, sendClosingNotification, sendResumeNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
 import { loadPending } from '../../lib/chat-pending.js';
@@ -42,9 +42,12 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   const ok = lateSeconds <= LATE_OK_SECONDS;
   const deliveryCount = Number.isInteger(metadata?.deliveryCount) ? metadata.deliveryCount : null;
   const detail = `slot=${parsed.slotKey}; target_utc=${parsed.targetAt}; delivered_utc=${deliveredAt.toISOString()}; late_s=${lateSeconds}; delivery_count=${deliveryCount}`;
-  if (parsed.kind === 'notify') {
+  // בלוק 3ב-2 (אפיון-מורחב ח-2): resume = סוף חלון "לא זמין"; התראה אחת על מה שנבלע בחלון (sendResumeNotification). אותו רישום כמו notify.
+  if (parsed.kind === 'notify' || parsed.kind === 'resume') {
     // כשל מסד (קריאת המצב או הרישום) נזרק, והתור ינסה שוב; dedupe_key של הדחיפה מונע שליחה כפולה. כשל בדחיפה עצמה לא נזרק: נרשם ok=false.
-    const outcome = await sendChatNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret });
+    const outcome = parsed.kind === 'resume'
+      ? await sendResumeNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret, now: deliveredAt })
+      : await sendChatNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret });
     // "לא שלחתי כי אין צורך" (badge-zero, nothing-unseen) תקין; כשל בדחיפה או סוד חסר אינם.
     const sentOk = outcome.sent || !(String(outcome.reason).startsWith('push-') || outcome.reason === 'no-secret');
     const notifyDetail = `${detail}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;

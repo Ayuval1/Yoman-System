@@ -323,7 +323,9 @@ describe('chat-notify: sendClosingNotification (C-1)', () => {
     assert.equal(out.badge, 4);
     assert.equal(seen.length, 1);
     assert.equal(push.seen[0].body.body, 'סיכום היום מחכה לסימון');
-    assert.equal(sql.calls.length, 2, 'שאילתת המצב וספירת הסיכום בלבד');
+    // בלוק 3ב-2: שאילתה שלישית, בדיקת חלון "לא זמין" (lib/quiet.js). שאילתת המצב עדיין אחת: body לא גורם לקריאה נוספת.
+    assert.equal(sql.calls.length, 3, 'שאילתת המצב, ספירת הסיכום ובדיקת החלון בלבד');
+    assert.equal(sql.find("domain = 'unavailable'").length, 1);
     assert.ok(sql.calls.every((c) => !/raw_content|\bbody\b/.test(c.text)));
   });
   test('app_badge נחתך ל-9999; בלי סוד: no-secret; 500: push-status; זריקה: push-error ושם השגיאה בלבד בלוג', async (t) => {
