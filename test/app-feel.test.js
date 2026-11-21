@@ -132,6 +132,22 @@ describe('public/index.html: ח-4 לחיצה ארוכה על הודעה (דפו�
   });
 });
 
+describe('public/index.html: קפיצה להודעה האחרונה', () => {
+  test('כפתור 44px בתוך שורת הכתיבה וצף מעליה, עם מונה; תנועה מופחתת = בלי scale', () => {
+    assert.match(html, /<form class="composer" id="composer">\s*<!--[^>]*-->\s*<button type="button" class="jump" id="jumpBtn"[^>]*><svg/);
+    assert.match(html, /id="jumpCount" hidden/);
+    assert.match(css, /\.jump \{[^}]*bottom: calc\(100% \+ 10px\); inset-inline-end: 16px;[^}]*width: 44px; height: 44px/);
+    assert.match(css, /\.jump \{ transform: none; transition: opacity 150ms/);
+  });
+
+  test('גלילה: מאזין פסיבי עם rAF, סף 300px, גלילה חלקה (מיידית בתנועה מופחתת), מונה הודעות חדשות', () => {
+    assert.match(script, /JUMP_SHOW_PX = 300/);
+    assert.match(script, /requestAnimationFrame\(updateJump\);\r?\n\}, \{ passive: true \}\)/);
+    assert.match(script, /behavior: instant \? 'auto' : 'smooth'/);
+    assert.match(script, /jumpUnread \+= fresh\.length/);
+  });
+});
+
 describe('public/index.html: כרטיס "נגמרה מכסת ה-AI"', () => {
   test('quota מהשרת נקרא, ושדה חסר (שרת ישן) = אין כרטיס', () => {
     assert.match(script, /state\.quota = validQuota\(data\?\.quota\)/);

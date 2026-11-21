@@ -375,6 +375,24 @@
   .quote-text { font-size: 14px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quote-x { flex: none; width: 44px; height: 44px; border: 0; background: none; color: var(--label2); font-size: 18px; }
 
+  /* ---------- קפיצה להודעה האחרונה (בדפוס של וואטסאפ). יושב בתוך שורת הכתיבה וצף מעליה (bottom: 100%),
+     ולכן לעולם לא מכסה אותה או את שורת הציטוט; האזור הבטוח כבר בריפוד של שורת הכתיבה. הנחה, לא אומת באייפון. ---------- */
+  .jump {
+    position: absolute; bottom: calc(100% + 10px); inset-inline-end: 16px;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--card1); color: var(--label2); box-shadow: var(--sh-card2);
+    opacity: 0; transform: scale(.6); pointer-events: none;
+    transition: opacity 180ms ease-out, transform 240ms cubic-bezier(.2, .9, .3, 1.2);
+  }
+  .jump.show { opacity: 1; transform: none; pointer-events: auto; }
+  .jump svg { width: 22px; height: 22px; }
+  .jump-count {
+    position: absolute; top: -7px; inset-inline-start: -5px; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: var(--r-pill); background: var(--live); color: #fff;
+    font-size: 12px; font-weight: var(--fw-bold); line-height: 20px; text-align: center;
+  }
+
   /* ---------- כרטיס "נגמרה מכסת ה-AI" (אפיון-מורחב, "כרטיס נגמרה המכסה"): ראשון באזור הנעוץ, לא נסגר ביד,
      נעלם כשהשרת מפסיק לשלוח quota. נבנה מ-card1/chead הקיימים (ענבר = "דורש אותך"). הנחה, לא אומת באייפון. ---------- */
   .qwrap { padding-bottom: 0; }
@@ -435,6 +453,7 @@
     .me.pressing, .sysb.pressing { transform: none; opacity: .8; transition: opacity 150ms ease-out; }
     .me.press-release, .sysb.press-release { transition: opacity 150ms ease-out; }
     .quote:not([hidden]) { animation-name: fade-in; }
+    .jump { transform: none; transition: opacity 150ms ease-out; }
   }
 </style>
 </head>
@@ -453,6 +472,8 @@
     <main class="feed" id="feed" aria-live="polite"></main>
 
     <form class="composer" id="composer">
+      <!-- קפיצה להודעה האחרונה (כמו בוואטסאפ): צף מעל שורת הכתיבה ושורת הציטוט, בפינת סוף השורה -->
+      <button type="button" class="jump" id="jumpBtn" aria-label="להודעה האחרונה" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="jump-count tnum" id="jumpCount" hidden></span></button>
       <p class="composer-note" id="composerNote" role="status" hidden></p>
       <div class="quote" id="quote" hidden>
         <div class="quote-box">
@@ -928,10 +949,65 @@ function renderFeed() {
   for (const item of state.items) nodes.push(...(item.role === 'system' ? systemBubble(item) : userBubble(item)));
   if (state.loadError) nodes.push(loadErrorNode());
   else if (state.loaded && state.items.length === 0 && state.pending.length === 0) nodes.push(emptyState());
+  // יובל גולל למעלה: נשארים איפה שהוא, וסופרים הודעות מערכת חדשות לכפתור "להודעה האחרונה".
+  // הודעה חדשה שלו (שלח עכשיו) מחזירה למטה, כמו בוואטסאפ.
+  const fresh = feedSeenIds ? state.items.filter((item) => !feedSeenIds.has(item.id)) : [];
+  const stayUp = feedSeenIds !== null && distanceFromBottom() > JUMP_SHOW_PX && !fresh.some((item) => item.role !== 'system');
+  const keepTop = feedEl.scrollTop;
   feedEl.replaceChildren(...nodes);
   applyClamps();
-  feedEl.scrollTop = feedEl.scrollHeight;
+  if (stayUp) {
+    feedEl.scrollTop = keepTop;
+    jumpUnread += fresh.length;
+  } else {
+    feedEl.scrollTop = feedEl.scrollHeight;
+  }
+  if (state.loaded) feedSeenIds = new Set(state.items.map((item) => item.id));
+  updateJump();
 }
+
+// --- קפיצה להודעה האחרונה (כמו בוואטסאפ): מופיע כשגוללים יותר מ-300px מהסוף ---
+const JUMP_SHOW_PX = 300;
+const jumpBtn = document.getElementById('jumpBtn');
+const jumpCount = document.getElementById('jumpCount');
+let feedSeenIds = null;   // ההודעות שכבר צוירו (null = עוד לא נטען)
+let jumpUnread = 0;       // הודעות שהגיעו בזמן שיובל גלול למעלה
+let jumpTicking = false;
+let jumping = false;      // גלילה חלקה למטה בדרך: הכפתור לא חוזר באמצע
+
+function distanceFromBottom() {
+  return feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight;
+}
+
+function updateJump() {
+  jumpTicking = false;
+  const away = distanceFromBottom() > JUMP_SHOW_PX;
+  if (!away) { jumpUnread = 0; jumping = false; } // הגיע למטה: הכול נראה
+  const show = away && !jumping;
+  jumpBtn.classList.toggle('show', show);
+  jumpBtn.tabIndex = show ? 0 : -1;
+  jumpBtn.setAttribute('aria-hidden', String(!show));
+  jumpCount.hidden = jumpUnread === 0;
+  jumpCount.textContent = jumpUnread > 99 ? '99+' : String(jumpUnread);
+}
+
+// מאזין פסיבי, ועדכון אחד לכל פריים (requestAnimationFrame) גם כשהגלילה יורה הרבה אירועים
+feedEl.addEventListener('scroll', () => {
+  if (jumpTicking) return;
+  jumpTicking = true;
+  requestAnimationFrame(updateJump);
+}, { passive: true });
+// אצבע על הרשימה עוצרת את הגלילה החלקה: הכפתור חוזר להתנהג רגיל
+feedEl.addEventListener('touchstart', () => { jumping = false; }, { passive: true });
+
+jumpBtn.addEventListener('click', () => {
+  const instant = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  jumping = !instant;
+  feedEl.scrollTo({ top: feedEl.scrollHeight, behavior: instant ? 'auto' : 'smooth' });
+  jumpUnread = 0;
+  jumpBtn.classList.remove('show');
+  jumpCount.hidden = true;
+});
 
 // --- שאלות ממתינות: כרטיס נעוץ, ערימה, רשימה מורחבת ---
 function questionCard(question, { withHead, count }) {
