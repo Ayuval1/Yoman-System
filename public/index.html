@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <!-- viewport-fit=cover — בלעדיו התוכן נחתך מתחת לסרגל הבית של האייפון -->
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- אין זום בצביטה (בקשת יובל, אפיון-מורחב ח-3; ההמלצה הכללית בתחום היא לא לחסום, יובל יכול לבטל) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>מערכת יומן</title>
 
 <!-- ============================================================
@@ -22,7 +23,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="מערכת יומן">
-<meta name="theme-color" content="#0A7A36">
+<!-- צבע פס הסטטוס לפי מצב: --deep בבהיר (#0A7A36, הערך הקודם) ובכהה (#0A5A2A, tokens.css) -->
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#0A7A36">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0A5A2A">
 
 <link rel="stylesheet" href="/tokens.css">
 <style>
@@ -78,6 +81,24 @@
   }
 
   [hidden] { display: none !important; }
+
+  /* ---------- מרגיש כמו אפליקציה (אפיון-מורחב ח-3; סקיל pwa-iphone). לא נבדק באייפון. ---------- */
+  html { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overscroll-behavior: none; }
+  body { overscroll-behavior: none; }
+  /* מתחת ל-16px האייפון עושה זום לשדה */
+  input, textarea, select { font-size: 16px; }
+  /* בלי זום בלחיצה כפולה, בלי סימון ובלי תפריט מערכת על כפתורים, כרטיסים ובועות. שדות כתיבה נשארים ניתנים לסימון. */
+  button, a, [role="button"], .card1, .bfcard, .mini, .rvrow, .ecard, .me, .sysb {
+    touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  input, textarea { -webkit-user-select: text; user-select: text; }
+  /* מצב לחיצה (במקום הבהוב אפור) */
+  button:not(:disabled):active { transform: scale(.97); transition: transform 100ms ease-out; }
+  @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; transition: none; } }
+  /* כללי ריחוף רק במכשיר עם עכבר, כדי שלא ייתקעו אחרי לחיצה באייפון */
+  @media (hover: hover) and (pointer: fine) {
+    .mm-btn:hover { opacity: .85; }
+  }
 
   /* המסך בגובה החלון: הכותרת והכרטיס הנעוץ למעלה, שורת הכתיבה למטה, וההודעות נגללות ביניהם. */
   .app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
@@ -333,6 +354,34 @@
   }
   /* הנחה, לא אומת: מקום ומראה של שגיאת שליחה מעל שורת הכתיבה. אין לה הדמיה. */
   .composer-note { font-size: 13px; color: var(--amber); padding: 0 8px 7px; }
+
+  /* ---------- שורת ציטוט מעל שורת הכתיבה ("הגב", ח-4). הנחה, לא אומת: אין הדמיה; נבנה מטוקנים קיימים. ---------- */
+  .quote {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 4px 14px;
+    background: var(--field-bg); border-radius: var(--r-mini); border-inline-start: 3px solid var(--accent);
+  }
+  .quote-text { flex: 1; min-width: 0; font-size: 14px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quote-x { flex: none; width: 44px; height: 44px; border: 0; background: none; color: var(--label2); font-size: 18px; }
+
+  /* ---------- לחיצה ארוכה על הודעה (ח-4): שכבה מטושטשת, עותק של הבועה במרכז, "העתק" ו"הגב". הנחה, לא אומת: אין הדמיה. ---------- */
+  .mm {
+    position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    padding: calc(env(safe-area-inset-top) + 24px) 20px calc(env(safe-area-inset-bottom) + 24px);
+    background: rgba(0, 0, 0, .35);
+    background: color-mix(in srgb, var(--bg) 55%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    animation: mm-in 150ms ease-out;
+  }
+  @keyframes mm-in { from { opacity: 0; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { .mm { animation: none; } }
+  .mm-stage { width: 100%; max-height: 55dvh; overflow-y: auto; display: flex; flex-direction: column; }
+  .mm-stage > .me, .mm-stage > .sysb { align-self: center; max-width: 92%; }
+  .mm-actions { display: flex; gap: 12px; }
+  .mm-btn {
+    min-width: 120px; min-height: 44px; border: 0; border-radius: var(--r-pill); padding: 0 22px;
+    font-size: 16px; font-weight: var(--fw-med); background: var(--card1); color: var(--label); box-shadow: var(--sh-card2);
+  }
+  .mm-toast { min-height: 20px; font-size: 15px; font-weight: var(--fw-bold); color: var(--accent); }
 </style>
 </head>
 <body>
@@ -350,6 +399,10 @@
 
     <form class="composer" id="composer">
       <p class="composer-note" id="composerNote" role="status" hidden></p>
+      <div class="quote" id="quote" hidden>
+        <span class="quote-text" id="quoteText"></span>
+        <button type="button" class="quote-x" id="quoteX" aria-label="בטל ציטוט">✕</button>
+      </div>
       <div class="field">
         <input id="msg" placeholder="הודעה" autocomplete="off" enterkeyhint="send">
         <button type="submit" class="send" id="sendBtn" aria-label="שלח"></button>
@@ -374,6 +427,16 @@
     </header>
     <div class="rvbody" id="bfBody"></div>
   </section>
+
+  <!-- לחיצה ארוכה על הודעה: שכבה מטושטשת עם עותק של הבועה, "העתק" ו"הגב" (ח-4) -->
+  <div class="mm" id="mm" role="dialog" aria-modal="true" aria-label="פעולות על הודעה" hidden>
+    <div class="mm-stage" id="mmStage"></div>
+    <p class="mm-toast" id="mmToast" role="status"></p>
+    <div class="mm-actions">
+      <button type="button" class="mm-btn" id="mmCopy">העתק</button>
+      <button type="button" class="mm-btn" id="mmReply">הגב</button>
+    </div>
+  </div>
 
 <script type="module">
 // ============================================================
@@ -742,6 +805,7 @@ function applyClamps() {
 }
 
 // --- בועות ---
+const bubbleMeta = new WeakMap(); // בועה -> { id, role, text }, ללחיצה הארוכה (ח-4)
 function userBubble(item) {
   const key = 'u:' + item.id;
   let bubble;
@@ -756,6 +820,7 @@ function userBubble(item) {
     bubble = el('div', 'me');
     bubble.append(textBlock(item.text, key));
   }
+  bubbleMeta.set(bubble, { id: item.id, role: 'user', text: item.text ?? '' });
   return [bubble, timeNode('metime', item.at)];
 }
 
@@ -768,6 +833,7 @@ function systemBubble(item) {
     text = text.replace(/^נרשם(\s*·\s*)?/, '');
   }
   bubble.append(textBlock(text, key), timeNode('bt', item.at));
+  bubbleMeta.set(bubble, { id: item.id, role: 'system', text });
   return [bubble];
 }
 
@@ -1707,6 +1773,126 @@ async function sendTaskDone(taskId) {
   render();
 }
 
+// --- לחיצה ארוכה על הודעה (ח-4): שכבה מטושטשת, "העתק" ו"הגב" ---
+const HOLD_MS = 500;       // זמן החזקה
+const HOLD_MOVE_PX = 10;   // תזוזה גדולה מזה = גלילה, מבטלת
+const quoteEl = document.getElementById('quote');
+const quoteText = document.getElementById('quoteText');
+const mmEl = document.getElementById('mm');
+const mmStage = document.getElementById('mmStage');
+const mmToast = document.getElementById('mmToast');
+let quoted = null;         // { id, role, text } של ההודעה שמגיבים לה
+let mmCurrent = null;      // ההודעה שהשכבה פתוחה עליה
+let mmOpenedAt = 0;
+let holdTimer = null;
+let holdStart = null;
+
+function clearQuote() {
+  quoted = null;
+  quoteEl.hidden = true;
+  quoteText.textContent = '';
+}
+document.getElementById('quoteX').addEventListener('click', clearQuote);
+
+function closeMessageMenu() {
+  mmEl.hidden = true;
+  mmStage.replaceChildren();
+  mmToast.textContent = '';
+  mmCurrent = null;
+}
+
+function openMessageMenu(bubble) {
+  const meta = bubbleMeta.get(bubble);
+  if (!meta || !mmEl.hidden) return;
+  mmCurrent = meta;
+  mmOpenedAt = Date.now();
+  const copy = bubble.cloneNode(true);
+  copy.querySelectorAll('button').forEach((b) => b.remove());
+  copy.querySelectorAll('.clamp').forEach((n) => n.classList.remove('clamp'));
+  mmStage.replaceChildren(copy);
+  mmToast.textContent = '';
+  mmEl.hidden = false;
+}
+
+function cancelHold() {
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  holdStart = null;
+}
+
+// בועות של יובל ושל המערכת בלבד; לא על כפתורים שבתוך הבועה
+function bubbleFromEvent(event) {
+  if (event.target.closest('button, a, input')) return null;
+  return event.target.closest('.me, .sysb');
+}
+
+feedEl.addEventListener('touchstart', (event) => {
+  cancelHold();
+  const bubble = bubbleFromEvent(event);
+  if (!bubble || event.touches.length !== 1) return;
+  holdStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+  holdTimer = setTimeout(() => { holdTimer = null; openMessageMenu(bubble); }, HOLD_MS);
+}, { passive: true });
+feedEl.addEventListener('touchmove', (event) => {
+  if (!holdStart) return;
+  const t = event.touches[0];
+  if (Math.abs(t.clientX - holdStart.x) > HOLD_MOVE_PX || Math.abs(t.clientY - holdStart.y) > HOLD_MOVE_PX) cancelHold();
+}, { passive: true });
+feedEl.addEventListener('touchend', cancelHold, { passive: true });
+feedEl.addEventListener('touchcancel', cancelHold, { passive: true });
+feedEl.addEventListener('scroll', cancelHold, { passive: true });
+// קליק ימני במחשב (ובדיקות), ותפריט הקשר של המערכת במגע: פותחים את אותה שכבה
+feedEl.addEventListener('contextmenu', (event) => {
+  const bubble = bubbleFromEvent(event);
+  if (!bubble) return;
+  event.preventDefault();
+  cancelHold();
+  openMessageMenu(bubble);
+});
+
+// לחיצה על הרקע סוגרת. 350ms ראשונות מתעלמים: שחרור האצבע של הלחיצה הארוכה נוחת על השכבה.
+mmEl.addEventListener('click', (event) => {
+  if (event.target.closest('button, .mm-stage > *')) return;
+  if (Date.now() - mmOpenedAt < 350) return;
+  closeMessageMenu();
+});
+mmEl.addEventListener('contextmenu', (event) => event.preventDefault());
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* ממשיכים לגיבוי */ }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;top:0;opacity:0;font-size:16px';
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch { return false; }
+}
+
+document.getElementById('mmCopy').addEventListener('click', async () => {
+  if (!mmCurrent) return;
+  const ok = await copyText(mmCurrent.text);
+  mmToast.textContent = ok ? 'הועתק' : 'לא הצלחתי להעתיק';
+  if (ok) setTimeout(closeMessageMenu, 700);
+});
+
+document.getElementById('mmReply').addEventListener('click', () => {
+  if (!mmCurrent) return;
+  quoted = mmCurrent;
+  const snippet = quoted.text.replace(/\s+/g, ' ').trim();
+  quoteText.textContent = snippet.length > 80 ? snippet.slice(0, 80) + '…' : snippet;
+  quoteEl.hidden = false;
+  closeMessageMenu();
+  msgInput.focus();
+});
+
 // --- שורת הכתיבה למטה: הודעה חדשה (D2), נשלחת לנקודת הקליטה עם channel=app ---
 let sending = false;
 function showComposerNote(text) {
@@ -1725,9 +1911,12 @@ composer.addEventListener('submit', async (event) => {
   msgInput.readOnly = true;
   showComposerNote('');
   try {
+    const fields = { text, channel: 'app' };
+    // ציטוט ("הגב", ח-4): השרת היום מתעלם משדות Form נוספים (api/intake.js קורא רק text, channel, sender). השימוש בו בשרת: בלוק 3.
+    if (quoted) { fields.reply_to = String(quoted.id); fields.reply_to_role = quoted.role; }
     const res = await authedFetch('/api/intake', {
       method: 'POST',
-      body: new URLSearchParams({ text, channel: 'app' }),
+      body: new URLSearchParams(fields),
     });
     if (res.status === 413) {
       showComposerNote(TOO_LONG_TEXT);
@@ -1735,6 +1924,7 @@ composer.addEventListener('submit', async (event) => {
       showComposerNote(ERROR_TEXT);
     } else {
       msgInput.value = '';
+      clearQuote();
       await refresh();
     }
   } catch (err) {

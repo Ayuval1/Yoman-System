@@ -96,7 +96,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   }
   // B-3ב (68 H13): שאלת "איזה מקצוע במדעים?" נוצרת לפני טעינת השאלות, כדי שתופיע גם בבריף ("שאלות שממתינות"). לא זורקת: כשל (כולל טבלה שלא נוצרה) נרשם והבריף ממשיך.
   // הנחה, לא אומת: "היום" לחלון הוא תאריך המשבצת (dateIso, כמו שאר הבריף), לא השעון.
-  await createExamAsks({ sql, todayIso: dateIso });
+  await createExamAsks({ sql, todayIso: dateIso, now: deliveredAt });
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
   let partial = false;
   let tasks = [];
@@ -181,6 +181,11 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
     absence = decideAbsence({ rows: await loadAbsenceRows(sql, sequence.lessonDate), sequence, timetable: table });
   } catch (error) {
     console.error('queue-deliver: קריאת עובדות ההיעדרות נכשלה:', error?.name); // רק שם השגיאה
+  }
+  // ביקורת 8.3-2, ממצא 3: שאלה שכבר נוצרה (ניסיון קודם יצר אותה ונפל) לא נסגרת בגלל ביטול שהגיע אחריה; ממשיכים כרגיל (היצירה אידמפוטנטית). כשל מסד נזרק לניסיון חוזר.
+  if (absence.cancelled) {
+    const existing = await sql`SELECT 1 AS found FROM lesson_asks WHERE subject = ${sequence.subject}::text AND lesson_date = ${sequence.lessonDate}::date AND seq_start_period = ${sequence.startPeriod}::integer LIMIT 1`;
+    if (Array.isArray(existing) && existing.length > 0) absence = { cancelled: false, missed: false };
   }
   if (absence.cancelled) return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok, created: false, sent: false, reason: 'cancelled' };
   const { created } = await createLessonAsk({ sql, sequence, timetable: table, missed: absence.missed });

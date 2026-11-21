@@ -5,6 +5,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { parseTimetableMarkdown } from '../lib/timetable.js';
 import { handle } from '../api/chat.js';
 import { handleDelivery } from '../api/queues/deliver.js';
 import { loadPending } from '../lib/chat-pending.js';
@@ -421,14 +422,19 @@ describe('exam-ask: שאלה ממתינה (loadPending) - הסיכון המרכ�
     const log = captureConsole(t);
     const sql = pendingDb({ questions: [plainRow, examRow], failExam: true });
     const list = await loadPending(sql, null, NOW);
-    assert.deepEqual(list.map((item) => item.id), [plainRow.id]);
-    assert.equal(list[0].allowFreeText, true, 'שאלה כללית נשארת כפי שהייתה');
+    // ביקורת B-3ב, ממצא 1: שורת המבחן לא מוסרת (המספר על האייקון סופר אותה); מוצגת בלי תאריך וסוג, ועדיין עם שלושת הכפתורים.
+    assert.deepEqual(list.map((item) => item.id), [plainRow.id, examRow.id]);
+    assert.equal(list.find((item) => item.id === plainRow.id).allowFreeText, true, 'שאלה כללית נשארת כפי שהייתה');
+    assert.deepEqual(list.find((item) => item.id === examRow.id), { id: examRow.id, kind: 'exam', at: '2026-11-28T05:30:00.000Z', exam_date: null, exam_type: null, buttons: [{ answer: 'פיזיקה' }, { answer: 'כימיה' }, { answer: 'אחר' }] });
     assert.match(log.text(), /NeonDbError/);
     assert.doesNotMatch(log.text(), /does not exist|relation|exam_asks/);
   });
-  test('שורת exam_ask בלי שורה מתאימה ב-exam_asks (יתומה): מוסרת, לא מוצגת כשאלה כללית', async () => {
+  test('שורת exam_ask בלי שורה מתאימה ב-exam_asks (יתומה): מוצגת ככרטיס מדעים בלי תאריך (תואם את הספירה באייקון), לא כשאלה כללית', async () => {
     const sql = pendingDb({ questions: [examRow], examRows: [] });
-    assert.deepEqual(await loadPending(sql, null, NOW), []);
+    const list = await loadPending(sql, null, NOW);
+    assert.equal(list.length, 1);
+    assert.equal(list[0].kind, 'exam');
+    assert.ok(!('allowFreeText' in list[0]));
   });
   test('pendingFromRows ישירות: פריט exam ממוין עם שאר השאלות לפי הזמן', () => {
     const list = pendingFromRows({
@@ -622,5 +628,29 @@ describe('exam-ask: public/index.html (בדיקות צורה; ההוכחה הא�
   });
   test('חוזה ה-GET/POST בראש הצ\'אט כולל את שורת B-3ב', () => {
     assert.match(script, /שלב B-3ב[^\n]*kind: 'exam'[^\n]*action:'exam'/);
+  });
+});
+
+describe('exam-ask: ביקורת B-3ב ממצא 3 - משבצת בריף שמגיעה באיחור לא יוצרת שאלה שכבר פגה', () => {
+  const calls = [];
+  const sql = async (strings) => { calls.push(strings.join('?')); return [{ ask_id: 'a', message_id: 'm' }]; };
+  test('אחרי 06:00 ב-1.12 (שעון ישראל) לא נוצרת שאלה; לפני כן נוצרת', async () => {
+    calls.length = 0;
+    assert.equal(await createExamAsks({ sql, todayIso: '2026-11-30', now: new Date('2026-12-01T04:00:01.000Z') }), 0);
+    assert.equal(calls.length, 0);
+    assert.equal(await createExamAsks({ sql, todayIso: '2026-11-30', now: new Date('2026-12-01T03:59:59.000Z') }), 1);
+  });
+});
+
+describe('exam-line: 1.12 (שלישי, בלי שיעור פיזיקה או כימיה): הערב בלי שעה וללא "undefined" או "ב-" ריק', () => {
+  const REAL_TT = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8')); // המערכת האמיתית: אין פיזיקה או כימיה ביום שלישי
+  test('מחר: מבחן במדעים, גם אחרי תשובת פיזיקה או כימיה', () => {
+    const EVENING = new Date('2026-11-30T19:30:00.000Z');
+    for (const answer of [undefined, 'פיזיקה', 'כימיה']) {
+      const answers = new Map(answer ? [['2026-12-01', answer]] : []);
+      const line = examLineAt(EVENING, { timetable: REAL_TT, answers });
+      assert.doesNotMatch(line, /undefined|null|ב-(s|$)/);
+      if (!answer) assert.equal(line, 'מחר: מבחן במדעים');
+    }
   });
 });
