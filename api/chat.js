@@ -10,6 +10,9 @@
 //   POST { action: 'task_done', task_id } -> { status: 'done' | 'closed', open_tasks, badge }   (closed = המשימה לא קיימת או כבר לא פתוחה)
 //   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול פריט { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (שאלת "איזה מקצוע במדעים?").
 //   POST { action: 'exam', message_id, answer: 'פיזיקה' | 'כימיה' | 'אחר' } -> { status: 'answered' | 'closed', pending, badge, review }   (closed = כבר נסגרה / פגה / לא קיימת, לא נכתב דבר; review מחושב מחדש כדי שהפס יתעדכן)
+//   שאלת החופשה (lib/vacation-ask.js): pending יכול לכלול פריט { kind: 'vacation', ask: 'day' | 'frame', text, buttons (מחרוזות), allowFreeText: true }, באותה צורה כמו שאלה רגילה.
+//   POST { action: 'vacation', message_id, answer } -> { status: 'answered' | 'closed' | 'unclear', items, pending, badge }   (items = שורת התשובה ובועת התשובה; closed/unclear = לא נכתב דבר)
+//   וגם POST { action: 'answer', ... } על שאלת חופשה עובר ל-answerVacation (אותה תשובה), כדי שהדף הקיים יענה עליה בלי שינוי.
 //   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
 //   כפתור "חבר Google": GET מחזיר גם google_connected = true | false, או null כשהבדיקה נכשלה (loadGoogleConnected למטה).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
@@ -23,6 +26,7 @@ import { answerQuestion } from '../lib/intake-process.js';
 import { syncEventAfterAnswer } from '../lib/event-sync.js';
 import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
 import { answerExam, loadExamAnswers } from '../lib/exam-ask.js';
+import { answerVacation } from '../lib/vacation-ask.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
@@ -231,6 +235,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const review = await reviewWithExamLine(sql, timetable, now());
       return json({ status: result.status, pending, badge, review });
     }
+    if (action.action === 'vacation') {
+      // שאלת החופשה / כרטיס המסגרת: פקודת כתיבה אחת (או כלום). closed = כבר נסגרה / פגה / לא קיימת; unclear = "לתקן" בלי טקסט.
+      const result = await answerVacation({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created) : [];
+      const pending = await loadPending(sql, timetable, now());
+      const badge = await loadBadge(sql, now());
+      return json({ status: result.status, items, pending, badge });
+    }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
       const openTasks = await loadOpenTasks(sql);
@@ -240,6 +252,16 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable, googleDay });
+    // שאלת חופשה (lib/vacation-ask.js) שנענתה מהכרטיס הרגיל בדף: answerQuestion מחזיר closed בלי לכתוב (entity_type אינו 'source'), ואז answerVacation. בלי כתיבה ליומן Google.
+    if (result.status === 'closed') {
+      const vacation = await answerVacation({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (vacation.status !== 'closed') {
+        const items = vacation.status === 'answered' ? await loadCreatedItems(sql, vacation.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: vacation.status, items, pending, badge });
+      }
+    }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
     // כל כשל נתפס ולא משנה את התשובה.
     if (result.status === 'answered') {
