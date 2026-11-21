@@ -92,12 +92,14 @@
     touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
   input, textarea { -webkit-user-select: text; user-select: text; }
+  /* בועות: הדפדפן מטפל רק בגלילה אנכית; תנועה אופקית שייכת להחלקה לתגובה (ח-4). pan-y גם חוסם זום בלחיצה כפולה. */
+  .me, .sysb { touch-action: pan-y; }
   /* מצב לחיצה (במקום הבהוב אפור) */
   button:not(:disabled):active { transform: scale(.97); transition: transform 100ms ease-out; }
   @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; transition: none; } }
   /* כללי ריחוף רק במכשיר עם עכבר, כדי שלא ייתקעו אחרי לחיצה באייפון */
   @media (hover: hover) and (pointer: fine) {
-    .mm-btn:hover { opacity: .85; }
+    .mm-row:hover { background: var(--sep); }
   }
 
   /* המסך בגובה החלון: הכותרת והכרטיס הנעוץ למעלה, שורת הכתיבה למטה, וההודעות נגללות ביניהם. */
@@ -237,7 +239,7 @@
 
   /* ---------- ההודעות (s_main_light .feed) ---------- */
   .feed {
-    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; /* overflow-x: בועה שמוחלקת הצידה לא פותחת גלילה אופקית */
     padding: 16px 16px 10px; display: flex; flex-direction: column; gap: 15px;
   }
   /* ההודעות יושבות למטה, ליד שורת הכתיבה (בהדמיה: justify-content:flex-end; כאן margin, כדי שהגלילה למעלה לא תיחסם) */
@@ -355,33 +357,104 @@
   /* הנחה, לא אומת: מקום ומראה של שגיאת שליחה מעל שורת הכתיבה. אין לה הדמיה. */
   .composer-note { font-size: 13px; color: var(--amber); padding: 0 8px 7px; }
 
-  /* ---------- שורת ציטוט מעל שורת הכתיבה ("הגב", ח-4). הנחה, לא אומת: אין הדמיה; נבנה מטוקנים קיימים. ---------- */
+  /* ---------- שורת ציטוט מעל שורת הכתיבה ("הגב", ח-4), בדפוס של וואטסאפ: קופסה מעוגלת, פס הדגשה בצד ההתחלה,
+     שם קטן מודגש ושורת טקסט אחת. הנחה, לא אומת באייפון: אין הדמיה; נבנה מטוקנים קיימים. ---------- */
   .quote {
-    display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 4px 14px;
-    background: var(--field-bg); border-radius: var(--r-mini); border-inline-start: 3px solid var(--accent);
+    display: flex; align-items: center; gap: 2px; margin-bottom: 8px; padding: 6px; padding-inline-end: 0;
+    background: var(--field-bg); border-radius: var(--r-mini); box-shadow: var(--field-sh);
   }
-  .quote-text { flex: 1; min-width: 0; font-size: 14px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quote:not([hidden]) { animation: quote-in 240ms cubic-bezier(.2, .9, .3, 1); }
+  @keyframes quote-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  /* רדיוס פנימי = הרדיוס החיצוני פחות הריפוד, כדי שהפינות יהיו מקבילות */
+  .quote-box {
+    position: relative; overflow: hidden; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+    padding: 6px 12px; padding-inline-start: 14px; background: var(--btn-neutral); border-radius: calc(var(--r-mini) - 6px);
+  }
+  .quote-box::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; background: var(--accent); }
+  .quote-who { font-size: var(--fs-label); font-weight: var(--fw-bold); color: var(--accent); }
+  .quote-text { font-size: 14px; color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .quote-x { flex: none; width: 44px; height: 44px; border: 0; background: none; color: var(--label2); font-size: 18px; }
 
-  /* ---------- לחיצה ארוכה על הודעה (ח-4): שכבה מטושטשת, עותק של הבועה במרכז, "העתק" ו"הגב". הנחה, לא אומת: אין הדמיה. ---------- */
+  /* ---------- קפיצה להודעה האחרונה (בדפוס של וואטסאפ). יושב בתוך שורת הכתיבה וצף מעליה (bottom: 100%),
+     ולכן לעולם לא מכסה אותה או את שורת הציטוט; האזור הבטוח כבר בריפוד של שורת הכתיבה. הנחה, לא אומת באייפון. ---------- */
+  .jump {
+    position: absolute; bottom: calc(100% + 10px); inset-inline-end: 16px;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--card1); color: var(--label2); box-shadow: var(--sh-card2);
+    opacity: 0; transform: scale(.6); pointer-events: none;
+    transition: opacity 180ms ease-out, transform 240ms cubic-bezier(.2, .9, .3, 1.2);
+  }
+  .jump.show { opacity: 1; transform: none; pointer-events: auto; }
+  .jump svg { width: 22px; height: 22px; }
+  .jump-count {
+    position: absolute; top: -7px; inset-inline-start: -5px; min-width: 20px; height: 20px; padding: 0 6px;
+    border-radius: var(--r-pill); background: var(--live); color: #fff;
+    font-size: 12px; font-weight: var(--fw-bold); line-height: 20px; text-align: center;
+  }
+
+  /* ---------- כרטיס "נגמרה מכסת ה-AI" (אפיון-מורחב, "כרטיס נגמרה המכסה"): ראשון באזור הנעוץ, לא נסגר ביד,
+     נעלם כשהשרת מפסיק לשלוח quota. נבנה מ-card1/chead הקיימים (ענבר = "דורש אותך"). הנחה, לא אומת באייפון. ---------- */
+  .qwrap { padding-bottom: 0; }
+  .qwrap:not([hidden]) + .pinwrap { margin-top: 0; }   /* הכרטיס כבר עולה על הכותרת; האזור הנעוץ ממשיך מתחתיו */
+  .qcard { margin-bottom: 10px; }
+  .qlines { display: flex; flex-direction: column; gap: 3px; padding: 14px 18px 16px; font-size: 16px; line-height: 1.4; color: var(--label); }
+  .qlines b { font-weight: var(--fw-med); }
+  .qnote { margin-top: 5px; font-size: 14px; color: var(--label2); }
+
+  /* ---------- לחיצה ארוכה על הודעה (ח-4), בדפוס של וואטסאפ באייפון: הבועה מתכווצת בזמן ההחזקה, מתרוממת במקום,
+     הרקע מטושטש, ותפריט בסגנון iOS ליד הבועה. הנחה, לא אומת באייפון: אין הדמיה; טוקנים קיימים בלבד. ---------- */
+  .me.pressing, .sysb.pressing { transform: scale(.96); transition: transform 300ms cubic-bezier(.3, .7, .4, 1); }
+  .me.press-release, .sysb.press-release { transition: transform 280ms cubic-bezier(.2, .9, .3, 1.2); }
+  .mm-src { visibility: hidden; }   /* הבועה המקורית מוסתרת, העותק המורם יושב בדיוק עליה */
+  /* הריפוד של השכבה = גבולות התנועה (האזורים הבטוחים). ה-JS קורא אותו. */
   .mm {
-    position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
-    padding: calc(env(safe-area-inset-top) + 24px) 20px calc(env(safe-area-inset-bottom) + 24px);
+    position: fixed; inset: 0; z-index: 200;
+    padding: calc(env(safe-area-inset-top, 0px) + 12px) 12px calc(env(safe-area-inset-bottom, 0px) + 12px);
+  }
+  .mm-back {
+    position: absolute; inset: 0; opacity: 0; touch-action: none;
     background: rgba(0, 0, 0, .35);
     background: color-mix(in srgb, var(--bg) 55%, transparent);
     -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
-    animation: mm-in 150ms ease-out;
   }
-  @keyframes mm-in { from { opacity: 0; } to { opacity: 1; } }
-  @media (prefers-reduced-motion: reduce) { .mm { animation: none; } }
-  .mm-stage { width: 100%; max-height: 55dvh; overflow-y: auto; display: flex; flex-direction: column; }
-  .mm-stage > .me, .mm-stage > .sysb { align-self: center; max-width: 92%; }
-  .mm-actions { display: flex; gap: 12px; }
-  .mm-btn {
-    min-width: 120px; min-height: 44px; border: 0; border-radius: var(--r-pill); padding: 0 22px;
-    font-size: 16px; font-weight: var(--fw-med); background: var(--card1); color: var(--label); box-shadow: var(--sh-card2);
+  .mm-lift { position: absolute; margin: 0; max-width: none; pointer-events: none; transform-origin: center; box-shadow: var(--sh-card1); }
+  .mm-menu {
+    position: absolute; top: 0; left: 0; width: min(250px, calc(100vw - 24px)); opacity: 0;
+    border-radius: var(--r-mini); overflow: hidden; box-shadow: var(--sh-card1);
+    background: var(--card1);
+    background: color-mix(in srgb, var(--card1) 82%, transparent);
+    -webkit-backdrop-filter: saturate(180%) blur(24px); backdrop-filter: saturate(180%) blur(24px);
   }
-  .mm-toast { min-height: 20px; font-size: 15px; font-weight: var(--fw-bold); color: var(--accent); }
+  .mm-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px;
+    padding: 11px 16px; border: 0; background: transparent; color: var(--label); font-size: var(--fs-body); text-align: start;
+  }
+  .mm-row + .mm-row { border-top: .5px solid var(--sep); }
+  .mm-row svg { flex: none; width: 20px; height: 20px; }
+  .mm .mm-row:active { transform: none; background: var(--sep); }   /* שורת תפריט מודגשת בלחיצה, לא מתכווצת */
+  /* "הועתק": הודעה קצרה מעל שורת הכתיבה */
+  .toast {
+    position: fixed; z-index: 210; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); transform: translateX(-50%);
+    padding: 10px 18px; border-radius: var(--r-pill); background: var(--card1); color: var(--label);
+    font-size: 15px; font-weight: var(--fw-med); box-shadow: var(--sh-card2); pointer-events: none; animation: fade-in 200ms ease-out;
+  }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  /* החלקה לתגובה: חץ שמופיע ברווח שהבועה פותחת */
+  .swipe-ic {
+    position: fixed; z-index: 5; width: 30px; height: 30px; margin: -15px 0 0 -15px; opacity: 0; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; border-radius: 50%;
+    background: var(--btn-neutral); color: var(--label2); transition: color 120ms ease-out;
+  }
+  .swipe-ic.armed { color: var(--accent); }
+  .swipe-ic svg { width: 17px; height: 17px; }
+  /* תנועה מופחתת: בלי כיווץ ובלי קפיצה, רק דהייה (גם ב-JS: reduceMotion) */
+  @media (prefers-reduced-motion: reduce) {
+    .me.pressing, .sysb.pressing { transform: none; opacity: .8; transition: opacity 150ms ease-out; }
+    .me.press-release, .sysb.press-release { transition: opacity 150ms ease-out; }
+    .quote:not([hidden]) { animation-name: fade-in; }
+    .jump { transform: none; transition: opacity 150ms ease-out; }
+  }
 </style>
 </head>
 <body>
@@ -393,14 +466,20 @@
       <button type="button" id="connectGoogle" class="push-btn">חבר Google</button>
     </header>
 
+    <section class="pinwrap qwrap" id="quotaPin" hidden aria-label="מכסת ה-AI"></section>
     <section class="pinwrap" id="pin" hidden aria-label="ממתין לתשובה"></section>
 
     <main class="feed" id="feed" aria-live="polite"></main>
 
     <form class="composer" id="composer">
+      <!-- קפיצה להודעה האחרונה (כמו בוואטסאפ): צף מעל שורת הכתיבה ושורת הציטוט, בפינת סוף השורה -->
+      <button type="button" class="jump" id="jumpBtn" aria-label="להודעה האחרונה" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg><span class="jump-count tnum" id="jumpCount" hidden></span></button>
       <p class="composer-note" id="composerNote" role="status" hidden></p>
       <div class="quote" id="quote" hidden>
-        <span class="quote-text" id="quoteText"></span>
+        <div class="quote-box">
+          <span class="quote-who" id="quoteWho"></span>
+          <span class="quote-text" id="quoteText"></span>
+        </div>
         <button type="button" class="quote-x" id="quoteX" aria-label="בטל ציטוט">✕</button>
       </div>
       <div class="field">
@@ -428,15 +507,15 @@
     <div class="rvbody" id="bfBody"></div>
   </section>
 
-  <!-- לחיצה ארוכה על הודעה: שכבה מטושטשת עם עותק של הבועה, "העתק" ו"הגב" (ח-4) -->
+  <!-- לחיצה ארוכה על הודעה (ח-4): רקע מטושטש, עותק מורם של הבועה (נוסף ב-JS) ותפריט "הגב" / "העתק" -->
   <div class="mm" id="mm" role="dialog" aria-modal="true" aria-label="פעולות על הודעה" hidden>
-    <div class="mm-stage" id="mmStage"></div>
-    <p class="mm-toast" id="mmToast" role="status"></p>
-    <div class="mm-actions">
-      <button type="button" class="mm-btn" id="mmCopy">העתק</button>
-      <button type="button" class="mm-btn" id="mmReply">הגב</button>
+    <div class="mm-back" id="mmBack"></div>
+    <div class="mm-menu" id="mmMenu" role="menu">
+      <button type="button" class="mm-row" id="mmReply" role="menuitem"><span>הגב</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 6l6 6-6 6"/><path d="M20 12H9a5 5 0 0 0-5 5v1"/></svg></button>
+      <button type="button" class="mm-row" id="mmCopy" role="menuitem"><span>העתק</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg></button>
     </div>
   </div>
+  <p class="toast" id="toast" role="status" hidden></p>
 
 <script type="module">
 // ============================================================
@@ -652,6 +731,7 @@ function el(tag, className, text) {
 
 const feedEl = document.getElementById('feed');
 const pinEl = document.getElementById('pin');
+const quotaEl = document.getElementById('quotaPin');
 const composer = document.getElementById('composer');
 const msgInput = document.getElementById('msg');
 const sendBtn = document.getElementById('sendBtn');
@@ -685,6 +765,7 @@ const state = {
   brief: null,          // כרטיס הבריף החי: { dateIso, title, school, exams, freeDay, text } כפי שהשרת החזיר, או null (לפני 07:30 / שרת בלי השדה): אז אין כרטיס
   briefSeen: null,      // dateIso ש"ראיתי" נלחץ עליו בדף הזה (זיכרון בלבד, גיבוי כשאין localStorage)
   bfOpen: false,        // המסך המלא של הבריף פתוח
+  quota: null,          // כרטיס "נגמרה מכסת ה-AI": { kind_label, returns_label, model } כפי שהשרת החזיר, או null (רגיל / שרת ישן בלי השדה): אז אין כרטיס
 };
 
 // --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
@@ -868,10 +949,65 @@ function renderFeed() {
   for (const item of state.items) nodes.push(...(item.role === 'system' ? systemBubble(item) : userBubble(item)));
   if (state.loadError) nodes.push(loadErrorNode());
   else if (state.loaded && state.items.length === 0 && state.pending.length === 0) nodes.push(emptyState());
+  // יובל גולל למעלה: נשארים איפה שהוא, וסופרים הודעות מערכת חדשות לכפתור "להודעה האחרונה".
+  // הודעה חדשה שלו (שלח עכשיו) מחזירה למטה, כמו בוואטסאפ.
+  const fresh = feedSeenIds ? state.items.filter((item) => !feedSeenIds.has(item.id)) : [];
+  const stayUp = feedSeenIds !== null && distanceFromBottom() > JUMP_SHOW_PX && !fresh.some((item) => item.role !== 'system');
+  const keepTop = feedEl.scrollTop;
   feedEl.replaceChildren(...nodes);
   applyClamps();
-  feedEl.scrollTop = feedEl.scrollHeight;
+  if (stayUp) {
+    feedEl.scrollTop = keepTop;
+    jumpUnread += fresh.length;
+  } else {
+    feedEl.scrollTop = feedEl.scrollHeight;
+  }
+  if (state.loaded) feedSeenIds = new Set(state.items.map((item) => item.id));
+  updateJump();
 }
+
+// --- קפיצה להודעה האחרונה (כמו בוואטסאפ): מופיע כשגוללים יותר מ-300px מהסוף ---
+const JUMP_SHOW_PX = 300;
+const jumpBtn = document.getElementById('jumpBtn');
+const jumpCount = document.getElementById('jumpCount');
+let feedSeenIds = null;   // ההודעות שכבר צוירו (null = עוד לא נטען)
+let jumpUnread = 0;       // הודעות שהגיעו בזמן שיובל גלול למעלה
+let jumpTicking = false;
+let jumping = false;      // גלילה חלקה למטה בדרך: הכפתור לא חוזר באמצע
+
+function distanceFromBottom() {
+  return feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight;
+}
+
+function updateJump() {
+  jumpTicking = false;
+  const away = distanceFromBottom() > JUMP_SHOW_PX;
+  if (!away) { jumpUnread = 0; jumping = false; } // הגיע למטה: הכול נראה
+  const show = away && !jumping;
+  jumpBtn.classList.toggle('show', show);
+  jumpBtn.tabIndex = show ? 0 : -1;
+  jumpBtn.setAttribute('aria-hidden', String(!show));
+  jumpCount.hidden = jumpUnread === 0;
+  jumpCount.textContent = jumpUnread > 99 ? '99+' : String(jumpUnread);
+}
+
+// מאזין פסיבי, ועדכון אחד לכל פריים (requestAnimationFrame) גם כשהגלילה יורה הרבה אירועים
+feedEl.addEventListener('scroll', () => {
+  if (jumpTicking) return;
+  jumpTicking = true;
+  requestAnimationFrame(updateJump);
+}, { passive: true });
+// אצבע על הרשימה עוצרת את הגלילה החלקה: הכפתור חוזר להתנהג רגיל
+feedEl.addEventListener('touchstart', () => { jumping = false; }, { passive: true });
+
+jumpBtn.addEventListener('click', () => {
+  const instant = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  jumping = !instant;
+  feedEl.scrollTo({ top: feedEl.scrollHeight, behavior: instant ? 'auto' : 'smooth' });
+  jumpUnread = 0;
+  jumpBtn.classList.remove('show');
+  jumpCount.hidden = true;
+});
 
 // --- שאלות ממתינות: כרטיס נעוץ, ערימה, רשימה מורחבת ---
 function questionCard(question, { withHead, count }) {
@@ -1310,6 +1446,43 @@ function closeBrief() {
 bfCloseBtn.addEventListener('click', closeBrief);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && state.bfOpen) closeBrief(); });
 
+// --- כרטיס "נגמרה מכסת ה-AI" (אפיון-מורחב, "כרטיס נגמרה המכסה"). השרת מחליט מתי; הדף רק מצייר טקסט. ---
+function validQuota(quota) {
+  if (!quota || typeof quota !== 'object') return null;
+  const text = (value) => (typeof value === 'string' && value.trim() !== '' ? value.trim() : null);
+  return { kind_label: text(quota.kind_label), returns_label: text(quota.returns_label), model: text(quota.model) };
+}
+
+function quotaCard() {
+  const quota = state.quota;
+  if (!quota) return null;
+  const card = el('div', 'card1 qcard');
+  card.setAttribute('role', 'status');
+  const head = el('div', 'chead');
+  head.append(el('span', 'clbl', '⚠️ נגמרה מכסת ה-AI'));
+  const lines = el('div', 'qlines');
+  const line = (label, value) => {
+    const row = el('div', '');
+    row.append(el('b', '', label + ': '), document.createTextNode(value));
+    return row;
+  };
+  if (quota.model) lines.append(line('מודל', quota.model));
+  lines.append(
+    line('מגבלה', quota.kind_label ?? 'לא ידוע איזו מגבלה'),
+    line('חוזר', quota.returns_label ?? 'לא ידוע'),
+    el('div', 'qnote', 'הודעות שצריכות AI נשמרות ויטופלו אוטומטית כשהמכסה חוזרת.'),
+  );
+  card.append(head, lines);
+  return card;
+}
+
+// אזור נפרד מעל האזור הנעוץ, כדי שציור מחדש של השאלות לא ימחק את הכרטיס
+function renderQuota() {
+  const card = quotaCard();
+  quotaEl.hidden = card === null;
+  quotaEl.replaceChildren(...(card ? [card] : []));
+}
+
 function renderPending() {
   // שאלות שיעורי בית שיובל סגר ב"סגור" (בלי כפתור תאריך) מוסתרות בדף בלבד.
   const list = state.pending.filter((question) => !state.dismissed.has(question.id));
@@ -1557,6 +1730,7 @@ async function sendCheck(outcomeId, verdict, eventType) {
 }
 
 function render() {
+  renderQuota();
   renderPending();
   renderFeed();
   renderReview();
@@ -1605,6 +1779,7 @@ async function loadOnce() {
   state.open_tasks = Array.isArray(data?.open_tasks) ? data.open_tasks : []; // 8.6-2: רשימת "פתוחות"
   state.brief = validBrief(data?.brief); // כרטיס הבריף החי; בלי השדה או null: אין כרטיס
   if (state.brief) cleanOldBriefKeys(state.brief.dateIso);
+  state.quota = validQuota(data?.quota); // בלי השדה (שרת ישן) או null: אין כרטיס
   render();
   if (!reviewStale) await setBadge(Number(data?.badge) || 0);
   await markShownAsRead();
@@ -1773,51 +1948,188 @@ async function sendTaskDone(taskId) {
   render();
 }
 
-// --- לחיצה ארוכה על הודעה (ח-4): שכבה מטושטשת, "העתק" ו"הגב" ---
-const HOLD_MS = 500;       // זמן החזקה
-const HOLD_MOVE_PX = 10;   // תזוזה גדולה מזה = גלילה, מבטלת
+// --- לחיצה ארוכה והחלקה על הודעה (ח-4), בדפוס של וואטסאפ באייפון. הנחה, לא אומת באייפון. ---
+const HOLD_MS = 400;          // זמן החזקה עד שהתפריט נפתח
+const PRESS_DELAY_MS = 90;    // הבועה מתחילה להתכווץ רק אחרי רגע, כדי שגלילה רגילה לא תכווץ בועות
+const HOLD_MOVE_PX = 8;       // תזוזה גדולה מזה מבטלת את ההחזקה: הגלילה מנצחת
+const AXIS_LOCK_PX = 10;      // אחרי 10px מחליטים: אופקי = החלקה לתגובה, אנכי = גלילה רגילה
+const SWIPE_MAX_PX = 70;      // הבועה זזה עד 70px
+const SWIPE_REPLY_PX = 55;    // שחרור אחרי 55px = "הגב"
+// כיוון ההחלקה: בוואטסאפ באנגלית (משמאל לימין) מחליקים ימינה. הדף שלנו מימין לשמאל, ולכן ההיפוך: שמאלה (-1).
+const SWIPE_DIR = document.documentElement.dir === 'rtl' ? -1 : 1;
+const LIFT_EASE = 'cubic-bezier(.2, .9, .3, 1.2)';   // קפיצה קטנה, כמו קפיץ
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const ICON_REPLY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 6l6 6-6 6"/><path d="M20 12H9a5 5 0 0 0-5 5v1"/></svg>';
 const quoteEl = document.getElementById('quote');
+const quoteWho = document.getElementById('quoteWho');
 const quoteText = document.getElementById('quoteText');
 const mmEl = document.getElementById('mm');
-const mmStage = document.getElementById('mmStage');
-const mmToast = document.getElementById('mmToast');
+const mmBack = document.getElementById('mmBack');
+const mmMenu = document.getElementById('mmMenu');
+const toastEl = document.getElementById('toast');
 let quoted = null;         // { id, role, text } של ההודעה שמגיבים לה
 let mmCurrent = null;      // ההודעה שהשכבה פתוחה עליה
+let mmSource = null;       // הבועה המקורית (מוסתרת בזמן שהשכבה פתוחה)
+let mmLift = null;         // העותק המורם
 let mmOpenedAt = 0;
-let holdTimer = null;
-let holdStart = null;
+let mmFingerDown = false;  // האצבע של הלחיצה הארוכה עדיין על המסך
+let mmClosing = false;
+let gesture = null;        // { bubble, x, y, mode: hold|pending|swipe, pressTimer, holdTimer, offset, moving, icon, anchor }
+let toastTimer = null;
 
 function clearQuote() {
   quoted = null;
   quoteEl.hidden = true;
+  quoteWho.textContent = '';
   quoteText.textContent = '';
 }
 document.getElementById('quoteX').addEventListener('click', clearQuote);
 
-function closeMessageMenu() {
-  mmEl.hidden = true;
-  mmStage.replaceChildren();
-  mmToast.textContent = '';
-  mmCurrent = null;
+// "הגב": משותף לתפריט ולהחלקה
+function startReply(meta) {
+  quoted = meta;
+  const snippet = meta.text.replace(/\s+/g, ' ').trim();
+  quoteWho.textContent = meta.role === 'user' ? 'את/ה' : 'המערכת';
+  quoteText.textContent = snippet.length > 80 ? snippet.slice(0, 80) + '…' : snippet;
+  quoteEl.hidden = true;
+  void quoteEl.offsetWidth; // מאפס את האנימציה, גם כשמחליפים ציטוט קיים
+  quoteEl.hidden = false;
+  msgInput.focus();
+}
+
+function showToast(text) {
+  toastEl.textContent = text;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, 1400);
+}
+
+function animate(node, frames, options) {
+  return typeof node.animate === 'function' ? node.animate(frames, options) : null;
 }
 
 function openMessageMenu(bubble) {
   const meta = bubbleMeta.get(bubble);
-  if (!meta || !mmEl.hidden) return;
+  if (!meta || mmCurrent) return;
+  const reduce = reduceMotion.matches;
+  const startScale = bubble.classList.contains('pressing') && !reduce ? 0.96 : 1;
+  const rect = bubble.getBoundingClientRect();           // אולי מכווץ (pressing): המרכז נכון, הגודל לא
+  const width = bubble.offsetWidth;
+  let height = bubble.offsetHeight;
+  bubble.classList.remove('pressing', 'press-release');
   mmCurrent = meta;
+  mmSource = bubble;
   mmOpenedAt = Date.now();
-  const copy = bubble.cloneNode(true);
-  copy.querySelectorAll('button').forEach((b) => b.remove());
-  copy.querySelectorAll('.clamp').forEach((n) => n.classList.remove('clamp'));
-  mmStage.replaceChildren(copy);
-  mmToast.textContent = '';
+
+  const lift = bubble.cloneNode(true);
+  lift.classList.add('mm-lift');
+  lift.inert = true;
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+  const left = centerX - width / 2;
+  const top = centerY - height / 2;
+  lift.style.width = width + 'px';
+  lift.style.left = left + 'px';
+  lift.style.top = top + 'px';
+  mmEl.insertBefore(lift, mmMenu);
+  mmLift = lift;
   mmEl.hidden = false;
+
+  // גבולות: הריפוד של השכבה (אזורים בטוחים + 12px)
+  const box = getComputedStyle(mmEl);
+  const padTop = parseFloat(box.paddingTop) || 0;
+  const padBottom = parseFloat(box.paddingBottom) || 0;
+  const side = parseFloat(box.paddingLeft) || 0;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const menuW = mmMenu.offsetWidth;
+  const menuH = mmMenu.offsetHeight;
+  const GAP = 8;
+  const grow = reduce ? 1 : 1.03;
+  // בועה ארוכה מדי: חותכים את העותק כדי שהתפריט ייכנס
+  const room = vh - padTop - padBottom - menuH - GAP;
+  if (height * grow > room) {
+    height = Math.max(60, room / grow);
+    lift.style.height = height + 'px';
+    lift.style.overflow = 'hidden';
+  }
+  const extra = (height * grow - height) / 2;
+  const shownTop = top - extra;
+  const shownBottom = top + height + extra;
+  // תפריט מתחת; אם אין מקום, מעל; אם גם אין, מזיזים את הבועה כך שהשניים ייכנסו
+  let below = true;
+  let shift = 0;
+  if (shownTop >= padTop && shownBottom + GAP + menuH <= vh - padBottom) below = true;
+  else if (shownBottom <= vh - padBottom && shownTop - GAP - menuH >= padTop) below = false;
+  else {
+    const maxTop = vh - padBottom - menuH - GAP - (shownBottom - shownTop);
+    shift = Math.max(padTop, Math.min(shownTop, maxTop)) - shownTop;
+  }
+  const menuTop = below ? shownBottom + shift + GAP : shownTop + shift - GAP - menuH;
+  const alignLeft = centerX < vw / 2;   // התפריט מיושר לצד של הבועה
+  let menuLeft = alignLeft ? left : left + width - menuW;
+  menuLeft = Math.min(Math.max(menuLeft, side), vw - side - menuW);
+  mmMenu.style.left = menuLeft + 'px';
+  mmMenu.style.top = menuTop + 'px';
+  mmMenu.style.transformOrigin = `${alignLeft ? 'left' : 'right'} ${below ? 'top' : 'bottom'}`;
+
+  const end = `translateY(${shift}px) scale(${grow})`;
+  lift.style.transform = end;
+  mmBack.style.opacity = '1';
+  mmMenu.style.opacity = '1';
+  bubble.classList.add('mm-src');
+  if (reduce) {
+    // תנועה מופחתת: בלי הרמה ובלי קפיץ, רק דהייה
+    const fade = { duration: 150, easing: 'ease-out' };
+    for (const node of [mmBack, lift, mmMenu]) animate(node, [{ opacity: 0 }, { opacity: 1 }], fade);
+    return;
+  }
+  lift.style.willChange = 'transform';
+  mmMenu.style.willChange = 'transform, opacity';
+  animate(mmBack, [{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
+  const liftAnim = animate(lift, [{ transform: `scale(${startScale})` }, { transform: end }], { duration: 340, easing: LIFT_EASE });
+  const menuAnim = animate(mmMenu, [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1)' }], { duration: 280, delay: 40, easing: LIFT_EASE, fill: 'backwards' });
+  Promise.all([liftAnim?.finished, menuAnim?.finished]).then(() => {
+    lift.style.willChange = '';
+    mmMenu.style.willChange = '';
+  }, () => {});
 }
 
-function cancelHold() {
-  clearTimeout(holdTimer);
-  holdTimer = null;
-  holdStart = null;
+function closeMessageMenu() {
+  if (!mmCurrent || mmClosing) return;
+  mmClosing = true;
+  const reduce = reduceMotion.matches;
+  const lift = mmLift;
+  const source = mmSource;
+  const options = { duration: 180, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'forwards' };
+  const anims = [
+    animate(mmBack, [{ opacity: 1 }, { opacity: 0 }], options),
+    animate(mmMenu, [{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: reduce ? 'none' : 'scale(.7)' }], options),
+  ];
+  if (reduce) {
+    source?.classList.remove('mm-src');
+    if (lift) anims.push(animate(lift, [{ opacity: 1 }, { opacity: 0 }], options));
+  } else if (lift) {
+    lift.style.willChange = 'transform';
+    anims.push(animate(lift, [{ transform: lift.style.transform }, { transform: 'none' }], options)); // חוזרת למקום המקורי
+  }
+  let finished = false;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    for (const anim of anims) anim?.cancel();
+    lift?.remove();
+    source?.classList.remove('mm-src');
+    mmEl.hidden = true;
+    mmBack.style.opacity = '';
+    mmMenu.style.opacity = '';
+    mmCurrent = null;
+    mmSource = null;
+    mmLift = null;
+    mmClosing = false;
+  };
+  Promise.all(anims.map((anim) => anim?.finished)).then(done, done);
+  setTimeout(done, 400); // גיבוי, אם אנימציה לא מסתיימת (למשל דף ברקע)
 }
 
 // בועות של יובל ושל המערכת בלבד; לא על כפתורים שבתוך הבועה
@@ -1826,37 +2138,145 @@ function bubbleFromEvent(event) {
   return event.target.closest('.me, .sysb');
 }
 
+function releasePress(bubble) {
+  if (!bubble.classList.contains('pressing')) return;
+  bubble.classList.replace('pressing', 'press-release'); // חוזרת לגודל בקפיץ
+  setTimeout(() => bubble.classList.remove('press-release'), 320);
+}
+
+function startSwipe(g) {
+  g.mode = 'swipe';
+  g.offset = 0;
+  g.moving = [g.bubble];
+  const time = g.bubble.nextElementSibling;
+  if (time?.classList.contains('metime')) g.moving.push(time); // השעה זזה עם הבועה
+  for (const node of g.moving) { node.style.transition = 'none'; node.style.willChange = 'transform'; }
+  const rect = g.bubble.getBoundingClientRect();
+  g.anchor = SWIPE_DIR < 0 ? rect.right : rect.left; // הצד שהבועה מתרחקת ממנו
+  const ic = document.createElement('div');
+  ic.className = 'swipe-ic';
+  ic.innerHTML = ICON_REPLY; // סמל קבוע מהקוד, לא טקסט מהשרת
+  ic.style.left = g.anchor + 'px';
+  ic.style.top = (rect.top + rect.height / 2) + 'px';
+  document.body.append(ic);
+  g.icon = ic;
+}
+
+function moveSwipe(g, pulled) {
+  const offset = Math.min(SWIPE_MAX_PX, Math.max(0, pulled - AXIS_LOCK_PX)); // מתחילים מאפס ברגע הנעילה, בלי קפיצה
+  g.offset = offset;
+  const shiftX = `translateX(${offset * SWIPE_DIR}px)`;
+  for (const node of g.moving) node.style.transform = shiftX;
+  const progress = Math.min(1, offset / SWIPE_REPLY_PX);
+  g.icon.style.opacity = String(progress);
+  g.icon.style.transform = `translateX(${SWIPE_DIR * offset / 2}px) scale(${0.5 + 0.5 * progress})`; // במרכז הרווח שנפתח
+  g.icon.classList.toggle('armed', offset >= SWIPE_REPLY_PX);
+}
+
+function springBack(g) {
+  const easing = reduceMotion.matches ? 'ease-out' : LIFT_EASE;
+  for (const node of g.moving) { node.style.transition = `transform 260ms ${easing}`; node.style.transform = ''; }
+  g.icon.style.transition = 'opacity 160ms ease-out';
+  g.icon.style.opacity = '0';
+  setTimeout(() => {
+    for (const node of g.moving) { node.style.transition = ''; node.style.willChange = ''; }
+    g.icon.remove();
+  }, 300);
+}
+
+// ביטול: ההחזקה נעצרת, הבועה חוזרת לגודל; החלקה באמצע חוזרת למקום בלי "הגב"
+function resetGesture() {
+  const g = gesture;
+  if (!g) return;
+  gesture = null;
+  clearTimeout(g.pressTimer);
+  clearTimeout(g.holdTimer);
+  if (g.mode === 'swipe') springBack(g);
+  else releasePress(g.bubble);
+}
+
+function cancelHold() {
+  if (gesture && gesture.mode !== 'swipe') resetGesture();
+}
+
 feedEl.addEventListener('touchstart', (event) => {
-  cancelHold();
+  resetGesture();
   const bubble = bubbleFromEvent(event);
-  if (!bubble || event.touches.length !== 1) return;
-  holdStart = { x: event.touches[0].clientX, y: event.touches[0].clientY };
-  holdTimer = setTimeout(() => { holdTimer = null; openMessageMenu(bubble); }, HOLD_MS);
-}, { passive: true });
-feedEl.addEventListener('touchmove', (event) => {
-  if (!holdStart) return;
+  if (!bubble || event.touches.length !== 1 || mmCurrent) return;
   const t = event.touches[0];
-  if (Math.abs(t.clientX - holdStart.x) > HOLD_MOVE_PX || Math.abs(t.clientY - holdStart.y) > HOLD_MOVE_PX) cancelHold();
+  const g = { bubble, x: t.clientX, y: t.clientY, mode: 'hold' };
+  g.pressTimer = setTimeout(() => bubble.classList.add('pressing'), PRESS_DELAY_MS);
+  g.holdTimer = setTimeout(() => {
+    if (gesture !== g || g.mode !== 'hold') return;
+    gesture = null;
+    clearTimeout(g.pressTimer);
+    mmFingerDown = true;
+    openMessageMenu(bubble);
+  }, HOLD_MS);
+  gesture = g;
 }, { passive: true });
-feedEl.addEventListener('touchend', cancelHold, { passive: true });
-feedEl.addEventListener('touchcancel', cancelHold, { passive: true });
+
+// לא פסיבי: preventDefault רק אחרי שננעל ציר אופקי. בכל מצב אחר הגלילה של הדפדפן לא נוגעים בה.
+feedEl.addEventListener('touchmove', (event) => {
+  const g = gesture;
+  if (!g) return;
+  const t = event.touches[0];
+  const dx = t.clientX - g.x;
+  const dy = t.clientY - g.y;
+  if (g.mode === 'hold') {
+    if (Math.abs(dx) <= HOLD_MOVE_PX && Math.abs(dy) <= HOLD_MOVE_PX) return;
+    clearTimeout(g.pressTimer);
+    clearTimeout(g.holdTimer);
+    releasePress(g.bubble);
+    g.mode = 'pending';
+  }
+  if (g.mode === 'pending') {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK_PX) return;
+    if (Math.abs(dx) > Math.abs(dy) && dx * SWIPE_DIR > 0) startSwipe(g);
+    else { gesture = null; return; } // אנכי (גלילה) או לכיוון השני: לא שלנו
+  }
+  event.preventDefault();
+  moveSwipe(g, dx * SWIPE_DIR);
+}, { passive: false });
+
+feedEl.addEventListener('touchend', () => {
+  const g = gesture;
+  if (g?.mode === 'swipe') {
+    gesture = null;
+    const reply = g.offset >= SWIPE_REPLY_PX;
+    springBack(g);
+    const meta = bubbleMeta.get(g.bubble);
+    if (reply && meta) startReply(meta);
+    return;
+  }
+  resetGesture();
+}, { passive: true });
+feedEl.addEventListener('touchcancel', resetGesture, { passive: true });
 feedEl.addEventListener('scroll', cancelHold, { passive: true });
 // קליק ימני במחשב (ובדיקות), ותפריט הקשר של המערכת במגע: פותחים את אותה שכבה
 feedEl.addEventListener('contextmenu', (event) => {
   const bubble = bubbleFromEvent(event);
   if (!bubble) return;
   event.preventDefault();
-  cancelHold();
+  resetGesture();
   openMessageMenu(bubble);
 });
 
-// לחיצה על הרקע סוגרת. 350ms ראשונות מתעלמים: שחרור האצבע של הלחיצה הארוכה נוחת על השכבה.
+// השחרור של האצבע שפתחה את התפריט לא סוגר אותו: הספירה של 350ms מתחילה רק מהשחרור.
+function fingerUp() {
+  if (mmFingerDown) { mmFingerDown = false; mmOpenedAt = Date.now(); }
+}
+document.addEventListener('touchend', fingerUp, { passive: true });
+document.addEventListener('touchcancel', fingerUp, { passive: true });
+
+// לחיצה על הרקע (או על העותק) סוגרת
 mmEl.addEventListener('click', (event) => {
-  if (event.target.closest('button, .mm-stage > *')) return;
-  if (Date.now() - mmOpenedAt < 350) return;
+  if (event.target.closest('.mm-menu')) return;
+  if (mmFingerDown || Date.now() - mmOpenedAt < 350) return;
   closeMessageMenu();
 });
 mmEl.addEventListener('contextmenu', (event) => event.preventDefault());
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && mmCurrent) closeMessageMenu(); });
 
 async function copyText(text) {
   try {
@@ -1877,20 +2297,17 @@ async function copyText(text) {
 }
 
 document.getElementById('mmCopy').addEventListener('click', async () => {
-  if (!mmCurrent) return;
+  if (!mmCurrent || mmClosing) return;
   const ok = await copyText(mmCurrent.text);
-  mmToast.textContent = ok ? 'הועתק' : 'לא הצלחתי להעתיק';
-  if (ok) setTimeout(closeMessageMenu, 700);
+  closeMessageMenu();
+  showToast(ok ? 'הועתק' : 'לא הצלחתי להעתיק');
 });
 
 document.getElementById('mmReply').addEventListener('click', () => {
-  if (!mmCurrent) return;
-  quoted = mmCurrent;
-  const snippet = quoted.text.replace(/\s+/g, ' ').trim();
-  quoteText.textContent = snippet.length > 80 ? snippet.slice(0, 80) + '…' : snippet;
-  quoteEl.hidden = false;
+  if (!mmCurrent || mmClosing) return;
+  const meta = mmCurrent;
   closeMessageMenu();
-  msgInput.focus();
+  startReply(meta);
 });
 
 // --- שורת הכתיבה למטה: הודעה חדשה (D2), נשלחת לנקודת הקליטה עם channel=app ---
