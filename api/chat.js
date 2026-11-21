@@ -11,6 +11,7 @@
 //   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול פריט { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (שאלת "איזה מקצוע במדעים?").
 //   POST { action: 'exam', message_id, answer: 'פיזיקה' | 'כימיה' | 'אחר' } -> { status: 'answered' | 'closed', pending, badge, review }   (closed = כבר נסגרה / פגה / לא קיימת, לא נכתב דבר; review מחושב מחדש כדי שהפס יתעדכן)
 //   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
+//   כפתור "חבר Google": GET מחזיר גם google_connected = true | false, או null כשהבדיקה נכשלה (loadGoogleConnected למטה).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
@@ -147,6 +148,23 @@ async function reviewWithExamLine(sql, timetable, now) {
   return { ...review, exam_line: examLine };
 }
 
+// כפתור "חבר Google" בדף: מוסתר רק כשיש חיבור. בדיקה זולה, בלי פענוח ובלי רשת: יש שורה ב-google_credentials עם refresh token שמור,
+// ו-last_error אינו invalid_grant (Google דחה את ההרשאה: צריך להתחבר מחדש, ולכן הכפתור חוזר). שגיאה אחרת (רשת וכו') לא מחזירה אותו.
+// אין שורה = false. כשל בקריאה = null (הדף משאיר את הכפתור); לעולם לא שובר את ה-GET. בלוג רק שם השגיאה.
+const GOOGLE_ACCOUNT = 'primary'; // כמו ב-api/google-auth-callback.js
+async function loadGoogleConnected(sql) {
+  try {
+    const [row] = rowsOf(await sql`
+      SELECT (refresh_token_enc <> '' AND (last_error IS NULL OR last_error NOT LIKE 'invalid_grant%')) AS connected
+      FROM google_credentials WHERE account = ${GOOGLE_ACCOUNT}
+    `);
+    return row ? row.connected === true : false;
+  } catch (error) {
+    console.error('chat: בדיקת החיבור ל-Google נכשלה:', error?.name);
+    return null;
+  }
+}
+
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
 // eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
 export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer } = {}) {
@@ -180,7 +198,8 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const openTasks = await loadOpenTasks(sql);
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
       const quota = await loadQuotaCard(sql, now()); // לא זורק: כשל = null
-      return json({ items, pending, badge, review, open_tasks: openTasks, brief, quota });
+      const googleConnected = await loadGoogleConnected(sql); // לא זורק: כשל = null
+      return json({ items, pending, badge, review, open_tasks: openTasks, brief, quota, google_connected: googleConnected });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);

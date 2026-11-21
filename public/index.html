@@ -94,6 +94,11 @@
   input, textarea { -webkit-user-select: text; user-select: text; }
   /* בועות: הדפדפן מטפל רק בגלילה אנכית; תנועה אופקית שייכת להחלקה לתגובה (ח-4). pan-y גם חוסם זום בלחיצה כפולה. */
   .me, .sysb { touch-action: pan-y; }
+  /* בלי זכוכית מגדלת ובלי סימון טקסט של iOS בלחיצה ארוכה: גם על כל מה שבתוך הבועה (הטקסט יושב בילדים),
+     על העותק המורם, השכבה והתפריט, ועל כל הרשימה בזמן החזקה (.holding). שורת הכתיבה לא בפנים, ושם הסימון נשאר. */
+  .me *, .sysb *, .mm, .mm *, .feed.holding, .feed.holding * {
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
   /* מצב לחיצה (במקום הבהוב אפור) */
   button:not(:disabled):active { transform: scale(.97); transition: transform 100ms ease-out; }
   @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; transition: none; } }
@@ -433,6 +438,8 @@
   .mm-row + .mm-row { border-top: .5px solid var(--sep); }
   .mm-row svg { flex: none; width: 20px; height: 20px; }
   .mm .mm-row:active { transform: none; background: var(--sep); }   /* שורת תפריט מודגשת בלחיצה, לא מתכווצת */
+  /* .hot: השורה שמתחת לאצבע, גם בהקשה רגילה וגם בגרירה מהלחיצה הארוכה (באייפון :active לבד לא אמין). בלי תנועה, רק צבע. */
+  .mm .mm-row.hot { background: var(--sep); }
   /* "הועתק": הודעה קצרה מעל שורת הכתיבה */
   .toast {
     position: fixed; z-index: 210; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); transform: translateX(-50%);
@@ -660,7 +667,8 @@ pushBtn.addEventListener('click', async () => {
 
 // --- חיבור ל-Google Calendar (שלב 5א) ---
 // אותו מנגנון סוד כמו כפתור ההתראות (prompt + localStorage). השרת מחזיר { url } של דף ההסכמה, ועוברים אליו.
-// ⚠️ לא נבדק במכשיר: הכפתור נשאר גלוי תמיד (אין דרך לדעת מכאן אם כבר מחוברים).
+// הכפתור מוסתר רק כש-GET /api/chat מחזיר google_connected === true (loadOnce). false, null (הבדיקה בשרת נכשלה) או שדה חסר (שרת ישן): הכפתור גלוי.
+// ⚠️ לא נבדק במכשיר.
 const googleBtn = document.getElementById('connectGoogle');
 googleBtn.addEventListener('click', async () => {
   try {
@@ -1780,6 +1788,7 @@ async function loadOnce() {
   state.brief = validBrief(data?.brief); // כרטיס הבריף החי; בלי השדה או null: אין כרטיס
   if (state.brief) cleanOldBriefKeys(state.brief.dateIso);
   state.quota = validQuota(data?.quota); // בלי השדה (שרת ישן) או null: אין כרטיס
+  googleBtn.hidden = data?.google_connected === true; // "חבר Google" רק כשלא מחוברים, או כשלא ידוע
   render();
   if (!reviewStale) await setBadge(Number(data?.badge) || 0);
   await markShownAsRead();
@@ -2204,6 +2213,7 @@ feedEl.addEventListener('touchstart', (event) => {
   const bubble = bubbleFromEvent(event);
   if (!bubble || event.touches.length !== 1 || mmCurrent) return;
   const t = event.touches[0];
+  feedEl.classList.add('holding'); // בלי סימון טקסט בכל הרשימה עד שהאצבע עולה
   const g = { bubble, x: t.clientX, y: t.clientY, mode: 'hold' };
   g.pressTimer = setTimeout(() => bubble.classList.add('pressing'), PRESS_DELAY_MS);
   g.holdTimer = setTimeout(() => {
@@ -2212,6 +2222,7 @@ feedEl.addEventListener('touchstart', (event) => {
     clearTimeout(g.pressTimer);
     mmFingerDown = true;
     openMessageMenu(bubble);
+    if (mmCurrent) startDragSelect();
   }, HOLD_MS);
   gesture = g;
 }, { passive: true });
@@ -2262,12 +2273,65 @@ feedEl.addEventListener('contextmenu', (event) => {
   openMessageMenu(bubble);
 });
 
-// השחרור של האצבע שפתחה את התפריט לא סוגר אותו: הספירה של 350ms מתחילה רק מהשחרור.
-function fingerUp() {
-  if (mmFingerDown) { mmFingerDown = false; mmOpenedAt = Date.now(); }
+// --- לחיצה-גרירה-שחרור, כמו בתפריטים של iOS: האצבע שפתחה את התפריט עדיין על המסך, גוררים אותה על השורות,
+// השורה שמתחתיה מודגשת, ושחרור על שורה מפעיל אותה מיד. שחרור מחוץ לשורה משאיר את התפריט פתוח (הקשה רגילה). ---
+const mmRows = [...mmMenu.querySelectorAll('.mm-row')];
+let mmHotRow = null;
+
+function setHotRow(row) {
+  if (row === mmHotRow) return;
+  mmHotRow = row;
+  for (const r of mmRows) r.classList.toggle('hot', r === row);
+}
+
+function rowAt(x, y) {
+  const node = document.elementFromPoint(x, y); // העותק המורם הוא pointer-events: none, ולכן לא חוסם
+  return node?.closest?.('.mm-row') ?? null;
+}
+
+// לא פסיבי, ורק בזמן שהתפריט פתוח והאצבע עדיין למטה: חוסם גלילה של הרשימה שמתחת לשכבה
+function dragSelectMove(event) {
+  if (!mmFingerDown || !mmCurrent) return;
+  event.preventDefault();
+  const t = event.touches[0];
+  if (t) setHotRow(rowAt(t.clientX, t.clientY));
+}
+function startDragSelect() {
+  document.addEventListener('touchmove', dragSelectMove, { passive: false });
+}
+function stopDragSelect() {
+  document.removeEventListener('touchmove', dragSelectMove, { passive: false });
+}
+
+// הקשה רגילה על שורה: אותה הדגשה
+mmMenu.addEventListener('pointerdown', (event) => setHotRow(event.target.closest('.mm-row')));
+for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+  mmMenu.addEventListener(type, () => { if (!mmFingerDown) setHotRow(null); });
+}
+
+// השחרור של האצבע שפתחה את התפריט: על שורה = מפעיל אותה; במקום אחר = לא סוגר, והספירה של 350ms מתחילה רק מהשחרור.
+function fingerUp(event) {
+  if (!mmFingerDown) return;
+  mmFingerDown = false;
+  stopDragSelect();
+  const t = event?.type === 'touchend' ? event.changedTouches?.[0] : null;
+  const row = t ? rowAt(t.clientX, t.clientY) : null;
+  setHotRow(null);
+  mmOpenedAt = Date.now();
+  if (row && mmCurrent && !mmClosing) row.click(); // בתוך touchend, ולכן עדיין "פעולת משתמש" (העתקה ללוח עובדת)
 }
 document.addEventListener('touchend', fingerUp, { passive: true });
 document.addEventListener('touchcancel', fingerUp, { passive: true });
+
+// זכוכית מגדלת / סימון של iOS: מעבר ל-CSS, חוסמים את תחילת הסימון ואת תפריט המערכת על בועות (לא touchstart, כדי לא לשבור גלילה)
+const holdEnd = () => feedEl.classList.remove('holding');
+document.addEventListener('touchend', holdEnd, { passive: true });
+document.addEventListener('touchcancel', holdEnd, { passive: true });
+const elementOf = (target) => (target?.nodeType === 1 ? target : target?.parentElement ?? null);
+const inBubble = (target) => Boolean(elementOf(target)?.closest('.me, .sysb'));
+feedEl.addEventListener('selectstart', (event) => { if (inBubble(event.target)) event.preventDefault(); });
+feedEl.addEventListener('contextmenu', (event) => { if (inBubble(event.target)) event.preventDefault(); });
+mmEl.addEventListener('selectstart', (event) => event.preventDefault());
 
 // לחיצה על הרקע (או על העותק) סוגרת
 mmEl.addEventListener('click', (event) => {

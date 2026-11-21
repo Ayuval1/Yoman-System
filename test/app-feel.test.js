@@ -96,6 +96,30 @@ describe('public/index.html: ח-4 לחיצה ארוכה על הודעה (דפו�
     assert.match(script, /duration: 180/); // סגירה הפוכה
   });
 
+  test('לחיצה-גרירה-שחרור: touchmove על document לא פסיבי רק בזמן שהאצבע למטה, elementFromPoint, הדגשה, שחרור על שורה מפעיל', () => {
+    assert.match(script, /if \(mmCurrent\) startDragSelect\(\);/);
+    assert.match(script, /document\.addEventListener\('touchmove', dragSelectMove, \{ passive: false \}\)/);
+    assert.match(script, /document\.removeEventListener\('touchmove', dragSelectMove/);
+    assert.match(script, /function dragSelectMove\(event\) \{\r?\n  if \(!mmFingerDown \|\| !mmCurrent\) return;\r?\n  event\.preventDefault\(\);/);
+    assert.match(script, /document\.elementFromPoint\(x, y\)/);
+    assert.match(script, /if \(row && mmCurrent && !mmClosing\) row\.click\(\)/);
+    assert.match(css, /\.mm \.mm-row\.hot \{ background: var\(--sep\); \}/);
+    assert.match(script, /mmMenu\.addEventListener\('pointerdown', \(event\) => setHotRow/);
+  });
+
+  test('בלי זכוכית מגדלת: user-select ו-touch-callout על כל הצאצאים של הבועות, השכבה והרשימה בזמן החזקה; selectstart נחסם', () => {
+    const rule = /\.me \*, \.sysb \*, \.mm, \.mm \*, \.feed\.holding, \.feed\.holding \* \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    assert.match(rule, /-webkit-user-select: none; user-select: none; -webkit-touch-callout: none/);
+    assert.match(script, /feedEl\.classList\.add\('holding'\)/);
+    assert.match(script, /feedEl\.addEventListener\('selectstart', \(event\) => \{ if \(inBubble\(event\.target\)\) event\.preventDefault\(\); \}\)/);
+    assert.doesNotMatch(script, /addEventListener\('touchstart'[^\n]*\{ passive: false \}/);
+    assert.match(css, /input, textarea \{[^}]*user-select: text/);
+  });
+
+  test('"חבר Google" מוסתר רק כש-google_connected === true (false / null / חסר = גלוי)', () => {
+    assert.match(script, /googleBtn\.hidden = data\?\.google_connected === true;/);
+  });
+
   test('החלקה לתגובה: נעילת ציר ב-10px, עד 70px, "הגב" אחרי 55px, touchmove לא פסיבי, pan-y על בועות', () => {
     assert.match(script, /AXIS_LOCK_PX = 10/);
     assert.match(script, /SWIPE_MAX_PX = 70/);
