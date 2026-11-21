@@ -406,3 +406,111 @@ describe('gate-probe: קובץ המשפטים האמיתי (data/gate-test-sente
   });
   test('maxDuration מוגדר ל-300 שניות', () => assert.equal(config.maxDuration, 300));
 });
+
+describe('gate-probe: model=rotate (רוטציה יומית לפי ListModels)', () => {
+  const DAY = 20413; // יום כלשהו מאז 1.1.1970 (UTC)
+  const atDay = (d, extraMs = 0) => () => d * 86400000 + extraMs;
+  const entry = (name, methods = ['generateContent']) => ({ name, supportedGenerationMethods: methods });
+  const LIST = [
+    entry('models/gemini-b-flash'),
+    entry('models/gemini-a-flash'),
+    entry('models/gemini-c-flash'),
+    entry('models/gemini-x-embedding-001', ['embedContent']),
+    entry('models/gemini-a-tts'),
+    entry('models/gemini-a-image'),
+    entry('models/gemini-a-live'),
+    entry('models/gemini-a-audio'),
+    entry('models/gemini-a-preview'),
+    entry('models/gemini-a-exp'),
+    entry('models/gemini-no-generate', ['countTokens']),
+    entry('models/gemma-3-27b'),
+  ];
+  const isList = (url) => url.includes('/v1beta/models') && !url.includes(':generateContent');
+  const routeWith = (list, answerFn = good) => (url) => (isList(url) ? jsonResponse({ models: list }) : answerFn());
+  const run = (deps, now) => handle(get('?model=rotate&from=0'), { ...deps, sentences: mk(20), now });
+  const gens = (fetchFn) => fetchFn.calls.filter((c) => !isList(c.url));
+
+  test('מסנן, ממיין, בוחר לפי היום, ורץ על כל 20 המשפטים', async () => {
+    const { deps, fetchFn, sql } = setup({ route: routeWith(LIST) });
+    const text = await (await run(deps, atDay(DAY))).text();
+    // אחרי סינון ומיון: a-flash, b-flash, c-flash. 20413 % 3 = 1 -> b-flash
+    assert.equal(DAY % 3, 1);
+    assert.equal(gens(fetchFn).length, 20);
+    assert.ok(gens(fetchFn).every((c) => c.url.endsWith('models/gemini-b-flash:generateContent')));
+    assert.equal(fetchFn.calls.filter((c) => isList(c.url)).length, 1);
+    assert.match(text, /20\/20/);
+    assert.match(text, /model=gemini-b-flash/);
+    assert.match(text, /pool=3/);
+    assert.match(probeDetail(sql).values[1], /model=gemini-b-flash/);
+  });
+  test('ListModels נשלח עם כותרת המפתח', async () => {
+    const { deps, fetchFn } = setup({ route: routeWith(LIST) });
+    await run(deps, atDay(DAY));
+    assert.equal(fetchFn.calls[0].options.headers['x-goog-api-key'], API_KEY);
+  });
+  test('יום אחר - מודל אחר; אותו יום (גם בשעה אחרת) - אותו מודל', async () => {
+    const seen = [];
+    for (const [d, extra] of [[DAY, 0], [DAY + 1, 0], [DAY + 2, 0], [DAY + 3, 0], [DAY + 1, 5 * 3600000], [DAY + 1, 86399000]]) {
+      const { deps, fetchFn } = setup({ route: routeWith(LIST) });
+      await run(deps, atDay(d, extra));
+      seen.push(gens(fetchFn)[0].url.match(/models\/(.+):/)[1]);
+    }
+    assert.deepEqual(seen, ['gemini-b-flash', 'gemini-c-flash', 'gemini-a-flash', 'gemini-b-flash', 'gemini-c-flash', 'gemini-c-flash']);
+  });
+  test('pageToken: עוברים על כל העמודים', async () => {
+    const { deps, fetchFn } = setup({
+      route: (url) => {
+        if (!isList(url)) return good();
+        return url.includes('pageToken=P2')
+          ? jsonResponse({ models: [entry('models/gemini-a-flash')] })
+          : jsonResponse({ models: [entry('models/gemini-z-flash')], nextPageToken: 'P2' });
+      },
+    });
+    const text = await (await run(deps, atDay(2))).text(); // 2 % 2 = 0 -> a-flash
+    assert.equal(fetchFn.calls.filter((c) => isList(c.url)).length, 2);
+    assert.match(text, /pool=2/);
+    assert.match(text, /model=gemini-a-flash/);
+  });
+  test('ListModels נכשל (HTTP 500) - probe_log ok=false, בלי קריאת generateContent', async () => {
+    const { deps, fetchFn, sql } = setup({ route: () => jsonResponse({ error: { status: 'INTERNAL', message: 'boom' } }, 500) });
+    const res = await run(deps, atDay(DAY));
+    assert.equal(res.status, 200);
+    assert.equal(fetchFn.calls.length, 1);
+    const row = probeDetail(sql);
+    assert.equal(row.values[0], false);
+    assert.match(row.values[1], /ListModels/);
+    assert.match(row.values[1], /HTTP 500/);
+  });
+  test('ListModels זורק שגיאת רשת - ok=false', async () => {
+    const { deps, sql } = setup({ route: () => new Error('net down') });
+    await run(deps, atDay(DAY));
+    assert.equal(probeDetail(sql).values[0], false);
+    assert.match(probeDetail(sql).values[1], /ListModels/);
+  });
+  test('רשימה ריקה אחרי סינון - ok=false, לא ממציאים מודל', async () => {
+    const { deps, fetchFn, sql } = setup({ route: routeWith([entry('models/gemini-a-tts'), entry('models/other')]) });
+    await run(deps, atDay(DAY));
+    assert.equal(fetchFn.calls.length, 1);
+    assert.equal(probeDetail(sql).values[0], false);
+    assert.match(probeDetail(sql).values[1], /pool=0/);
+  });
+  test('שם מודל מ-ListModels שלא עובר תבנית (ניסיון הזרקה) נזרק', async () => {
+    const evil = [entry('models/gemini-a/../../x'), entry('models/gemini-a?key=1'), entry('models/gemini-a:b'), entry('models/gemini-ok-flash')];
+    const { deps, fetchFn } = setup({ route: routeWith(evil) });
+    const text = await (await run(deps, atDay(DAY))).text();
+    assert.match(text, /pool=1/);
+    assert.ok(gens(fetchFn).every((c) => c.url.endsWith('models/gemini-ok-flash:generateContent')));
+  });
+  test('429 בזמן הריצה - עוצר, not-run, ok=false', async () => {
+    const { deps, fetchFn, sql } = setup({ route: routeWith(LIST, () => jsonResponse({ error: { status: 'RESOURCE_EXHAUSTED' } }, 429)) });
+    await run(deps, atDay(DAY));
+    assert.equal(gens(fetchFn).length, 1);
+    assert.equal(probeDetail(sql).values[0], false);
+    assert.match(probeDetail(sql).values[1], /not-run: s02/);
+  });
+  test('הרשימה הסגורה נשארת לערכים אחרים: ערך לא מוכר עדיין 400', async () => {
+    const { deps, fetchFn } = setup();
+    assert.equal((await handle(get('?model=rotat'), deps)).status, 400);
+    assert.equal(fetchFn.calls.length, 0);
+  });
+});
