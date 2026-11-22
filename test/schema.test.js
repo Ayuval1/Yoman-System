@@ -66,7 +66,13 @@ describe('db/schema.sql', () => {
 
   test('C-2 (docs/08-chapter8/90 E6, H2): tasks.done_at timestamptz בלי DEFAULT (משימות ישנות נשארות ריקות)', () => {
     const tasks = tables.find((x) => x.name === 'tasks').body;
-    assert.match(tasks, /^\s*done_at\s+timestamptz\s*$/m);
+    assert.match(tasks, /^\s*done_at\s+timestamptz\s*,?\s*$/m);
+  });
+
+  test('תתי-משימות (22.11.2026): tasks.parent_task_id מפנה ל-tasks (בלי ON DELETE, אין מחיקה פיזית), ואינדקס עליו', () => {
+    const tasks = tables.find((x) => x.name === 'tasks').body;
+    assert.match(tasks, /^\s*parent_task_id\s+uuid\s+REFERENCES tasks\(id\)\s*$/m);
+    assert.match(sql, /CREATE INDEX IF NOT EXISTS tasks_parent_task_id_idx ON tasks \(parent_task_id\)/);
   });
 
   test('intake_checks: בדיוק חמש העמודות של 46, outcome_id מפנה ל-intake_outcomes, ובלי עמודת טקסט או שם', () => {
@@ -140,7 +146,7 @@ describe('db/schema.sql', () => {
     const seen = new Set();
     for (const t of tables) {
       for (const m of t.body.matchAll(/REFERENCES\s+(\w+)/gi)) {
-        assert.ok(seen.has(m[1]), `${t.name} מפנה ל-${m[1]} לפני שנוצרה`);
+        assert.ok(seen.has(m[1]) || m[1] === t.name, `${t.name} מפנה ל-${m[1]} לפני שנוצרה`);
       }
       seen.add(t.name);
     }
