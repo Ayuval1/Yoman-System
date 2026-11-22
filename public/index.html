@@ -204,6 +204,21 @@
     font-size: 14px; font-weight: var(--fw-bold); background: var(--btn-neutral); color: var(--accent);
   }
 
+  /* ---------- תמונות (שלב 8.6-3, מפרט 60 תרחיש ב, סעיף 8) ----------
+     הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות: שלב הצירוף הוא card1 עם ctxt ו-opts (כמו כרטיס שאלה, בלי פס "ממתין לתשובה",
+     כי הוא לא נספר במספר); כפתור המצלמה בשורה הוא עיגול באותם צבעים כמו "בוצע". שטח המגע 44px דרך ::after בלי להגדיל את השורה. */
+  .atcard { margin-bottom: 10px; }
+  .atnote { font-size: 14px; line-height: 1.4; color: var(--label2); padding: 8px 18px 0; }
+  .ophoto {
+    flex: none; position: relative; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; background: var(--btn-neutral); color: var(--accent);
+  }
+  .ophoto::after { content: ""; position: absolute; inset: -4px; }
+  .ophoto svg { width: 19px; height: 19px; }
+  .bftask .ophoto { background: var(--bf-btn); color: var(--bf-btnfg); }
+  /* שדה הקובץ: לא display:none, כדי ש-click() מהקוד יפתח את הבורר גם בספארי באייפון. מוסתר ויזואלית בלבד. */
+  .photo-input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+
   /* ---------- כרטיס הבריף החי (בנוסף להודעת הבוקר בצ'אט; docs/08-chapter8/68, הכרעת יובל 21.10.2026) ----------
      הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות: שורה כמו .mini/.openrow (נקודה, עמודת טקסט .ot עם .om, כפתור .odone), ומסך מלא כמו סיכום היום (.rvscreen, .rvhead, .rvbody, .rvrow).
      .bfcard נוסף רק כדי לבטל את המרווח העליון (הכרטיס ראשון באזור הנעוץ); .bfopen הוא אזור הלחיצה הראשי (כפתור בלי מראה של כפתור). */
@@ -523,6 +538,8 @@
     </div>
   </div>
   <p class="toast" id="toast" role="status" hidden></p>
+  <!-- צילום או בחירת תמונה (8.6-3). בלי capture: האייפון מציע גם "צלם תמונה" וגם "ספריית תמונות". -->
+  <input type="file" accept="image/*" class="photo-input" id="photoInput" tabindex="-1" aria-hidden="true">
 
 <script type="module">
 // ============================================================
@@ -710,6 +727,8 @@ googleBtn.addEventListener('click', async () => {
 //   שלב 8.6-2 (docs/08-chapter8/60): GET נושא גם open_tasks ([{ id, title, subject?, due_at?, media_count }]) ו-pending יכול לכלול { kind: 'homework', subject, buttons: [{ due, date }] };
 //   POST {action:'homework', message_id, had, topic?, due?} -> { status: answered|closed|unclear, pending, open_tasks, badge }; POST {action:'task_done', task_id} -> { status: done|closed, open_tasks, badge }.
 //   שלב B-3ב (docs/08-chapter8/68, H13): pending יכול לכלול { kind: 'exam', exam_date, exam_type, buttons: [{ answer }] } (בלי text); POST {action:'exam', message_id, answer: 'פיזיקה'|'כימיה'|'אחר'} -> { status: answered|closed, pending, badge, review }.
+//   שלב 8.6-3 (60 תרחיש ב): GET נושא גם images_enabled; POST {action:'attach', task_id, image} (JPEG ב-base64, כל הגוף עד 1,500,000 תווים)
+//     -> { status: attached, media_id, open_tasks, badge } | { status: failed, message } | { status: closed } | { status: disabled, message }.
 // רענון: בטעינה, כשהדף חוזר לחזית, ואחרי כל פעולה. בלי סקירה מחזורית (47 "מה נכנס" 10).
 // ============================================================
 
@@ -717,11 +736,20 @@ const ERROR_TEXT = 'לא נשלח, נסה שוב.';                         // 4
 const TOO_LONG_TEXT = 'ההודעה ארוכה מדי, לא נשלחה.';             // 47, "שגיאות" (נוסח הקיצור)
 const UNCLEAR_TEXT = "לא הבנתי. נסה שוב או בחר 'לא יודע'";       // 47, "מה נכנס" 11
 const LOAD_ERROR_TEXT = 'לא הצלחתי לטעון את ההודעות.';           // הנחה, לא אומת: אין נוסח במסמכים
+// תמונות (8.6-3). IMAGES_OFF_TEXT זהה לנוסח של השרת (lib/media-attach.js); השאר: הנחה, לא אומת, אין נוסח במסמכים.
+const IMAGES_OFF_TEXT = 'תמונות עוד לא מחוברות';
+const ATTACH_ASK_TEXT = 'לצרף צילום של שיעורי הבית?';
+const PHOTO_SENDING_TEXT = 'שולח תמונה…';
+const PHOTO_SAVED_TEXT = 'התמונה נשמרה';
+const PHOTO_READ_ERROR_TEXT = 'לא הצלחתי לקרוא את התמונה. נסה תמונה אחרת.';
+const ATTACH_MAX_BODY_CHARS = 1_500_000; // זהה ל-MAX_ATTACH_BODY_CHARS ב-lib/media-attach.js: כל גוף הבקשה, לא רק התמונה
+const PHOTO_LONG_SIDE_PX = 1600;         // הצלע הארוכה אחרי ההקטנה (60 "חוזה")
 
 // סמלים קבועים מההדמיות (לא תוכן מהשרת).
 const ICON_SEND = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>';
 const ICON_FORWARD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6 4 12l6 6"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></svg>';
-const ICON_EMPTY = '<svg class="emark" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M232 176h560c39 0 71 32 71 71v450c0 39-32 71-71 71H398l-118 104c-14 12-36 2-36-17v-87h-12c-39 0-71-32-71-71V247c0-39 32-71 71-71z" opacity=".25"/><rect x="318" y="118" width="46" height="98" rx="23"/><rect x="660" y="118" width="46" height="98" rx="23"/><circle cx="330" cy="470" r="34"/><circle cx="512" cy="470" r="34"/><circle cx="694" cy="470" r="34"/><circle cx="330" cy="600" r="34"/><circle cx="512" cy="600" r="34"/><circle cx="694" cy="600" r="34"/></svg>';
+const ICON_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>';
+const ICON_EMPTY ='<svg class="emark" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M232 176h560c39 0 71 32 71 71v450c0 39-32 71-71 71H398l-118 104c-14 12-36 2-36-17v-87h-12c-39 0-71-32-71-71V247c0-39 32-71 71-71z" opacity=".25"/><rect x="318" y="118" width="46" height="98" rx="23"/><rect x="660" y="118" width="46" height="98" rx="23"/><circle cx="330" cy="470" r="34"/><circle cx="512" cy="470" r="34"/><circle cx="694" cy="470" r="34"/><circle cx="330" cy="600" r="34"/><circle cx="512" cy="600" r="34"/><circle cx="694" cy="600" r="34"/></svg>';
 
 function icon(svgMarkup) {
   const template = document.createElement('template');
@@ -774,6 +802,10 @@ const state = {
   briefSeen: null,      // dateIso ש"ראיתי" נלחץ עליו בדף הזה (זיכרון בלבד, גיבוי כשאין localStorage)
   bfOpen: false,        // המסך המלא של הבריף פתוח
   quota: null,          // כרטיס "נגמרה מכסת ה-AI": { kind_label, returns_label, model } כפי שהשרת החזיר, או null (רגיל / שרת ישן בלי השדה): אז אין כרטיס
+  images_enabled: false, // 8.6-3: השרת מחובר לאחסון התמונות. שרת ישן בלי השדה = false: אין כפתורי צילום
+  attach: null,         // 8.6-3: שלב הצירוף אחרי בחירת תאריך בשיעורי בית: { taskId, subject }, או null
+  uploading: new Set(), // 8.6-3: משימות שתמונה אליהן בדרך (הקטנה + שליחה): הכפתורים נעולים
+  attachRetry: new Map(), // 8.6-3: task_id -> התמונה המוכנה שלא נשמרה, ל"נסה שוב" בלי לצלם מחדש
 };
 
 // --- בקשה עם הסוד. 401: מוחקים את הסוד, שואלים שוב, ומנסים פעם אחת נוספת (D1). השרת דוחה 401 לפני שהוא שומר משהו, ולכן הניסיון החוזר לא כופל. ---
@@ -1274,17 +1306,29 @@ function openTaskRow(task, rowClass) {
   if (task.media_count === 1) meta.push('תמונה אחת');
   else if (task.media_count > 1) meta.push(`${task.media_count} תמונות`);
   if (meta.length > 0) text.append(el('span', 'om', meta.join(' · ')));
+  const uploading = state.uploading?.has(task.id) === true;
+  if (uploading) text.append(el('span', 'om', PHOTO_SENDING_TEXT));
   const note = state.notes.get(task.id);
-  if (note) {
+  if (note && state.attach?.taskId !== task.id) { // כששלב הצירוף של המשימה פתוח, השגיאה מוצגת שם ולא פעמיים
     const noteEl = el('span', 'om omerr', note);
     noteEl.setAttribute('role', 'status');
     text.append(noteEl);
   }
+  row.append(el('span', 'd'), text);
+  if (state.images_enabled) {
+    const photo = el('button', 'ophoto');
+    photo.type = 'button';
+    photo.disabled = busy || uploading;
+    photo.setAttribute('aria-label', 'צרף תמונה');
+    photo.append(icon(ICON_CAMERA));
+    photo.addEventListener('click', () => pickPhoto(task.id));
+    row.append(photo);
+  }
   const done = el('button', 'odone', 'בוצע');
   done.type = 'button';
-  done.disabled = busy;
+  done.disabled = busy || uploading; // "בוצע" באמצע העלאה היה סוגר את המשימה לפני שהתמונה נשמרה
   done.addEventListener('click', () => sendTaskDone(task.id));
-  row.append(el('span', 'd'), text, done);
+  row.append(done);
   return row;
 }
 
@@ -1298,6 +1342,47 @@ function openTasksNodes(spaced) {
   const nodes = [head];
   for (const task of list) nodes.push(openTaskRow(task, 'mini openrow'));
   return nodes;
+}
+
+// --- שלב הצירוף (8.6-3, מפרט 60 סעיף 8): אחרי בחירת תאריך בשיעורי בית, "צילום" ו"דלג". תמונה אחת לכל צירוף. ---
+// הכרטיס לא נספר במספר על האייקון ולא נשלח לשרת כשמדלגים: "דלג" רק סוגר אותו בדף. הנוסחים: הנחה, לא אומת (המפרט קובע רק "צילום" ו"דלג").
+function attachCard() {
+  const step = state.attach;
+  if (!step) return null;
+  const card = el('section', 'card1 atcard');
+  const uploading = state.uploading.has(step.taskId);
+  card.append(el('div', 'ctxt', step.subject ? `${step.subject}: ${ATTACH_ASK_TEXT}` : ATTACH_ASK_TEXT));
+  if (!state.images_enabled) card.append(el('div', 'atnote', IMAGES_OFF_TEXT));
+  const note = state.notes.get(step.taskId);
+  if (note) {
+    const noteEl = el('div', 'cnote', note);
+    noteEl.setAttribute('role', 'status');
+    card.append(noteEl);
+  }
+  const opts = el('div', 'opts');
+  const button = (label, onClick) => {
+    const node = el('button', 'opt', label);
+    node.type = 'button';
+    node.disabled = uploading;
+    node.addEventListener('click', onClick);
+    opts.append(node);
+  };
+  if (uploading) {
+    button(PHOTO_SENDING_TEXT, () => {});
+  } else if (state.images_enabled) {
+    const retryImage = state.attachRetry.get(step.taskId);
+    if (retryImage) button('נסה שוב', () => resendPhoto(step.taskId));
+    button(retryImage ? 'צילום אחר' : 'צילום', () => pickPhoto(step.taskId));
+  }
+  button('דלג', () => {
+    state.attach = null;
+    state.attachRetry.delete(step.taskId);
+    state.notes.delete(step.taskId);
+    renderPending();
+  });
+  opts.style.paddingBottom = '17px';
+  card.append(opts);
+  return card;
 }
 
 // --- כרטיס הבריף החי (docs/08-chapter8/68, הכרעת יובל 21.10.2026): בנוסף להודעת הבוקר בצ'אט, לא במקומה ---
@@ -1498,7 +1583,8 @@ function renderPending() {
   const hasOpen = Array.isArray(state.open_tasks) && state.open_tasks.length > 0;
   const briefNode = briefCard(); // כרטיס הבריף החי: ראשון באזור הנעוץ, מעל השאלות, פס הסיכום ורשימת הפתוחות
   const hasBrief = briefNode !== null;
-  if (list.length === 0 && !hasReview && !hasOpen && !hasBrief) {
+  const attachNode = state.attach ? attachCard() : null; // שלב הצירוף (8.6-3): ראשון, כי הוא ההמשך המיידי של מה שיובל בדיוק ענה
+  if (list.length === 0 && !attachNode && !hasReview && !hasOpen && !hasBrief) {
     pinEl.hidden = true;
     pinEl.replaceChildren();
     state.stackOpen = false;
@@ -1510,6 +1596,7 @@ function renderPending() {
     state.stackOpen = false;
     pinEl.classList.remove('expanded');
     pinEl.replaceChildren(...(hasBrief ? [briefNode] : []), ...(hasReview ? [reviewStrip()] : []), ...(hasBrief ? [] : openTasksNodes(hasReview)));
+    if (attachNode) pinEl.prepend(attachNode);
     return;
   }
   const current = list.find((q) => q.id === state.focusId) ?? list[0];
@@ -1518,6 +1605,7 @@ function renderPending() {
   pinEl.classList.toggle('expanded', state.stackOpen);
 
   const nodes = hasBrief ? [briefNode] : [];
+  if (attachNode) nodes.unshift(attachNode);
   if (state.stackOpen) {
     // מורחב (states.html "ערימה פתוחה"): הכרטיס הראשון מלא, השאר שורה אחת עם נקודת ענבר וחץ, ו"סגור".
     const head = el('div', 'exhead');
@@ -1762,6 +1850,7 @@ function refresh() {
 
 async function loadOnce() {
   const rvSeqAtStart = state.rvSeq;
+  const attachAtStart = state.attach; // שלב צירוף שנפתח אחרי שה-GET יצא: התשובה הישנה לא מכירה את המשימה החדשה, ולא סוגרת אותו
   let data;
   try {
     const res = await authedFetch('/api/chat', { cache: 'no-store' });
@@ -1785,6 +1874,10 @@ async function loadOnce() {
   for (const id of [...state.hwAsk]) if (!pendingIds.has(id)) state.hwAsk.delete(id);
   for (const id of [...state.dismissed]) if (!pendingIds.has(id)) state.dismissed.delete(id);
   state.open_tasks = Array.isArray(data?.open_tasks) ? data.open_tasks : []; // 8.6-2: רשימת "פתוחות"
+  state.images_enabled = data?.images_enabled === true; // 8.6-3; שרת ישן בלי השדה: בלי כפתורי צילום
+  const openIds = new Set(state.open_tasks.map((t) => t.id));
+  if (state.attach && state.attach === attachAtStart && !openIds.has(state.attach.taskId) && !state.uploading.has(state.attach.taskId)) state.attach = null; // המשימה כבר לא פתוחה
+  for (const id of [...state.attachRetry.keys()]) if (!openIds.has(id) && state.attach?.taskId !== id) state.attachRetry.delete(id);
   state.brief = validBrief(data?.brief); // כרטיס הבריף החי; בלי השדה או null: אין כרטיס
   if (state.brief) cleanOldBriefKeys(state.brief.dateIso);
   state.quota = validQuota(data?.quota); // בלי השדה (שרת ישן) או null: אין כרטיס
@@ -1884,6 +1977,11 @@ async function sendHomework(messageId, had) {
     renderPending();
   } else if (data?.status === 'answered' || data?.status === 'closed') {
     // answered: הכרטיס יורד והמשימה (אם נוצרה) ברשימת הפתוחות. closed: כבר נסגרה, והכרטיס נעלם.
+    // נוצרה משימה (8.6-3): שלב הצירוף, "צילום" ו"דלג". המקצוע נלקח מהשאלה לפני שהיא יורדת מהרשימה.
+    if (data.status === 'answered' && data.task_id) {
+      const question = state.pending.find((q) => q.id === messageId);
+      state.attach = { taskId: data.task_id, subject: typeof question?.subject === 'string' && question.subject !== '' ? question.subject : null };
+    }
     state.drafts.delete(messageId);
     state.hwAsk.delete(messageId);
     if (state.focusId === messageId) state.focusId = null;
@@ -1955,6 +2053,140 @@ async function sendTaskDone(taskId) {
   }
   state.notes.set(taskId, ERROR_TEXT);
   render();
+}
+
+// --- תמונה (8.6-3, מפרט 60 תרחיש ב): צילום או בחירה, הקטנה בדפדפן ל-JPEG, ושליחה ב-POST attach. לא מציגים ולא קוראים את התמונה. ---
+const photoInput = document.getElementById('photoInput');
+let photoTarget = null; // המשימה שהבורר נפתח בשבילה
+
+// נקרא ישר מתוך הלחיצה: באייפון הבורר נפתח רק מתוך פעולה של המשתמש.
+function pickPhoto(taskId) {
+  if (!state.images_enabled || state.uploading.has(taskId)) return;
+  photoTarget = taskId;
+  photoInput.value = '';
+  photoInput.click();
+}
+
+photoInput.addEventListener('change', async () => {
+  const file = photoInput.files?.[0] ?? null;
+  const taskId = photoTarget;
+  photoTarget = null;
+  photoInput.value = ''; // אותה תמונה פעמיים ברצף עדיין יורה change
+  if (!file || !taskId || state.uploading.has(taskId)) return;
+  state.uploading.add(taskId); // נעילה כבר בזמן ההקטנה, לפני השליחה
+  state.notes.delete(taskId);
+  state.attachRetry.delete(taskId);
+  renderPending();
+  let image = null;
+  try {
+    image = await encodePhoto(file, taskId);
+  } catch (err) {
+    console.warn('[app] הקטנת התמונה נכשלה', err?.name);
+  }
+  if (!image) {
+    state.uploading.delete(taskId);
+    state.notes.set(taskId, PHOTO_READ_ERROR_TEXT);
+    renderPending();
+    return;
+  }
+  await sendAttach(taskId, image);
+});
+
+// "נסה שוב" אחרי כשל: אותה תמונה מוכנה, בלי לצלם מחדש.
+function resendPhoto(taskId) {
+  const image = state.attachRetry.get(taskId);
+  if (!image || state.uploading.has(taskId)) return;
+  state.uploading.add(taskId);
+  state.notes.delete(taskId);
+  renderPending();
+  sendAttach(taskId, image);
+}
+
+// קובץ -> תמונה טעונה (Image). ספארי מפענח גם HEIC ומיישר לפי כיוון הצילום (EXIF) כשמציירים.
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ img, release: () => URL.revokeObjectURL(url) });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('image decode')); };
+    img.src = url;
+  });
+}
+
+// מקטין עד שהצלע הארוכה 1600px לכל היותר, ומוריד איכות (ואחר כך גודל) עד שכל גוף הבקשה בתקרה של השרת.
+// מחזיר data URL של JPEG (השרת מקבל עם הקידומת), או null כשלא הצליח להיכנס בתקרה.
+async function encodePhoto(file, taskId) {
+  const { img, release } = await loadImage(file);
+  const canvas = document.createElement('canvas');
+  try {
+    const width = img.naturalWidth;
+    const height = img.naturalHeight;
+    if (!width || !height) return null;
+    const envelope = JSON.stringify({ action: 'attach', task_id: taskId, image: '' }).length;
+    let longSide = PHOTO_LONG_SIDE_PX;
+    for (let round = 0; round < 6; round++) {
+      const scale = Math.min(1, longSide / Math.max(width, height));
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; // תמונה שקופה (PNG): רקע לבן במקום שחור ב-JPEG
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.82, 0.7, 0.58, 0.46]) {
+        const image = canvas.toDataURL('image/jpeg', quality);
+        if (!image.startsWith('data:image/jpeg')) return null;
+        if (envelope + image.length <= ATTACH_MAX_BODY_CHARS) return image;
+      }
+      longSide = Math.round(longSide * 0.75);
+    }
+    return null;
+  } finally {
+    canvas.width = 0; // משחרר את הזיכרון של ה-canvas מיד (באייפון יש תקרה לזיכרון של canvas)
+    canvas.height = 0;
+    release();
+  }
+}
+
+// POST attach. state.uploading כבר מכיל את המשימה (הקורא נעל).
+async function sendAttach(taskId, image) {
+  let data = null;
+  try {
+    const res = await postChat({ action: 'attach', task_id: taskId, image });
+    if (!res.ok) throw new Error('attach ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] שליחת תמונה נכשלה', err?.name);
+  }
+  state.uploading.delete(taskId);
+  const message = typeof data?.message === 'string' && data.message.trim() !== '' ? data.message : null;
+
+  if (data?.status === 'attached') {
+    state.attachRetry.delete(taskId);
+    if (state.attach?.taskId === taskId) state.attach = null;
+    applyServerLists(data); // open_tasks עם media_count החדש, והמספר
+    render();
+    showToast(PHOTO_SAVED_TEXT);
+  } else if (data?.status === 'closed') {
+    // המשימה כבר לא פתוחה: שלב הצירוף נסגר והרשימה מתעדכנת.
+    state.attachRetry.delete(taskId);
+    if (state.attach?.taskId === taskId) state.attach = null;
+    applyServerLists(data);
+    state.open_tasks = state.open_tasks.filter((t) => t.id !== taskId);
+    render();
+    refresh();
+  } else if (data?.status === 'disabled') {
+    // האחסון לא מחובר בשרת: הכפתורים נעלמים, ובשלב הצירוף נשאר "דלג" עם השורה "תמונות עוד לא מחוברות".
+    state.images_enabled = false;
+    state.attachRetry.delete(taskId);
+    if (state.attach?.taskId !== taskId && message) state.notes.set(taskId, message);
+    render();
+  } else {
+    // failed (ההעלאה נכשלה, אין שורה במסד), 400/500 או אין רשת: הודעה, והתמונה נשמרת בדף ל"נסה שוב".
+    if (data?.status === 'failed') applyServerLists(data);
+    state.attachRetry.set(taskId, image);
+    state.notes.set(taskId, data?.status === 'failed' && message ? message : ERROR_TEXT);
+    render();
+  }
 }
 
 // --- לחיצה ארוכה והחלקה על הודעה (ח-4), בדפוס של וואטסאפ באייפון. הנחה, לא אומת באייפון. ---

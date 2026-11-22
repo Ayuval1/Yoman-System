@@ -21,6 +21,10 @@
 //   הקליטה הרגילה על ההודעה (processSource בלי זיהוי, עם מה שהמוח הבין) וכותב ליומן את האירוע החדש אם נוצר. { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
 //   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
 //   כפתור "חבר Google": GET מחזיר גם google_connected = true | false, או null כשהבדיקה נכשלה (loadGoogleConnected למטה).
+//   שלב 8.6-3 (docs/08-chapter8/60, קריטריון 11): GET מחזיר גם images_enabled = true | false (יש BLOB_READ_WRITE_TOKEN בשרת; הטוקן עצמו לא מוחזר).
+//   POST { action: 'attach', task_id, image } (image = JPEG ב-base64, עד 1,500,000 תווים לכל הגוף) -> { status: 'attached', media_id, open_tasks, badge }
+//     | { status: 'closed', open_tasks, badge } (המשימה לא קיימת / לא פתוחה) | { status: 'failed', message, open_tasks, badge } (ההעלאה נכשלה, אין שורה ב-media)
+//     | { status: 'disabled', message } (אין טוקן; בלי מסד). task_id לא תקף, לא JPEG או גוף גדול מדי = 400.
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
@@ -44,6 +48,7 @@ import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
 import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../lib/personal-task.js';
+import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -52,6 +57,8 @@ const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
 // הנחה, לא אומת: תקרת גודל לגוף POST (תווים). תשובה עד 1,000 תווים, או עד 100 מזהים (כ-4,000 תווים), נכנסות בה בשפע.
 const MAX_BODY_CHARS = 16_384;
+// שלב 8.6-3: הגוף נקרא עד התקרה של attach (MAX_ATTACH_BODY_CHARS), ואחרי זיהוי הפעולה כל פעולה אחרת נבדקת מול MAX_BODY_CHARS (מפרט 60, "חוזה").
+const BLOB_TOKEN_ENV_NAME = 'BLOB_READ_WRITE_TOKEN';
 
 const rowsOf = (result) => (Array.isArray(result) ? result : []);
 
@@ -187,7 +194,8 @@ async function loadGoogleConnected(sql) {
 // eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
 // googleDay (בלוק 3ב-2): אירועי Google של יום, לבדיקת התנגשות כשתשובה ב"לא זמין" משלימה תאריך או שעה. בלי הגדרות Google: undefined.
 // sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource } = {}) {
+// blobToken, upload (שלב 8.6-3, אופציונלי, לבדיקות): הטוקן של Vercel Blob וההעלאה עצמה. בדיקות מזריקות upload ולא נוגעות ברשת.
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -200,13 +208,24 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     let body;
     try {
       const text = await request.text();
-      if (text.length > MAX_BODY_CHARS) return reply(400, ERROR_TEXT);
+      if (text.length > MAX_ATTACH_BODY_CHARS) return reply(400, ERROR_TEXT);
       body = JSON.parse(text);
+      if (body?.action !== 'attach' && text.length > MAX_BODY_CHARS) return reply(400, ERROR_TEXT);
     } catch {
       return reply(400, ERROR_TEXT);
     }
     action = parseChatAction(body);
     if (!action.ok) return reply(400, ERROR_TEXT);
+  }
+  const imagesEnabled = typeof blobToken === 'string' && blobToken !== '';
+
+  // attach בלי טוקן: הודעה ברורה, בלי מסד ובלי העלאה. תמונה שאינה JPEG תקין: 400 לפני כל קריאה.
+  let jpeg = null;
+  if (action?.action === 'attach') {
+    if (!imagesEnabled) return json({ status: 'disabled', message: IMAGES_OFF_TEXT });
+    const decoded = decodeJpeg(action.image);
+    jpeg = decoded && stripJpegMetadata(decoded);
+    if (!jpeg) return reply(400, ERROR_TEXT);
   }
 
   try {
@@ -219,7 +238,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, pending, now: now() });
       const quota = await loadQuotaCard(sql, now()); // לא זורק: כשל = null
       const googleConnected = await loadGoogleConnected(sql); // לא זורק: כשל = null
-      return json({ items, pending, badge, review, open_tasks: openTasks, brief, quota, google_connected: googleConnected });
+      return json({ items, pending, badge, review, open_tasks: openTasks, brief, quota, google_connected: googleConnected, images_enabled: imagesEnabled });
     }
     if (action.action === 'read') {
       await markRead(sql, action.messageIds);
@@ -256,6 +275,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const pending = await loadPending(sql, timetable, now());
       const badge = await loadBadge(sql, now());
       return json({ status: result.status, items, pending, badge });
+    }
+    if (action.action === 'attach') {
+      // שלב 8.6-3: העלאה ואז שורה ב-media. failed = ההעלאה נכשלה ואין שורה (קריטריון 11). כשל מסד אחרי העלאה = 500 (ה-catch למטה).
+      const result = await attachImage({ sql, taskId: action.taskId, jpeg, upload: upload ?? blobUploader(blobToken), now: now() });
+      const openTasks = await loadOpenTasks(sql);
+      const badge = await loadBadge(sql, now());
+      if (result.status === 'attached') return json({ status: 'attached', media_id: result.mediaId, open_tasks: openTasks, badge });
+      if (result.status === 'failed') return json({ status: 'failed', message: UPLOAD_FAILED_TEXT, open_tasks: openTasks, badge });
+      return json({ status: 'closed', open_tasks: openTasks, badge });
     }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
