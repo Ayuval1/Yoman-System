@@ -281,7 +281,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
   const QUIET_STATE = { pending: 0, unread: 0, open_tasks: 0, has_unseen: false };
   const PENDING_ROWS = [{ id: 'q1', body: 'היו שיעורי בית?', sent_at: '2026-10-16T12:00:00.000Z', entity_type: 'lesson_ask', subject: 'פיזיקה', lesson_date: '2026-10-16' }];
   // מסד מדומה. due: שורות הסיכום של M.2 (countReviewDue); state: שאילתת המצב; sources/facts: "נקלט היום"; doneTasks/answered: "בוצע היום" (C-2); tasks; pending; ttRows; failOn: טקסט שגורם לזריקה; onQuery: זריקה מותנית.
-  const closeDb = ({ due = [], state = QUIET_STATE, sources = [], facts = [], doneTasks = [], answered = [], tasks = [], pending = [], ttRows = [], failOn, onQuery } = {}) => {
+  const closeDb = ({ due = [], state = QUIET_STATE, sources = [], facts = [], asked = [], doneTasks = [], answered = [], tasks = [], pending = [], ttRows = [], failOn, onQuery } = {}) => {
     const st = { messages: [], probe: [] };
     const sql = fakeSql((text, values, index) => {
       onQuery?.(text, index, st);
@@ -294,6 +294,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
       if (text.includes('has_unseen')) return [state];
       if (text.includes("FROM sources s WHERE s.channel IN ('shortcut', 'app')")) return sources;
       if (text.includes('JOIN facts f ON f.source_id = t.id::uuid')) return facts;
+      if (text.includes("JOIN messages m ON m.entity_id = t.id::uuid")) return asked;
       if (text.includes('FROM timetable_slots')) return ttRows;
       if (text.includes('FROM tasks d')) return doneTasks;
       if (text.includes('FROM messages m LEFT JOIN lesson_asks la')) return answered;
@@ -359,7 +360,8 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
   test('ערב עם תוכן: "נקלט" מהעובדות לפי הסדר, "לא הובנו", "להגשה מחר", משימות ושאלות; ההתראה במספרים בלבד', async () => {
     const sql = closeDb({
       state: { pending: 1, unread: 0, open_tasks: 2, has_unseen: false },
-      sources: [{ id: 's1', duplicate: false, raw_content: SECRET_TEXT }, { id: 's2', duplicate: false }, { id: 's3', duplicate: false }, { id: 's4', duplicate: true }],
+      sources: [{ id: 's1', channel: 'shortcut', received_at: '2026-10-16T08:00:00.000Z', duplicate: false, text: null }, { id: 's2', channel: 'shortcut', received_at: '2026-10-16T09:00:00.000Z', duplicate: false }, { id: 's3', channel: 'shortcut', received_at: '2026-10-16T10:00:00.000Z', duplicate: false }, { id: 's4', duplicate: true }],
+      asked: [{ entity_id: 's3' }],
       facts: [
         { source_id: 's1', field: 'date', value: '2026-10-18' }, { source_id: 's1', field: 'subject', value: 'מתמטיקה' }, { source_id: 's1', field: 'type', value: 'exam' },
         { source_id: 's3', field: 'date', value: '2026-10-17' }, { source_id: 's3', field: 'topic', value: 'תור לספר' }, { source_id: 's3', field: 'type', value: 'personal_event' },
@@ -374,7 +376,9 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
       'נקלט היום (2):',
       '· מבחן · מתמטיקה · ראשון 18.10',
       '· אירוע אישי · תור לספר · שבת 17.10',
-      'לא הובנו: 1',
+      'מה לא הייתי בטוח היום (2):',
+      '· 12:00 · הודעה מועברת — לא הבנתי',
+      '· 13:00 · הודעה מועברת — שאלתי',
       'להגשה מחר: חוברת באנגלית',
       'משימות פתוחות (2):',
       '· חוברת באנגלית — עד שבת 17.10',
@@ -440,7 +444,9 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
     await run(sql, push);
     // החריג היחיד: שאילתת השאלות הפתוחות המשותפת לבוקר (loadPending, lib/chat-pending.js) קוראת raw_content לגזירת כפתורים; הטקסט לא יוצא ממנה להודעה (pendingLine: מקצוע או מספר).
     const ownQueries = sql.calls.filter((c) => !c.text.includes('FROM messages m LEFT JOIN sources s'));
-    assert.ok(ownQueries.every((c) => !c.text.includes('raw_content')), 'שאילתות הסגירה עצמה לא קוראות טקסט הודעה');
+    // וגם שאילתת "נקלט" (בלוק "מה לא הייתי בטוח"): raw_content רק בתוך CASE של ערוץ app, לעולם לא של shortcut.
+    const appOnly = /CASE WHEN s\.channel = 'app' THEN left\(s\.raw_content, \d+\) END/g;
+    assert.ok(ownQueries.every((c) => !c.text.replace(appOnly, '').includes('raw_content')), 'שאילתות הסגירה עצמה לא קוראות טקסט הודעה (חוץ מ-app)');
     assert.ok(!bodiesOf(sql)[0].includes(SECRET_TEXT));
     assert.ok(!JSON.stringify(push.seen[0].body).includes(SECRET_TEXT));
     assert.ok(!JSON.stringify(sql.state.probe).includes(SECRET_TEXT));
