@@ -296,6 +296,7 @@ describe('C-3: deliverClose, "מחר" המלא', () => {
       if (text.includes('FROM events e')) return dbEvents;
       if (text.includes('FROM google_credentials')) return [{ refresh_token_enc: encRefresh() }];
       if (text.includes("SELECT 1 AS found FROM messages WHERE entity_type = 'close'")) return existing ? [{ found: 1 }] : [];
+      if (text.includes("'task_check'")) return []; // בלוק 4: שאלות "בוצע?" של הסגירה (lib/personal-task.js), לא נבדקות כאן
       if (text.includes('INSERT INTO messages')) { st.messages.push(values[0]); return [{ id: 'm1' }]; }
       return [];
     });

@@ -1039,6 +1039,10 @@ function writtenBy(sql) {
       bubbles.push(call.values[0]); // writeReceipt: [body, sourceId]
     } else if (call.text.startsWith('WITH q AS')) {
       questions.push(call.values[0]); // writeTypeQuestion: [text, sourceId]
+    } else if (call.text.includes('INSERT INTO tasks')) {
+      // בלוק 4, משימה אישית (lib/personal-task.js recordPersonalTask): [sourceId, title, due, question, question, bubble, bubble]
+      if (call.values[3] !== null) questions.push(call.values[3]);
+      if (call.values[5] !== null) bubbles.push(call.values[5]);
     } else if (call.text.startsWith('WITH claim AS') && call.text.includes("'update'")) {
       bubbles.push(call.values[1]); // markTypedDuplicate: [sourceId, body]
     }
@@ -1061,8 +1065,9 @@ describe('8.2א-1: ערוץ app בקליטה (הכרעה ה1)', () => {
     ['תרשום מבחן בהיסטוריה ביום חמישי', 'recorded', 'נרשם · מבחן · היסטוריה · חמישי 15.10', ['נרשם · מבחן · היסטוריה · חמישי 15.10'], ['על איזה נושא?']],
     ['יש מבחן בהיסטוריה מחר?', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
     ['מתי המבחן בהיסטוריה?', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
-    ['להביא מחשבון למבחן במתמטיקה מחר', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
-    ['להביא חוברת', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
+    // בלוק 4: משימה מוקלדת נרשמת ב-tasks (lib/personal-task.js). עם תאריך: בועת "נרשם"; בלי תאריך: שאלת "עד מתי?" בלי בועה.
+    ['להביא מחשבון למבחן במתמטיקה מחר', 'recorded', 'נרשם · משימה · להביא מחשבון למבחן במתמטיקה · עד שני 12.10', ['נרשם · משימה · להביא מחשבון למבחן במתמטיקה · עד שני 12.10'], []],
+    ['להביא חוברת', 'recorded', 'עד מתי? · להביא חוברת', [], ['עד מתי? · להביא חוברת']],
     ['מה יש לי מחר', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
     ['תקבע פגישה', 'unclassified', RECEIVED_REPLY, [RECEIVED_REPLY], []],
     ['מחר אין שיעור אנגלית', 'unclassified', RECEIVED_REPLY, [], ['מה זה?']],
@@ -1071,7 +1076,7 @@ describe('8.2א-1: ערוץ app בקליטה (הכרעה ה1)', () => {
   for (const [text, status, reply, bubbles, questions] of cases) {
     test(`קריטריונים 9-10: "${text}"`, async () => {
       const out = await runTyped(text);
-      assert.deepEqual(out.result, { status, reply });
+      assert.deepEqual({ status: out.result.status, reply: out.result.reply }, { status, reply });
       assert.deepEqual(out.bubbles, bubbles, 'בועות');
       assert.deepEqual(out.questions, questions, 'שאלות');
       assert.equal(writesOf(out.sql).length, 1, 'פקודת כתיבה אחת בדיוק');
@@ -1399,7 +1404,8 @@ describe('8.2א-1: מבנה פקודות הקליטה', () => {
     let bubbles = 0;
     for (const call of await allIntakeCalls()) {
       for (const m of call.text.matchAll(/INSERT INTO messages \([^)]*\) SELECT 'out', \?::text, '(update|question)'(.*?) RETURNING id/g)) {
-        assert.match(m[2], /FROM (claim|sources s WHERE s\.id = \?::uuid)\b/, 'תלויה בתפיסה או במקור');
+        // FROM t: שאלת "עד מתי?" של משימה אישית (בלוק 4) תלויה בשורת tasks, שתלויה בתפיסה באותה פקודה.
+        assert.match(m[2], /FROM (claim|t|sources s WHERE s\.id = \?::uuid)\b/, 'תלויה בתפיסה או במקור');
         if (m[1] === 'update') {
           bubbles += 1;
           assert.ok(m[2].includes(UPDATE_BUBBLE_GUARD), 'פעם אחת לכל מקור');

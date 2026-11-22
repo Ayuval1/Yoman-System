@@ -305,6 +305,7 @@ describe('vacation-ask: חיבור לבריף ולסגירה', async () => {
   const deliverDb = () => {
     const state = { asks: [], updates: [] };
     const sql = fakeSql((text, values) => {
+      if (text.includes("'task_check'")) return []; // בלוק 4: שאלות "בוצע?" של הסגירה (lib/personal-task.js), לא נבדקות כאן
       if (text.startsWith('INSERT INTO messages') && text.includes("'question'")) {
         const [body, , entityType, entityId] = values;
         if (state.asks.some((m) => m.entity_type === entityType && m.entity_id === entityId)) return [];

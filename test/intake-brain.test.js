@@ -9,7 +9,9 @@ import { understandSource, isValidUnderstanding, buildPrompt, parseReplyTo, load
 import { extractFacts } from '../lib/intake-facts.js';
 import { retryPendingSources } from '../lib/intake-brain-retry.js';
 import { handle as intakeHandle } from '../api/intake.js';
-import { handle as cronHandle } from '../lib/ops/cron-plan.js';
+import { handle as cronHandleReal } from '../lib/ops/cron-plan.js';
+// בלוק 4: תזמון "בוצע?" של משימות (taskChecksEnabled) כבוי כאן, כדי שספירת הקריאות למסד ולתור תישאר כמו לפני הבלוק. נבדק ב-test/personal-task.test.js.
+const cronHandle = (request, deps) => cronHandleReal(request, { taskChecksEnabled: false, ...deps });
 import { fakeSql, fakeFetch, jsonResponse, captureConsole, formRequest, req, FAKE_SECRET, FAKE_CRON } from './helpers.js';
 
 const SRC_ID = '11111111-1111-4111-8111-111111111111';
@@ -150,16 +152,31 @@ describe('בלוק 3ב-1: המסלול של המוח בצינור', () => {
     await processSource({ sql, source: source('מחר יש מבחן במתמטיקה'), timetable: TIMETABLE, understand: brainOk({ kind: 'exam', subject: 'מתמטיקה', date_text: 'מחר', uncertain: ['topic'] }) });
     assert.equal(agreementOf(sql)[0].values[0], true);
   });
-  test('משימה / שאלה / אחר: מוקלדת מקבלת "התקבל" בלי "מה זה?", מועברת בלי כתיבה', async () => {
+  // בלוק 4: משימה מוקלדת נרשמת ב-tasks (test/personal-task.test.js). כאן: שאלה ואחר נשארים "התקבל", ומשימה מועברת בלי כתיבה.
+  test('שאלה / אחר: מוקלדת מקבלת "התקבל" בלי "מה זה?"; שאלה / אחר / משימה מועברת בלי כתיבה', async () => {
     for (const kind of ['task', 'question', 'other']) {
+      const forwarded = db();
+      await processSource({ sql: forwarded, source: source('שלום', { channel: 'shortcut' }), timetable: TIMETABLE, understand: brainOk({ kind }) });
+      assert.equal(forwarded.calls.filter((c) => /INSERT INTO (messages|facts|tasks)|WITH/.test(c.text)).length, 0);
+    }
+    for (const kind of ['question', 'other']) {
       const typed = db();
       assert.equal((await processSource({ sql: typed, source: source('שלום'), timetable: TIMETABLE, understand: brainOk({ kind }) })).status, 'unclassified');
       assert.equal(typed.find('WITH b AS').length, 1, 'בועת התקבל');
       assert.equal(typed.find('WITH q AS').length, 0, 'בלי מה זה');
-      const forwarded = db();
-      await processSource({ sql: forwarded, source: source('שלום', { channel: 'shortcut' }), timetable: TIMETABLE, understand: brainOk({ kind }) });
-      assert.equal(forwarded.calls.filter((c) => /INSERT INTO (messages|facts)|WITH/.test(c.text)).length, 0);
     }
+  });
+  test('בלוק 4: משימה מוקלדת לפי המוח נרשמת; עם סימן שאלה נשארת "התקבל" (הבדיקה בקוד)', async () => {
+    const typed = db();
+    const out = await processSource({ sql: typed, source: source('להכין מצגת בהיסטוריה עד שלישי'), timetable: TIMETABLE, understand: brainOk({ kind: 'task', topic: 'להכין מצגת בהיסטוריה', date_text: 'עד שלישי' }) });
+    assert.equal(out.status, 'recorded');
+    assert.equal(out.brain, 'ok');
+    assert.equal(typed.find('INSERT INTO tasks').length, 1);
+    const question = db();
+    const asked = await processSource({ sql: question, source: source('להתקשר לסבתא?'), timetable: TIMETABLE, understand: brainOk({ kind: 'task', topic: 'להתקשר לסבתא' }) });
+    assert.equal(asked.status, 'unclassified');
+    assert.equal(question.find('INSERT INTO tasks').length, 0);
+    assert.equal(question.find('WITH b AS').length, 1, 'בועת התקבל');
   });
   test('כפילות: המוח לא נקרא', async () => {
     let called = false;
@@ -196,7 +213,7 @@ describe('בלוק 3ב-1: נפילה לנתיב הקוד', () => {
         const old = await run(text, channel, undefined);
         const now = await run(text, channel, async () => ({ ok: false, reason }));
         assert.deepEqual(now.calls, old.calls, `${channel}: ${text}`);
-        assert.deepEqual({ status: now.result.status, reply: now.result.reply }, old.result, `${channel}: ${text}`);
+        assert.deepEqual({ status: now.result.status, reply: now.result.reply, task: now.result.task }, { status: old.result.status, reply: old.result.reply, task: old.result.task }, `${channel}: ${text}`);
         assert.equal(now.result.brain, reason);
         const expectPending = reason !== 'no-key' && channel === 'shortcut' && old.result.status === 'unclassified';
         assert.equal(now.pending.length, expectPending ? 1 : 0, `סימון ממתין: ${channel}: ${text}`);

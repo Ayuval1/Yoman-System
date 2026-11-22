@@ -10,7 +10,9 @@ import {
   EXEMPT_SUBJECTS, isExempt, sequencesOfWeekday, sequencesForDate, sequenceFromKey, parseHomeworkKey, slotKeyOf, nextLesson, homeworkButtons, expiresAtFor,
 } from '../lib/homework-schedule.js';
 import { parseSlotMessage, planHomework, planSlot } from '../lib/message-slots.js';
-import { handle as cronHandle, HOMEWORK_ASKS_ENABLED } from '../lib/ops/cron-plan.js';
+import { handle as cronHandleReal, HOMEWORK_ASKS_ENABLED } from '../lib/ops/cron-plan.js';
+// בלוק 4: תזמון "בוצע?" של משימות (taskChecksEnabled) כבוי כאן, כדי שספירת הקריאות למסד ולתור תישאר כמו לפני הבלוק. נבדק ב-test/personal-task.test.js.
+const cronHandle = (request, deps) => cronHandleReal(request, { taskChecksEnabled: false, ...deps });
 import { fakeSql, captureConsole, req, FAKE_CRON } from './helpers.js';
 
 const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8'));

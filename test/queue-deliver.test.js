@@ -300,6 +300,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
       if (text.includes('FROM tasks t')) return tasks;
       if (text.includes('FROM messages m LEFT JOIN sources s')) return pending;
       if (text.includes("SELECT 1 AS found FROM messages WHERE entity_type = 'close'")) return st.messages.filter((m) => m.entity_id === values[0]).map(() => ({ found: 1 }));
+      if (text.includes("'task_check'")) return []; // בלוק 4: שאלות "בוצע?" של הסגירה (lib/personal-task.js), לא נבדקות כאן
       if (text.includes('INSERT INTO messages')) {
         const [body, sentAt, entityId, readAt] = values;
         if (st.messages.some((m) => m.entity_id === entityId)) return [];
@@ -344,7 +345,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
   test('השורה נכתבת כמו שהוגדר (E9): kind update, sent_at = read_at = targetAt, entity_type close, entity_id = briefEntityId(slotKey), WHERE NOT EXISTS', async () => {
     const sql = closeDb();
     await run(sql, fakePush());
-    const inserts = sql.find('INSERT INTO messages');
+    const inserts = sql.find('INSERT INTO messages').filter((c) => !c.text.includes("'task_check'")); // בלוק 4: שאלות "בוצע?" נבדקות ב-test/personal-task.test.js
     assert.equal(inserts.length, 1);
     const [insert] = inserts;
     assert.match(insert.text, /INSERT INTO messages \(direction, body, kind, sent_at, awaiting_reply, reply_source_id, expires_at, entity_type, entity_id, attempt, read_at\) SELECT 'out', \?::text, 'update', \?::timestamptz, false, NULL::uuid, NULL::timestamptz, 'close', \?::uuid, NULL::integer, \?::timestamptz WHERE NOT EXISTS \(SELECT 1 FROM messages WHERE entity_type = 'close' AND entity_id = \?::uuid\)/);
@@ -420,7 +421,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
     const second = await run(sql, push, {}, 2);
     assert.equal(first.created, true);
     assert.equal(second.created, false);
-    assert.equal(sql.find('INSERT INTO messages').length, 1);
+    assert.equal(sql.find('INSERT INTO messages').filter((c) => !c.text.includes("'task_check'")).length, 1);
     assert.equal(bodiesOf(sql).length, 1);
     assert.equal(push.seen.length, 2);
     assert.equal(new Set(push.seen.map((s) => s.body.dedupe_key)).size, 1);
@@ -666,6 +667,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
       if (text.includes('FROM tasks t')) return tasks;
       if (text.includes('FROM messages m LEFT JOIN sources s')) return pending;
       if (text.includes("SELECT 1 AS found FROM messages WHERE entity_type = 'brief'")) return state.messages.filter((m) => m.entity_type === 'brief' && m.entity_id === values[0]).map(() => ({ found: 1 }));
+      if (text.includes("'task_check'")) return []; // בלוק 4: שאלות "בוצע?" של הסגירה (lib/personal-task.js), לא נבדקות כאן
       if (text.includes('INSERT INTO messages')) {
         const [body, sentAt, entityId, readAt] = values;
         if (state.messages.some((m) => m.entity_type === 'brief' && m.entity_id === entityId)) return [];
@@ -1027,7 +1029,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
   test('C-1: משבצת close כותבת הודעת סגירה אחת (entity_type close) ולא הודעת בריף', async () => {
     const sql = briefDb();
     await handleDelivery({ kind: 'close', slotKey: 'close-2026-10-26', targetAt: '2026-10-26T19:00:00.000Z' }, { deliveryCount: 1 }, { sql, now: () => new Date('2026-10-26T19:00:01Z'), pushHandle: async () => new Response('ok'), secret: FAKE_CRON });
-    const inserts = sql.find('INSERT INTO messages');
+    const inserts = sql.find('INSERT INTO messages').filter((c) => !c.text.includes("'task_check'"));
     assert.equal(inserts.length, 1);
     assert.match(inserts[0].text, /'update', \?::timestamptz, false, NULL::uuid, NULL::timestamptz, 'close', \?::uuid/);
     assert.ok(!inserts[0].text.includes("'brief'"));

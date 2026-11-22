@@ -20,6 +20,7 @@ import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
 import { syncEventForSource } from '../lib/event-sync.js';
 import { understandSource, parseReplyTo } from '../lib/intake-brain.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
+import { queueTaskCheck } from '../lib/personal-task.js';
 
 // נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -227,6 +228,8 @@ export async function handle(request, {
       console.error('intake: שליחה לתור ההתראות נכשלה:', error?.name);
     }
   }
+  // בלוק 4: משימה אישית עם שעה ברורה: שאלת "בוצע?" מתוזמנת לתור לרגע המועד (lib/personal-task.js queueTaskCheck). לא זורק ולא משנה את התשובה.
+  if (result?.status === 'recorded' && result.task?.timed) await queueTaskCheck({ send: sendQueue, task: result.task, now: now(), timeoutMs: NOTIFY_QUEUE_TIMEOUT_MS });
   // כתיבה ליומן Google (שלב 8.3-4, lib/event-sync.js): רק אחרי שהעיבוד נרשם במסד, ולאירוע של המקור הזה בלבד (match_key 'source:<id>').
   // בלי הגדרות Google או בלי חיבור: דילוג שקט. כל כשל נתפס ולא משנה את התשובה; כל קריאה ל-Google מוגבלת ב-FETCH_TIMEOUT_MS. הסריקה היומית משלימה מה שלא נכתב.
   if (result?.status === 'recorded') {
