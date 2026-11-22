@@ -111,10 +111,11 @@ describe('weekly-runs: התוכנית (טהורה)', () => {
     const forced = plan({ items, asks: [{ date: TUE, entity_type: CONFLICT_ENTITY, awaiting_reply: false, answer: 'כן' }] });
     assert.equal(forced.candidates[0].needsCheck, false);
   });
-  test('שתי ריצות שונות באותו יום: לא נוגעים', () => {
+  test('שתי ריצות שונות באותו יום: לא יוצרים, ושואלים "יש ריצה?" כמו כשאין ריצה (לא בשקט)', () => {
     const out = plan({ items: [garmin(), garmin({ garmin_id: 'cal:10', title: 'אחרת' })] });
     assert.deepEqual(out.candidates, []);
     assert.equal(out.skipped.ambiguous, 1);
+    assert.deepEqual(out.asks, [TUE]);
   });
   test('ריצה שכבר התחילה לא נוצרת', () => {
     const out = plan({ items: [garmin()], now: new Date(`${TUE}T16:31:00.000Z`), fetchedAt: FETCHED });
