@@ -96,14 +96,18 @@ describe('school-series: mode=dry', () => {
     assert.equal(out.last_date, '2027-06-17', 'חמישי האחרון לפני 20.6.2027');
     assert.ok(out.vacations_excluded.some((v) => v.name === 'חנוכה'));
     assert.ok(!out.vacations_excluded.some((v) => v.name === 'סוכות'), 'חופשה שעברה לא מוצגת');
-    assert.deepEqual(out.plan, { create: 74, update: 0, hidden: 0, orphans: 0, unscheduled: 0 });
+    assert.deepEqual(out.plan, { create: 74, update: 0, unchanged: 0, hidden: 0, orphans: 0, unscheduled: 0 }, 'שיעורים והפסקות בלבד');
+    assert.deepEqual(out.header_plan, { create: 5, update: 0, unchanged: 0, hidden: 0, unscheduled: 0 });
+    assert.equal(out.headers.count, 5);
+    assert.deepEqual(out.headers.items[1], { weekday: 2, title: '🏫 בית ספר · 08:15–15:45' });
+    assert.equal(out.counts.total, 74, 'הכותרות לא נספרות ב-74');
     assert.equal(out.existing_app_series, 0);
     assert.equal(out.old_series.length, 5);
     assert.deepEqual(out.old_series[0], { title: 'בית ספר יום ראשון', rrule: 'RRULE:FREQ=WEEKLY;BYDAY=SU', action: 'cut', new_rrule: 'RRULE:FREQ=WEEKLY;BYDAY=SU;UNTIL=20261121T215959Z' });
     assert.deepEqual(writes(f), []);
     const probe = sql.find('INSERT INTO probe_log');
     assert.equal(probe.length, 1);
-    assert.equal(probe[0].values[1], 'mode=dry lessons=41 breaks=33 create=74 update=0 hidden=0 cut=5 orphans=0');
+    assert.equal(probe[0].values[1], 'mode=dry lessons=41 breaks=33 create=74 update=0 unchanged=0 hidden=0 cut=5 orphans=0 headers=5 headers_create=5 headers_update=0');
     const text = JSON.stringify(out) + JSON.stringify(sql.calls);
     assertNoSecrets(assert, text, ['פרטי-DO-NOT-LEAK', SCHOOL_CAL]);
   });
@@ -114,8 +118,11 @@ describe('school-series: mode=dry', () => {
     const lists = f.calls.filter((c) => c.url.includes('/events?'));
     assert.equal(lists.length, 1);
     const gets = f.calls.filter((c) => c.url.includes('/events/'));
-    assert.equal(gets.length, 74, 'כל סדרה נבדקת לפי המזהה הקבוע שלה');
+    assert.equal(gets.length, 79, 'כל סדרה (74 + 5 כותרות) נבדקת לפי המזהה הקבוע שלה');
     assert.ok(gets.every((c) => c.options.method === 'GET'));
+    assert.ok(gets.some((c) => c.url.includes('/events/schoolser2027d2hdr?')), 'גם כותרת היום נבדקת לפי המזהה');
+    assert.equal(new URL(gets[0].url).searchParams.get('fields'), 'id,status,summary,location,description,start,end,recurrence,extendedProperties(private)',
+      'כדי לדעת אם סדרה כבר זהה (ולא לכתוב שוב)');
     const params = new URL(lists[0].url).searchParams;
     assert.equal(params.get('singleEvents'), 'false');
     assert.equal(params.get('timeMin'), '2026-11-21T22:00:00.000Z');
@@ -139,41 +146,88 @@ describe('school-series: mode=apply', () => {
     assert.equal(res.status, 200);
     const out = await res.json();
     assert.equal(out.ok, true);
-    assert.deepEqual({ ...out.result }, { created: 74, updated: 0, existed_hidden: 0, hidden_skipped: 0, cut: 5, failed: 0, last_failure: null, stopped: null, cut_skipped: null });
+    assert.deepEqual({ ...out.result }, {
+      created: 74, updated: 0, headers_created: 5, headers_updated: 0, existed_hidden: 0, hidden_skipped: 0, cut: 5, failed: 0, last_failure: null, stopped: null, cut_skipped: null,
+    });
     assert.equal(writes(f).filter((c) => c.options.method === 'DELETE').length, 0);
     assert.ok(!writes(f).some((c) => c.url.includes('exam1')));
     const created = [...f.store.values()].filter((e) => e.id.startsWith('schoolser'));
-    assert.equal(created.length, 74);
+    assert.equal(created.length, 79);
     for (const e of created) {
       assert.equal(e.extendedProperties.private.yoman, 'school-series');
       assert.equal(e.start.timeZone, 'Asia/Jerusalem');
-      assert.match(e.recurrence[0], /^RRULE:FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH);UNTIL=20270619T205959Z$/);
+      if (e.id.endsWith('hdr')) assert.match(e.recurrence[0], /^RRULE:FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH);UNTIL=20270619$/);
+      else assert.match(e.recurrence[0], /^RRULE:FREQ=WEEKLY;BYDAY=(SU|MO|TU|WE|TH);UNTIL=20270619T205959Z$/);
     }
+    const header = f.store.get('schoolser2027d2hdr');
+    assert.deepEqual(header.start, { date: '2026-11-23', timeZone: 'Asia/Jerusalem' });
+    assert.deepEqual(header.end, { date: '2026-11-24', timeZone: 'Asia/Jerusalem' });
+    assert.equal(header.summary, '🏫 בית ספר · 08:15–15:45');
     assert.equal(f.store.get('old0').recurrence[0], 'RRULE:FREQ=WEEKLY;BYDAY=SU;UNTIL=20261121T215959Z');
-    assert.equal(sql.find('INSERT INTO probe_log')[0].values[1], 'mode=apply created=74 updated=0 existed_hidden=0 hidden_skipped=0 cut=5 failed=0');
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[1], 'mode=apply created=74 updated=0 headers_created=5 headers_updated=0 existed_hidden=0 hidden_skipped=0 cut=5 failed=0');
   });
 
-  test('הרצה שנייה: 74 עדכונים, אפס יצירות, אפס חיתוכים (כבר נחתכו); בלי כפילות', async () => {
+  test('הרצה שנייה: הכול כבר זהה = אפס עדכונים, אפס יצירות, אפס חיתוכים (כבר נחתכו); בלי כפילות ובלי כתיבה', async () => {
     const f = googleWorld();
     await run(request('apply', 'POST'), f);
     const before = f.store.size;
+    const writesBefore = writes(f).length;
     const out = await (await run(request('apply', 'POST'), f)).json();
     assert.equal(out.result.created, 0);
-    assert.equal(out.result.updated, 74);
+    assert.equal(out.result.updated, 0);
+    assert.equal(out.result.headers_created, 0);
+    assert.equal(out.result.headers_updated, 0);
+    assert.equal(out.plan.unchanged, 74);
+    assert.equal(out.header_plan.unchanged, 5);
     assert.equal(out.result.cut, 0);
-    assert.equal(out.existing_app_series, 74);
+    assert.equal(out.existing_app_series, 79);
     assert.ok(out.old_series.every((s) => s.action === 'skip' && s.reason === 'already_cut'));
     assert.equal(f.store.size, before);
+    assert.equal(writes(f).length, writesBefore, 'אף כתיבה ל-Google');
   });
 
-  test('סדרה קיימת שלא הופיעה ברשימה (timeMin) נמצאת לפי המזהה ומתעדכנת, לא נוצרת שוב', async () => {
+  test('המצב של 22.11 (74 קיימות, 5 הישנות חתוכות, בלי כותרות): נוצרות רק 5 הכותרות, 74 לא נוגעים', async () => {
+    const f = googleWorld();
+    await run(request('apply', 'POST'), f);
+    for (const id of [...f.store.keys()]) if (id.endsWith('hdr')) f.store.delete(id);
+    const writesBefore = writes(f).length;
+    const dry = await (await run(request('dry'), f)).json();
+    assert.deepEqual(dry.plan, { create: 0, update: 0, unchanged: 74, hidden: 0, orphans: 0, unscheduled: 0 });
+    assert.deepEqual(dry.header_plan, { create: 5, update: 0, unchanged: 0, hidden: 0, unscheduled: 0 });
+    assert.deepEqual(dry.counts.mismatch, null);
+    const out = await (await run(request('apply', 'POST'), f)).json();
+    assert.equal(out.ok, true);
+    assert.equal(out.result.created, 0);
+    assert.equal(out.result.updated, 0);
+    assert.equal(out.result.headers_created, 5);
+    const newWrites = writes(f).slice(writesBefore);
+    assert.equal(newWrites.length, 5);
+    assert.ok(newWrites.every((c) => c.options.method === 'POST' && JSON.parse(c.options.body).id.endsWith('hdr')));
+  });
+
+  test('סדרה קיימת שלא הופיעה ברשימה (timeMin) נמצאת לפי המזהה, לא נוצרת שוב', async () => {
     const f = googleWorld();
     await run(request('apply', 'POST'), f);
     const g = googleWorld({ items: [...f.store.values()], listItems: (all) => all.filter((e) => !e.id.startsWith('schoolser')) });
     const out = await (await run(request('apply', 'POST'), g)).json();
     assert.equal(out.result.created, 0);
-    assert.equal(out.result.updated, 74);
-    assert.equal(out.existing_app_series, 74);
+    assert.equal(out.result.headers_created, 0);
+    assert.equal(out.result.updated, 0);
+    assert.equal(out.plan.unchanged, 74);
+    assert.equal(out.existing_app_series, 79);
+  });
+
+  test('סדרה קיימת ששונתה ב-Google (כותרת אחרת): מתעדכנת ב-PATCH, לא נוצרת שוב', async () => {
+    const f = googleWorld();
+    await run(request('apply', 'POST'), f);
+    f.store.get('schoolser2027d1p1l').summary = 'משהו אחר';
+    f.store.get('schoolser2027d3hdr').summary = '🏫 בית ספר · 08:00–14:00';
+    const out = await (await run(request('apply', 'POST'), f)).json();
+    assert.equal(out.result.updated, 1);
+    assert.equal(out.result.headers_updated, 1);
+    assert.equal(out.result.created + out.result.headers_created, 0);
+    assert.equal(f.store.get('schoolser2027d3hdr').summary, '🏫 בית ספר · 08:15–14:15');
+    assert.deepEqual(f.store.get('schoolser2027d3hdr').start, { date: '2026-11-24', timeZone: 'Asia/Jerusalem' }, 'ההתחלה לא נדרסה');
   });
 
   test('סדרה שנמחקה ב-Google (status cancelled): לא נוצרת מחדש, מדווחת ב-dry וב-apply, וחוסמת חיתוך', async () => {
@@ -252,6 +306,7 @@ describe('בלוק 4: אירועי האפליקציה לא נחשבים "משה�
     const f = fakeFetch(() => jsonResponse({ items: [
       { id: 'schoolser2027d1p1l_20261122T061500Z', status: 'confirmed', summary: 'שיח אישי', start: { dateTime: '2026-11-22T08:15:00+02:00' }, recurringEventId: 'schoolser2027d1p1l' },
       { id: 'abc', status: 'confirmed', summary: 'הפסקה', start: { dateTime: '2026-11-22T09:00:00+02:00' }, extendedProperties: { private: { yoman: 'school-series' } } },
+      { id: 'schoolser2027d2hdr_20261123', status: 'confirmed', summary: '🏫 בית ספר · 08:15–15:45', start: { date: '2026-11-23' }, recurringEventId: 'schoolser2027d2hdr' },
       { id: 'mine', status: 'confirmed', summary: 'מפגש', start: { dateTime: '2026-11-22T19:00:00+02:00' } },
     ] }));
     const out = await listCalendarEvents({ accessToken: 't', calendarId: 'c', timeMin: 'a', timeMax: 'b', fetchImpl: f });
