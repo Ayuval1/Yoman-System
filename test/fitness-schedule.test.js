@@ -456,8 +456,23 @@ describe('training-source: אימוני היום מ-events', () => {
     const list = await loadTrainingsForDate('2026-11-23', { sql });
     assert.deepEqual(list, [{ title: 'אימון ריצה - משתלה', startsAt: '2026-11-23T16:00:00.000Z' }]);
     const [call] = sql.calls;
-    assert.match(call.text, /domain = 'running' AND status = 'planned' AND title LIKE 'אימון ריצה%'/);
+    assert.match(call.text, /domain = 'running' AND status = 'planned' AND \(title LIKE 'אימון ריצה%' OR title = 'ריצה'\)/);
     assert.deepEqual(call.values, ['2026-11-22T22:00:00.000Z', '2026-11-23T22:00:00.000Z']);
+  });
+  test('ריצת שלישי / שישי (lib/weekly-runs.js, כותרת "ריצה") נכנסת לאימונים; "כוח" ו"התארגנות" לא', async () => {
+    const sql = fakeSql(() => [{ title: 'ריצה', starts_at: new Date('2026-11-24T16:30:00Z') }]);
+    assert.deepEqual(await loadTrainingsForDate('2026-11-24', { sql }), [{ title: 'ריצה', startsAt: '2026-11-24T16:30:00.000Z' }]);
+    assert.ok(!/כוח|התארגנות/.test(sql.calls[0].text));
+  });
+  test('הסגירה: ריצת שלישי לא מופיעה פעמיים (לא באירועים), ההתארגנות שלה כן', async () => {
+    const sql = fakeSql(() => [
+      { title: 'התארגנות', starts_at: '2026-11-24T16:00:00Z', domain: 'running', external_id: 'p2' },
+      { title: 'ריצה', starts_at: '2026-11-24T16:30:00Z', domain: 'running', external_id: 'r2' },
+      { title: 'ריצה', starts_at: '2026-11-24T10:00:00Z', domain: 'personal', external_id: null },
+    ]);
+    const { events, externalIds } = await loadTomorrowEvents(sql, '2026-11-24');
+    assert.deepEqual(events.map((e) => [e.title, e.domain]), [['התארגנות', 'running'], ['ריצה', 'personal']]);
+    assert.ok(externalIds.has('r2'));
   });
   test('הסגירה: אימון ריצה לא מופיע פעמיים (לא באירועים), התארגנות כן', async () => {
     const sql = fakeSql(() => [
