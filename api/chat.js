@@ -16,6 +16,9 @@
 //   משימה אישית (בלוק 4, lib/personal-task.js): pending יכול לכלול { kind: 'task_due', text, buttons: [], allowFreeText: true } ("עד מתי?") ו-{ kind: 'task_check', text, buttons: ['בוצע', 'עוד לא'], allowFreeText: false } ("בוצע?"),
 //   באותה צורה כמו שאלה רגילה. התשובה נשלחת ב-answer (אחרי answerQuestion ו-answerVacation שמחזירים closed) ועוברת ל-answerTaskQuestion: { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
 //   תשובה ל"עד מתי?" עם שעה ברורה מתזמנת "בוצע?" לתור (sendQueue). task_done סוגר גם שאלות פתוחות על המשימה.
+//   שאלת זיהוי (בלוק 4, lib/event-match.js): pending יכול לכלול { kind: 'event_match', text, buttons, allowFreeText: false } ("זה אותו דבר כמו ...?"). התשובה ב-answer
+//   (אחרי שאר השאלות שמחזירות closed) עוברת ל-answerEventMatch: "כן" מעדכן את האירוע הקיים וכותב אותו ליומן (sourceSync, PATCH מותר); "לא, חדש" מריץ את
+//   הקליטה הרגילה על ההודעה (processSource בלי זיהוי, עם מה שהמוח הבין) וכותב ליומן את האירוע החדש אם נוצר. { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
 //   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
 //   כפתור "חבר Google": GET מחזיר גם google_connected = true | false, או null כשהבדיקה נכשלה (loadGoogleConnected למטה).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
@@ -26,15 +29,17 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
-import { syncEventAfterAnswer } from '../lib/event-sync.js';
+import { syncEventAfterAnswer, syncEventForSource } from '../lib/event-sync.js';
+import { answerEventMatch } from '../lib/event-match.js';
+import { processSource } from '../lib/intake-process.js';
 import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
-import { answerExam, loadExamAnswers } from '../lib/exam-ask.js';
+import { answerExam, loadExamAnswers, loadExamChanges } from '../lib/exam-ask.js';
 import { answerVacation } from '../lib/vacation-ask.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
-import { examLineAt } from '../lib/exam-line.js';
+import { examLineAt, applyExamChanges } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
@@ -134,7 +139,8 @@ async function buildBrief({ sql, timetable, tasks, pending, now }) {
     const table = timetable === undefined ? await loadTimetable(sql) : timetable; // loadTimetable לא זורק: כשל = null (בלי שורת בית ספר)
     const questions = pending === undefined ? await loadPending(sql, table, now) : pending;
     const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
-    return briefCardData({ now, timetable: table, tasks, pending: questions, answers });
+    const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // בלוק 4: מבחן שנדחה / בוטל. לא זורק: כשל = הלוח כמו שהוא
+    return briefCardData({ now, timetable: table, tasks, pending: questions, answers, exams });
   } catch (error) {
     console.error('chat: בניית הבריף נכשלה:', error?.name);
     return null;
@@ -153,7 +159,7 @@ async function reviewWithExamLine(sql, timetable, now) {
   }
   let examLine = null;
   try {
-    examLine = examLineAt(now, { timetable: table, answers: await loadExamAnswers(sql) }); // loadExamAnswers לא זורק: כשל = מפה ריקה (שורה בלי שם המקצוע)
+    examLine = examLineAt(now, { timetable: table, answers: await loadExamAnswers(sql), exams: applyExamChanges(undefined, await loadExamChanges(sql)) }); // loadExamAnswers לא זורק: כשל = מפה ריקה (שורה בלי שם המקצוע)
   } catch (error) {
     console.error('chat: חישוב שורת המבחן נכשל:', error?.name);
   }
@@ -181,7 +187,7 @@ async function loadGoogleConnected(sql) {
 // eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
 // googleDay (בלוק 3ב-2): אירועי Google של יום, לבדיקת התנגשות כשתשובה ב"לא זמין" משלימה תאריך או שעה. בלי הגדרות Google: undefined.
 // sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend } = {}) {
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -285,6 +291,27 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: task.status, items, pending, badge });
+      }
+      // בלוק 4: שאלת זיהוי. "לא, חדש" = הקליטה הרגילה, בלי זיהוי, עם ההבנה השמורה (בלי קריאה נוספת למוח).
+      const replay = ({ source, understanding }) => processSource({
+        sql, source, timetable, googleDay, matchDisabled: true,
+        understand: understanding ? async () => ({ ok: true, model: 'replay', understanding, replay: true }) : undefined,
+      });
+      const matched = await answerEventMatch({ sql, messageId: action.messageId, answer: action.answer, now: now(), replay });
+      if (matched.status !== 'closed') {
+        // כתיבה ליומן Google: האירוע הקיים אחרי "כן" (PATCH או מחיקה), או האירוע החדש אחרי "לא, חדש". כשל נתפס ולא משנה את התשובה.
+        const syncSource = matched.matched?.sourceId ?? (matched.replayed?.status === 'recorded' ? matched.replayed.sourceId : null);
+        if (syncSource) {
+          try {
+            await sourceSync({ sql, sourceId: String(syncSource), now: now(), allowPatch: Boolean(matched.matched) });
+          } catch (error) {
+            console.error('chat: כתיבה ליומן נכשלה:', error?.name);
+          }
+        }
+        const items = matched.status === 'answered' ? await loadCreatedItems(sql, matched.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: matched.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
