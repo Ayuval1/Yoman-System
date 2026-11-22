@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  closingWindow, closingDates, receivedFromRows, loadReceived, doneTodayLine, loadDone, dueTomorrow, composeClosing, closingPushText,
+  UNSURE_TITLE, closingWindow, closingDates, receivedFromRows, loadReceived, doneTodayLine, loadDone, dueTomorrow, composeClosing, closingPushText,
   QUIET_RECEIVED_LINE, QUIET_EVENING_LINE, QUIET_PUSH, CLOSING_PUSH_WAITING,
 } from '../lib/closing-view.js';
 import { nextRunUtc } from '../lib/schedule-time.js';
@@ -63,7 +63,7 @@ describe('closing-view: receivedFromRows (H1, E2, E11)', () => {
         { source_id: 'b', field: 'type', value: 'cancel' }, { source_id: 'b', field: 'subject', value: 'פיזיקה' }, { source_id: 'b', field: 'date', value: '2026-10-28' },
       ],
     });
-    assert.deepEqual(out, { lines: ['ביטול · פיזיקה · רביעי 28.10', 'מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 1 });
+    assert.deepEqual(out, { lines: ['ביטול · פיזיקה · רביעי 28.10', 'מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 1, unsure: [{ time: '', text: null, label: 'לא הבנתי' }] });
   });
   test('שדה כפול לאותו מקור: הערך הראשון (בסדר המסד: source_id, field, value) גובר', () => {
     const out = receivedFromRows({
@@ -77,7 +77,52 @@ describe('closing-view: receivedFromRows (H1, E2, E11)', () => {
     assert.deepEqual(out.lines, ['אירוע אישי · תור לספר · רביעי 28.10']);
   });
   test('ריק / לא מערך: אפסים', () => {
-    assert.deepEqual(receivedFromRows({ sources: null, facts: undefined }), { lines: [], notUnderstood: 0 });
+    assert.deepEqual(receivedFromRows({ sources: null, facts: undefined }), { lines: [], notUnderstood: 0, unsure: [] });
+  });
+});
+
+describe('closing-view: בלוק "מה לא הייתי בטוח" (בלוק 6 חלק א\')', () => {
+  const typed = (id) => [{ source_id: id, field: 'type', value: 'exam' }];
+  test('"שאלתי": מקור עם type ושאלת בירור; מקור עם type בלי שאלה לא נכנס', () => {
+    const out = receivedFromRows({
+      sources: [{ id: 'a', channel: 'app', received_at: '2026-10-16T11:05:00.000Z', text: 'מבחן מחר?' }, { id: 'b', channel: 'app', received_at: '2026-10-16T12:00:00.000Z', text: 'x' }],
+      facts: [...typed('a'), ...typed('b')], asked: [{ entity_id: 'a' }],
+    });
+    assert.deepEqual(out.unsure, [{ time: '14:05', text: 'מבחן מחר?', label: 'שאלתי' }]);
+    assert.equal(out.notUnderstood, 0);
+  });
+  test('shortcut אף פעם לא מציג טקסט, גם אם הטקסט הגיע בשורה', () => {
+    const out = receivedFromRows({ sources: [{ id: 'a', channel: 'shortcut', received_at: '2026-10-16T13:20:00.000Z', text: 'טקסט-סודי-של-אחר' }], facts: [] });
+    assert.deepEqual(out.unsure, [{ time: '16:20', text: null, label: 'לא הבנתי' }]);
+    const text = composeClosing({ dateIso: '2026-10-16', received: [], unsure: out.unsure }).text;
+    assert.ok(text.includes('· 16:20 · הודעה מועברת — לא הבנתי') && !text.includes('סודי'));
+  });
+  test('קיצור: עד 40 תווים אחרי כיווץ רווחים ושורות, "…" רק כשנחתך', () => {
+    const long = `  ${'א'.repeat(30)}\n\n   ${'ב'.repeat(30)}  `;
+    const [cut] = receivedFromRows({ sources: [{ id: 'a', channel: 'app', received_at: '2026-10-16T11:05:00.000Z', text: long }], facts: [] }).unsure;
+    assert.equal(cut.text, `${'א'.repeat(30)} ${'ב'.repeat(9)}…`);
+    assert.equal([...cut.text].length, 41);
+    const exact = 'ג'.repeat(40);
+    const [whole] = receivedFromRows({ sources: [{ id: 'b', channel: 'app', received_at: '2026-10-16T11:05:00.000Z', text: exact }], facts: [] }).unsure;
+    assert.equal(whole.text, exact);
+  });
+  test('app בלי טקסט: "הודעה בלי טקסט"; כפילות לא נכנסת', () => {
+    const out = receivedFromRows({ sources: [{ id: 'a', channel: 'app', text: '   ' }, { id: 'd', channel: 'app', text: 'כפול', duplicate: true }], facts: [] });
+    assert.equal(out.unsure.length, 1);
+    assert.match(composeClosing({ dateIso: '2026-10-16', received: [], unsure: out.unsure }).text, /· הודעה בלי טקסט — לא הבנתי/);
+  });
+  test('סדר: לפי סדר המקורות (received_at עולה מהשאילתה)', () => {
+    const out = receivedFromRows({ sources: [{ id: 'a', channel: 'shortcut', received_at: '2026-10-16T05:00:00.000Z' }, { id: 'b', channel: 'shortcut', received_at: '2026-10-16T06:00:00.000Z' }], facts: [] });
+    assert.deepEqual(out.unsure.map((i) => i.time), ['08:00', '09:00']);
+  });
+  test('loadReceived: השאילתה בוחרת raw_content רק בערוץ app, ושואלת על שאלות בירור של המקורות', async () => {
+    const sql = fakeSql((text) => (text.includes('FROM sources s') ? [{ id: 's1', channel: 'shortcut', received_at: '2026-10-16T11:00:00.000Z', text: null, duplicate: false }] : []));
+    const out = await loadReceived(sql, closingWindow('2026-10-16T18:00:00.000Z'));
+    const [sources, , asked] = sql.calls;
+    assert.match(sources.text, /CASE WHEN s\.channel = 'app' THEN left\(s\.raw_content, \d+\) END/);
+    assert.equal(sources.text.replace(/CASE WHEN s\.channel = 'app' THEN left\(s\.raw_content, \d+\) END/, '').includes('raw_content'), false, 'raw_content לא מחוץ ל-CASE של app');
+    assert.match(asked.text, /m\.kind = 'question' AND m\.entity_type = 'source'/);
+    assert.deepEqual(out.unsure, [{ time: '14:00', text: null, label: 'לא הבנתי' }]);
   });
 });
 
@@ -86,7 +131,7 @@ describe('closing-view: loadReceived (שאילתות)', () => {
   test('שאילתת מקורות: שני הערוצים, בלי שורות תשובה, החלון כפרמטרים, סדר received_at ואז id; בלי raw_content', async () => {
     const sql = fakeSql((text) => (text.includes('FROM sources s') ? [{ id: 's1', duplicate: false }] : [{ source_id: 's1', field: 'type', value: 'room' }, { source_id: 's1', field: 'subject', value: 'אנגלית' }, { source_id: 's1', field: 'date', value: '2026-10-18' }]));
     const out = await loadReceived(sql, W);
-    assert.deepEqual(out, { lines: ['חדר · אנגלית · ראשון 18.10'], notUnderstood: 0 });
+    assert.deepEqual(out, { lines: ['חדר · אנגלית · ראשון 18.10'], notUnderstood: 0, unsure: [] });
     const [sources, facts] = sql.calls;
     assert.match(sources.text, /s\.channel IN \('shortcut', 'app'\) AND s\.sender IS DISTINCT FROM 'answer'/);
     assert.match(sources.text, /s\.received_at > \?::timestamptz AND s\.received_at <= \?::timestamptz/);
@@ -95,11 +140,11 @@ describe('closing-view: loadReceived (שאילתות)', () => {
     assert.deepEqual(sources.values, ['2026-10-15T18:00:00.000Z', '2026-10-16T18:00:00.000Z']);
     assert.match(facts.text, /ORDER BY f\.source_id, f\.field, f\.value/);
     assert.deepEqual(facts.values, [JSON.stringify(['s1'])]);
-    assert.ok(sql.calls.every((c) => !c.text.includes('raw_content')), 'פרטיות: לא נבחר טקסט הודעה');
+    assert.ok(sql.calls.every((c) => !c.text.replace(/CASE WHEN s\.channel = 'app' THEN left\(s\.raw_content, \d+\) END/, '').includes('raw_content')), 'פרטיות: raw_content רק בתוך CASE של app');
   });
   test('אין מקורות: שאילתה אחת בלבד', async () => {
     const sql = fakeSql(() => []);
-    assert.deepEqual(await loadReceived(sql, W), { lines: [], notUnderstood: 0 });
+    assert.deepEqual(await loadReceived(sql, W), { lines: [], notUnderstood: 0, unsure: [] });
     assert.equal(sql.calls.length, 1);
   });
   test('כשל מסד נזרק (הצרכן מחליט)', async () => {
@@ -117,6 +162,7 @@ describe('closing-view: composeClosing (סעיף 6)', () => {
   test('תבנית מלאה: כותרת, נקלט, לא הובנו, מחר, להגשה מחר, משימות (כמו בבוקר, כולל באיחור) ושאלות', () => {
     const out = composeClosing({
       dateIso: '2026-10-27', received: ['אירוע אישי · תור לספר · רביעי 28.10', 'מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 2,
+      unsure: [{ time: '14:05', text: 'מה עם המבחן', label: 'לא הבנתי' }, { time: '16:20', text: null, label: 'שאלתי' }],
       examLine: 'מחר: מבחן במתמטיקה ב-10:05', tasks, pending,
     });
     assert.equal(out.text, [
@@ -124,7 +170,9 @@ describe('closing-view: composeClosing (סעיף 6)', () => {
       'נקלט היום (2):',
       '· אירוע אישי · תור לספר · רביעי 28.10',
       '· מבחן · מתמטיקה · ראשון 1.11',
-      'לא הובנו: 2',
+      'מה לא הייתי בטוח היום (2):',
+      '· 14:05 · "\u2068מה עם המבחן\u2069" — לא הבנתי',
+      '· 16:20 · הודעה מועברת — שאלתי',
       'מחר: מבחן במתמטיקה ב-10:05',
       'להגשה מחר: חוברת באנגלית',
       'משימות פתוחות (3):',
@@ -133,7 +181,7 @@ describe('closing-view: composeClosing (סעיף 6)', () => {
       '· דף תרגילים — בלי תאריך',
       'שאלות שממתינות: שיעורי בית בפיזיקה · ועוד שאלה אחת',
     ].join('\n'));
-    assert.deepEqual({ ...out, text: undefined }, { text: undefined, received: 2, notUnderstood: 2, done: 0, tasks: 3, pending: 2, dueTomorrow: 1, exam: true, partial: false });
+    assert.deepEqual({ ...out, text: undefined }, { text: undefined, received: 2, notUnderstood: 2, unsure: 2, done: 0, tasks: 3, pending: 2, dueTomorrow: 1, exam: true, partial: false });
   });
   test('שורת המבחן לא מקבלת קידומת כפולה', () => {
     const out = composeClosing({ dateIso: '2026-10-25', examLine: 'מחר: מבחן במתמטיקה' });
@@ -148,14 +196,35 @@ describe('closing-view: composeClosing (סעיף 6)', () => {
     const out = composeClosing({ dateIso: '2026-10-27', tasks: [{ title: 'דף' }] });
     assert.equal(out.text, `סגירה · יום שלישי 27.10\n${QUIET_RECEIVED_LINE}\nמשימות פתוחות (1):\n· דף — בלי תאריך`);
   });
-  test('"לא הובנו" מספר בלבד; בלי הודעות שזוהו לא נכתב "לא נקלטו" (זה לא נכון)', () => {
-    const out = composeClosing({ dateIso: '2026-10-27', received: [], notUnderstood: 3 });
-    assert.equal(out.text, 'סגירה · יום שלישי 27.10\nלא הובנו: 3');
-    const zero = composeClosing({ dateIso: '2026-10-27', received: ['מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 0 });
-    assert.ok(!zero.text.includes('לא הובנו'));
+  test('ערב שבו הגיעו רק פריטי אי-ודאות: הבלוק, בלי "לא נקלטו הודעות היום"; ההתראה נשארת "לא הובנו"', () => {
+    const out = composeClosing({ dateIso: '2026-10-27', received: [], notUnderstood: 3, unsure: [{ time: '09:00', text: null, label: 'לא הבנתי' }] });
+    assert.equal(out.text, 'סגירה · יום שלישי 27.10\nמה לא הייתי בטוח היום (1):\n· 09:00 · הודעה מועברת — לא הבנתי');
+    assert.equal(out.unsure, 1);
+    assert.equal(out.notUnderstood, 3);
+  });
+  test('יום בלי פריטים: אין בלוק ואין "לא הובנו"', () => {
+    const zero = composeClosing({ dateIso: '2026-10-27', received: ['מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 0, unsure: [] });
+    assert.ok(!zero.text.includes('לא הייתי בטוח') && !zero.text.includes('לא הובנו'));
+    assert.equal(zero.unsure, 0);
+  });
+  test('9 פריטים = 8 מוצגים + "ועוד 1"; N בכותרת = 9', () => {
+    const unsure = Array.from({ length: 9 }, (_, i) => ({ time: `1${i}:00`, text: `הודעה ${i}`, label: 'לא הבנתי' }));
+    const lines = composeClosing({ dateIso: '2026-10-27', received: [], unsure }).text.split('\n');
+    assert.equal(lines[1], `${UNSURE_TITLE} (9):`);
+    assert.equal(lines.filter((l) => l.startsWith('· ')).length, 8);
+    assert.equal(lines[10], 'ועוד 1');
+  });
+  test('8 פריטים בדיוק: בלי "ועוד"', () => {
+    const unsure = Array.from({ length: 8 }, () => ({ time: '10:00', text: null, label: 'שאלתי' }));
+    assert.ok(!composeClosing({ dateIso: '2026-10-27', received: [], unsure }).text.includes('ועוד'));
+  });
+  test('חלקי: בלי "נקלט" אין בלוק', () => {
+    const out = composeClosing({ dateIso: '2026-10-27', received: null, unsure: [{ time: '10:00', text: 'א', label: 'לא הבנתי' }] });
+    assert.ok(!out.text.includes('לא הייתי בטוח'));
+    assert.equal(out.unsure, 0);
   });
   test('חלקי (null = לא נטען): החלק מושמט ואין טענת ריקנות', () => {
-    const noReceived = composeClosing({ dateIso: '2026-10-27', received: null, notUnderstood: 4, tasks: [], pending: [] });
+    const noReceived = composeClosing({ dateIso: '2026-10-27', received: null, notUnderstood: 4, unsure: [{ time: '10:00', text: 'א', label: 'לא הבנתי' }], tasks: [], pending: [] });
     assert.equal(noReceived.text, 'סגירה · יום שלישי 27.10');
     assert.equal(noReceived.partial, true);
     assert.equal(noReceived.notUnderstood, 0, 'בלי "נקלט" אין גם "לא הובנו"');
@@ -227,16 +296,17 @@ describe('closing-view: loadDone (שאילתות, C-2)', () => {
 
 describe('closing-view: composeClosing עם "בוצע היום" (C-2)', () => {
   const done = { tasks: [{ title: 'חוברת באנגלית', done_at: '2026-10-27T09:00:00.000Z' }], answered: [{ entity_type: 'lesson_ask', subject: 'פיזיקה' }] };
-  test('מקום השורה: אחרי "נקלט" ו"לא הובנו", לפני "מחר" ו"להגשה מחר"; done בתוצאה = מספר הפריטים', () => {
+  test('מקום השורה: אחרי "נקלט" ובלוק אי-הוודאות, לפני "מחר" ו"להגשה מחר"; done בתוצאה = מספר הפריטים', () => {
     const out = composeClosing({
-      dateIso: '2026-10-27', received: ['מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 1, done,
+      dateIso: '2026-10-27', received: ['מבחן · מתמטיקה · ראשון 1.11'], notUnderstood: 1, unsure: [{ time: '10:00', text: null, label: 'לא הבנתי' }], done,
       examLine: 'מחר: מבחן במתמטיקה ב-10:05', tasks: [{ title: 'דף', due_at: due('2026-10-28') }], pending: [],
     });
     assert.equal(out.text, [
       'סגירה · יום שלישי 27.10',
       'נקלט היום (1):',
       '· מבחן · מתמטיקה · ראשון 1.11',
-      'לא הובנו: 1',
+      'מה לא הייתי בטוח היום (1):',
+      '· 10:00 · הודעה מועברת — לא הבנתי',
       'בוצע היום: חוברת באנגלית · ענית על שיעורי בית בפיזיקה',
       'מחר: מבחן במתמטיקה ב-10:05',
       'להגשה מחר: דף',

@@ -90,10 +90,11 @@ describe('calendar-view: אירועים', () => {
     assert.equal(out.days[0].items[1].start, '2026-11-22T16:00:00.000Z');
   });
   test('אירוע עם שאלה פתוחה על המקור = pending', async () => {
-    const events = [ev({ match_key: 'source:s7' }), ev({ id: 'e9', title: 'אחר', match_key: 'source:s8' })];
-    const out = await run({ timetable: null }, { events, questions: [{ entity_id: 's7' }] });
+    const events = [ev({ match_key: 'source:11111111-1111-4111-8111-111111111111' }), ev({ id: 'e9', title: 'אחר', match_key: 'source:22222222-2222-4222-8222-222222222222' }),
+      ev({ id: 'e10', title: 'אימון ריצה', domain: 'running', match_key: 'source:11111111-1111-4111-8111-111111111111:fitness:2026-11-22' })];
+    const out = await run({ timetable: null }, { events, questions: [{ entity_id: '11111111-1111-4111-8111-111111111111' }] });
     const byTitle = Object.fromEntries(out.days[0].items.map((i) => [i.title, i.pending]));
-    assert.deepEqual(byTitle, { ארוחה: true, אחר: false });
+    assert.deepEqual(byTitle, { ארוחה: true, אחר: false, 'אימון ריצה': true });
   });
   test('אירוע שמתחיל אחרי חצות שעון ישראל משויך ליום הישראלי', async () => {
     const events = [ev({ starts_at: '2026-11-22T22:30:00Z', ends_at: null })]; // 00:30 ב-23.11

@@ -341,7 +341,7 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   }
   const closing = composeClosing({
     dateIso, tomorrowIso, examLine, tasks, pending, done, timetable: table, trainings, events,
-    received: received ? received.lines : null, notUnderstood: received ? received.notUnderstood : 0,
+    received: received ? received.lines : null, notUnderstood: received ? received.notUnderstood : 0, unsure: received ? received.unsure : [],
   });
 
   let created = false;
