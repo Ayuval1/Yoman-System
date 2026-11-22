@@ -319,7 +319,7 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   let events = [];
   let googleFailure = null;
   if (!exists) {
-    trainings = await loadPart('האימונים', () => loadTrainings(tomorrowIso));
+    trainings = await loadPart('האימונים', () => loadTrainings(tomorrowIso, { sql })); // בלוק 5: אימוני 4fitness מ-events (lib/training-source.js)
     const dbEvents = await loadPart('אירועי מחר', () => loadTomorrowEvents(sql, tomorrowIso));
     events = dbEvents ? [...dbEvents.events] : null;
     if (dbEvents) {
