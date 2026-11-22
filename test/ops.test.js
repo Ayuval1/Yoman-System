@@ -20,8 +20,10 @@ describe('ops: בחירת משימה', () => {
     }
   });
 
-  test('בדיוק ארבע משימות (שלוש ה-Cron ו-school-series של בלוק 4), ולכל אחת fetch', () => {
-    assert.deepEqual(Object.keys(TASKS).sort(), ['cron-plan', 'daily-check', 'gate-probe', 'school-series']);
+  test('בדיוק שבע משימות (שלוש ה-Cron, school-series של בלוק 4, ושלוש של Garmin מבלוק 5), ולכל אחת fetch', () => {
+    assert.deepEqual(Object.keys(TASKS).sort(), [
+      'cron-plan', 'daily-check', 'garmin-connect', 'garmin-status', 'garmin-sync', 'gate-probe', 'school-series',
+    ]);
     for (const task of Object.values(TASKS)) assert.equal(typeof task.fetch, 'function');
   });
 

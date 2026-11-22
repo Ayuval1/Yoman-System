@@ -21,6 +21,8 @@ const MEASUREMENT = ['intake_outcomes', 'intake_checks'];
 const HOMEWORK = ['lesson_asks'];
 // שאלת "איזה מקצוע במדעים?" (שלב B-3ב, docs/08-chapter8/68 H13).
 const EXAM_ASKS = ['exam_asks'];
+// חיבור Garmin (בלוק 5, ה-8).
+const GARMIN = ['garmin_credentials', 'garmin_items'];
 
 // כל CREATE TABLE, עם הגוף עד ');' שבתחילת שורה.
 const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s*\(([\s\S]*?)\n\);/gi)]
@@ -28,8 +30,8 @@ const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(\w+)\s
 
 describe('db/schema.sql', () => {
   test('בדיוק 26 הטבלאות הצפויות', () => {
-    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT, ...HOMEWORK, ...EXAM_ASKS].sort());
-    assert.equal(tables.length, 27);
+    assert.deepEqual(tables.map((t) => t.name).sort(), [...EXISTING, ...NEW, ...MEASUREMENT, ...HOMEWORK, ...EXAM_ASKS, ...GARMIN].sort());
+    assert.equal(tables.length, 29);
   });
 
   test('lesson_asks: עשר העמודות כפי שיובל הריץ ב-Neon, UNIQUE על (subject, lesson_date, seq_start_period), ו-task_id מפנה ל-tasks', () => {

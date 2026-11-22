@@ -125,7 +125,9 @@ describe('cron-plan: תזמון משבצות לתור', () => {
   test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם daily-check ו-gate-probe?from=0 (כולם דרך /api/ops)', () => {
     const cronPlanPaths = crons.filter((c) => c.path.startsWith('/api/ops?task=cron-plan'));
     assert.deepEqual(cronPlanPaths.map((c) => c.path), ['/api/ops?task=cron-plan&slot=1', '/api/ops?task=cron-plan&slot=2']);
-    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', ...[0, 1, 2, 3].map((i) => `/api/ops?task=gate-probe&from=0&model=rotate&slot=${i}&slots=4`)]);
+    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', ...[0, 1, 2, 3].map((i) => `/api/ops?task=gate-probe&from=0&model=rotate&slot=${i}&slots=4`), '/api/ops?task=garmin-sync']);
+    // משיכה יומית מ-Garmin (בלוק 5): 13:00 UTC, אחרי שהמאמן מעלה תוכן ביום שני אחר הצהריים
+    assert.equal(crons.find((c) => c.path === '/api/ops?task=garmin-sync').schedule, '0 13 * * *');
     // ארבע משבצות מבחן ביום, שעתיים זו מזו (דיוק Hobby הוא שעה, אז אין חפיפה)
     assert.deepEqual(crons.filter((c) => c.path.startsWith('/api/ops?task=gate-probe')).map((c) => c.schedule), ['50 4 * * *', '50 6 * * *', '50 8 * * *', '50 10 * * *']);
   });
