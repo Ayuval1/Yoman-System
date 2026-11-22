@@ -178,6 +178,9 @@ describe('בלוק 4: זיהוי וחיתוך הסדרות הישנות', () => 
     assert.equal(isOldSchoolSeries(old({ summary: 'מבחן בית ספר יום ראשון' })), false);
     assert.equal(isOldSchoolSeries(old({ extendedProperties: { private: { yoman: 'school-series' } } })), false);
     assert.equal(isOldSchoolSeries(old({ status: 'cancelled' })), false);
+    assert.equal(isOldSchoolSeries(old({ summary: '\u200fבית ספר יום שני' })), true, 'סימן כיוון בהתחלה');
+    assert.equal(isOldSchoolSeries(old({ summary: 'בית\u00a0ספר - יום שני' })), true, 'רווח קשיח ומקף');
+    assert.equal(isOldSchoolSeries(old({ summary: 'בית ספר\u05beיום שני' })), true, 'מקף עברי');
   });
 
   test('חיתוך: UNTIL = יום לפני ההפעלה 23:59:59 בישראל, בלי COUNT, ושאר השורות נשמרות', () => {
