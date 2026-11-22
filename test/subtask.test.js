@@ -285,6 +285,12 @@ describe('עמודה חסרה במסד (לפני שיובל מריץ את הפק
     assert.equal(isMissingColumn(new Error('x')), false);
     assert.equal(isMissingColumn(null), false);
   });
+  test('isMissingColumn: גם בלי code, לפי ההודעה על parent_task_id (דרייבר שלא מעביר את הקוד)', () => {
+    assert.equal(isMissingColumn(new Error('column "parent_task_id" does not exist')), true);
+    assert.equal(isMissingColumn(new Error('column t.parent_task_id does not exist')), true);
+    assert.equal(isMissingColumn(new Error('column "other_col" does not exist')), false);
+    assert.equal(isMissingColumn(new Error('relation "tasks" does not exist')), false);
+  });
   test('הקליטה: מאגר ריק, בלי כרטיס, המשימה נרשמת, ושורת לוג אחת בלבד גם אחרי שתי הודעות', async (t) => {
     const logs = captureConsole(t);
     for (let i = 0; i < 2; i += 1) {
