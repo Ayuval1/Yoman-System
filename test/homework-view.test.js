@@ -860,8 +860,10 @@ describe('היקף השינוי: אין קובץ api חדש, אין שינוי �
       assert.ok(!/process\.env|fetch\(/.test(code), file);
     }
   });
-  test('package.json ללא @vercel/blob', () => {
+  // שלב 8.6-3 (תמונות) הוסיף את @vercel/blob, באישור יובל (16.10.2026, docs/08-chapter8/35 לוג פערים; מפרט 60 "מה דורש כן"). זו החבילה היחידה שנוספה.
+  test('package.json: רק @vercel/blob נוסף (8.6-3), בגרסה מדויקת', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    assert.deepEqual(Object.keys(pkg.dependencies).sort(), ['@neondatabase/serverless', '@vercel/queue', 'web-push']);
+    assert.deepEqual(Object.keys(pkg.dependencies).sort(), ['@neondatabase/serverless', '@vercel/blob', '@vercel/queue', 'web-push']);
+    assert.match(pkg.dependencies['@vercel/blob'], /^\d+\.\d+\.\d+$/);
   });
 });
