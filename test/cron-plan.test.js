@@ -125,7 +125,8 @@ describe('cron-plan: תזמון משבצות לתור', () => {
   test('Cron של cron-plan הם בדיוק slot=1 ו-slot=2, והאחרים הם daily-check ו-gate-probe?from=0 (כולם דרך /api/ops)', () => {
     const cronPlanPaths = crons.filter((c) => c.path.startsWith('/api/ops?task=cron-plan'));
     assert.deepEqual(cronPlanPaths.map((c) => c.path), ['/api/ops?task=cron-plan&slot=1', '/api/ops?task=cron-plan&slot=2']);
-    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', ...[0, 1, 2, 3].map((i) => `/api/ops?task=gate-probe&from=0&model=rotate&slot=${i}&slots=4`), '/api/ops?task=garmin-sync']);
+    assert.deepEqual(crons.filter((c) => !c.path.startsWith('/api/ops?task=cron-plan')).map((c) => c.path), ['/api/ops?task=daily-check', ...[0, 1, 2, 3].map((i) => `/api/ops?task=gate-probe&from=0&model=rotate&slot=${i}&slots=4`), '/api/ops?task=garmin-sync', '/api/ops?task=garmin-sync&run=2']);
+    // ריצה שנייה ב-14:00 UTC (16:00 בחורף, 17:00 בקיץ, כולל חלון השעה של Hobby): תוכן של שני שעולה אחרי 13:00 עדיין מגיע לפני האימון של 18:00. הנחה, לא אומת: מתי המאמן מעלה
     // משיכה יומית מ-Garmin (בלוק 5): 13:00 UTC, אחרי שהמאמן מעלה תוכן ביום שני אחר הצהריים
     assert.equal(crons.find((c) => c.path === '/api/ops?task=garmin-sync').schedule, '0 13 * * *');
     // ארבע משבצות מבחן ביום, שעתיים זו מזו (דיוק Hobby הוא שעה, אז אין חפיפה)
