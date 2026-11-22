@@ -104,7 +104,7 @@
   @media (prefers-reduced-motion: reduce) { button:not(:disabled):active { transform: none; transition: none; } }
   /* כללי ריחוף רק במכשיר עם עכבר, כדי שלא ייתקעו אחרי לחיצה באייפון */
   @media (hover: hover) and (pointer: fine) {
-    .mm-row:hover { background: var(--sep); }
+    .mm-row:hover { background: var(--sep); }   /* גם בחלונית הפעולות של משימה (.tm), שבנויה מאותן שורות */
   }
 
   /* המסך בגובה החלון: הכותרת והכרטיס הנעוץ למעלה, שורת הכתיבה למטה, וההודעות נגללות ביניהם. */
@@ -203,6 +203,41 @@
     flex: none; border: 0; border-radius: var(--r-pill); padding: 7px 14px;
     font-size: 14px; font-weight: var(--fw-bold); background: var(--btn-neutral); color: var(--accent);
   }
+
+  /* ---------- תתי-משימות (הכרעת יובל 22.11.2026; השרת ב-lib/subtask.js) ----------
+     הנחה, לא אומת באייפון: אין הדמיה. טוקנים קיימים בלבד.
+     .sub: שורה של תת-משימה, מוזחת מהצד של ההתחלה (בעברית: מימין), טקסט קטן במעט, וקו דק בצורת ⌊ שמחבר אותה להורה שמעליה.
+     .subnext: יש עוד תת-משימה אחריה, והקו ממשיך עד אליה. --gap = הרווח בין השורות (9px ברשימה, 4px בכרטיס הבריף).
+     .omore: כפתור "⋯" לפעולות (הפוך לתת-משימה / הוצא). קטן במראה, 44px במגע דרך ::after (כמו .ophoto). */
+  .openrow { position: relative; --gap: 9px; --line: var(--label3); }
+  .bftask.openrow { --gap: 4px; --line: var(--bf-tile); }
+  .openrow.sub { margin-inline-start: 24px; width: auto; }
+  .openrow.sub .t { font-size: 15px; }
+  .openrow.sub::before, .openrow.subnext::after {
+    content: ""; position: absolute; pointer-events: none;
+    inset-inline-start: -15px; width: 9px; border-inline-start: 2px solid var(--line);
+  }
+  .openrow.sub::before { top: calc(var(--gap) * -1); height: calc(50% + var(--gap)); border-bottom: 2px solid var(--line); border-end-start-radius: 8px; }
+  .openrow.subnext::after { top: 50%; bottom: calc(var(--gap) * -1); }
+  .omore {
+    flex: none; position: relative; width: 30px; height: 36px; padding: 0; border: 0; background: none;
+    display: flex; align-items: center; justify-content: center; color: var(--label2);
+  }
+  .omore svg { width: 20px; height: 20px; }
+  .omore::after { content: ""; position: absolute; inset: -4px -7px; }
+  .bftask .omore { color: var(--bf-dim); }
+
+  /* חלונית הפעולות של משימה: נפתחת מלמטה, על רקע מטושטש (אותם רכיבים כמו תפריט הלחיצה הארוכה: .mm-back, .mm-menu, .mm-row) */
+  .tm .mm-back { opacity: 1; }
+  .tm .mm-menu {
+    top: auto; left: 12px; right: 12px; width: auto; opacity: 1;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 40px); overflow-y: auto; overscroll-behavior: contain;
+  }
+  .tm-head { padding: 12px 16px 10px; font-size: var(--fs-label); color: var(--label2); border-bottom: .5px solid var(--sep); overflow-wrap: anywhere; }
+  .tm-title { font-size: 15px; font-weight: var(--fw-bold); color: var(--label); margin-bottom: 2px; }
+  .tm .mm-row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tm .tm-cancel { justify-content: center; font-weight: var(--fw-bold); color: var(--accent); }
 
   /* ---------- תמונות (שלב 8.6-3, מפרט 60 תרחיש ב, סעיף 8) ----------
      הנחה, לא אומת: אין הדמיה. נבנה רק מטוקנים ומחלקות קיימות: שלב הצירוף הוא card1 עם ctxt ו-opts (כמו כרטיס שאלה, בלי פס "ממתין לתשובה",
@@ -458,6 +493,7 @@
   /* "הועתק": הודעה קצרה מעל שורת הכתיבה */
   .toast {
     position: fixed; z-index: 210; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 84px); transform: translateX(-50%);
+    width: max-content; max-width: calc(100vw - 32px); text-align: center;
     padding: 10px 18px; border-radius: var(--r-pill); background: var(--card1); color: var(--label);
     font-size: 15px; font-weight: var(--fw-med); box-shadow: var(--sh-card2); pointer-events: none; animation: fade-in 200ms ease-out;
   }
@@ -536,6 +572,11 @@
       <button type="button" class="mm-row" id="mmReply" role="menuitem"><span>הגב</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 6l6 6-6 6"/><path d="M20 12H9a5 5 0 0 0-5 5v1"/></svg></button>
       <button type="button" class="mm-row" id="mmCopy" role="menuitem"><span>העתק</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg></button>
     </div>
+  </div>
+  <!-- פעולות על משימה פתוחה (תתי-משימות, 22.11.2026): "⋯" בשורה פותח חלונית מלמטה. התוכן נבנה ב-JS מטקסט בלבד. -->
+  <div class="mm tm" id="tm" role="dialog" aria-modal="true" aria-label="פעולות על משימה" hidden>
+    <div class="mm-back" id="tmBack"></div>
+    <div class="mm-menu" id="tmMenu" role="menu"></div>
   </div>
   <p class="toast" id="toast" role="status" hidden></p>
   <!-- צילום או בחירת תמונה (8.6-3). בלי capture: האייפון מציע גם "צלם תמונה" וגם "ספריית תמונות". -->
@@ -749,6 +790,7 @@ const PHOTO_LONG_SIDE_PX = 1600;         // הצלע הארוכה אחרי הה�
 const ICON_SEND = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>';
 const ICON_FORWARD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 6 4 12l6 6"/><path d="M4 12h11a5 5 0 0 1 5 5v1"/></svg>';
 const ICON_CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.4-2h5l1.4 2h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/></svg>';
+const ICON_MORE = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="18.5" cy="12" r="1.9"/></svg>';
 const ICON_EMPTY ='<svg class="emark" viewBox="0 0 1024 1024" fill="currentColor" aria-hidden="true"><path d="M232 176h560c39 0 71 32 71 71v450c0 39-32 71-71 71H398l-118 104c-14 12-36 2-36-17v-87h-12c-39 0-71-32-71-71V247c0-39 32-71 71-71z" opacity=".25"/><rect x="318" y="118" width="46" height="98" rx="23"/><rect x="660" y="118" width="46" height="98" rx="23"/><circle cx="330" cy="470" r="34"/><circle cx="512" cy="470" r="34"/><circle cx="694" cy="470" r="34"/><circle cx="330" cy="600" r="34"/><circle cx="512" cy="600" r="34"/><circle cx="694" cy="600" r="34"/></svg>';
 
 function icon(svgMarkup) {
@@ -1293,6 +1335,29 @@ function examCard(question, { withHead, count }) {
 // הכרטיס הנכון לפי סוג השאלה: שיעורי בית ומבחן במדעים לא עוברים דרך questionCard (כפתורי טקסט וכתיבה חופשית).
 const cardFor = (question, options) => (question.kind === 'exam' ? examCard(question, options) : question.kind === 'homework' ? homeworkCard(question, options) : questionCard(question, options));
 
+// --- תתי-משימות (הכרעת יובל 22.11.2026; השרת: lib/subtask.js, api/chat.js subtask_link / subtask_unlink). רמה אחת בלבד. ---
+// המקום של משימה ברשימה: indented = תת-משימה שההורה שלה ברשימה (ולכן מוצגת מתחתיו); nextIsSibling = גם השורה הבאה היא תת-משימה של אותו הורה (הקו ממשיך).
+// תת-משימה שההורה שלה כבר בוצע לא מוזחת: היא נשארת במקומה כמו משימה רגילה (כמו בשרת).
+function subtaskPlace(task, tasks) {
+  const parentId = task?.parent_task_id;
+  const indented = Boolean(parentId) && parentId !== task.id && tasks.some((other) => other.id === parentId);
+  if (!indented) return { indented: false, nextIsSibling: false };
+  const next = tasks[tasks.findIndex((other) => other.id === task.id) + 1];
+  return { indented: true, nextIsSibling: next?.parent_task_id === parentId };
+}
+
+// משימות שיכולות להיות הורה של task: פתוחות, לא היא עצמה, ולא תת-משימה בעצמן. השרת בודק שוב (וגם תתי-משימות שכבר בוצעו, שהדף לא רואה).
+function subtaskParents(task, tasks) {
+  return tasks.filter((other) => other.id !== task.id && !other.parent_task_id);
+}
+
+// הפעולות שה-"⋯" מציע: תת-משימה = "הוצא"; משימה בלי תתי-משימות ועם הורה אפשרי = "הפוך לתת-משימה". אין פעולה = אין "⋯".
+function taskMenuItems(task, tasks) {
+  if (task.parent_task_id) return ['unlink'];
+  const hasSubtasks = tasks.some((other) => other.parent_task_id === task.id);
+  return !hasSubtasks && subtaskParents(task, tasks).length > 0 ? ['link'] : [];
+}
+
 // שורת משימה פתוחה אחת (כותרת, פרטים, הערת שגיאה, "בוצע"): משותפת לרשימת "פתוחות" ולגוף כרטיס הבריף. rowClass: 'mini openrow' ברשימה, 'bftask openrow' בכרטיס.
 function openTaskRow(task, rowClass) {
   const busy = state.busy.has(task.id);
@@ -1315,6 +1380,21 @@ function openTaskRow(task, rowClass) {
     text.append(noteEl);
   }
   row.append(el('span', 'd'), text);
+  // תתי-משימות (22.11.2026): שורה מוזחת עם קו להורה, ו"⋯" לפעולות. הסדר (ילד מיד אחרי ההורה) מגיע מהשרת (lib/chat-view.js orderOpenTasks).
+  const tasks = Array.isArray(state.open_tasks) ? state.open_tasks : [];
+  const place = subtaskPlace(task, tasks);
+  if (place.indented) row.classList.add('sub');
+  if (place.nextIsSibling) row.classList.add('subnext');
+  if (taskMenuItems(task, tasks).length > 0) {
+    const more = el('button', 'omore');
+    more.type = 'button';
+    more.disabled = busy || uploading;
+    more.setAttribute('aria-label', 'פעולות על המשימה');
+    more.setAttribute('aria-haspopup', 'dialog');
+    more.append(icon(ICON_MORE));
+    more.addEventListener('click', () => openTaskMenu(task.id));
+    row.append(more);
+  }
   if (state.images_enabled) {
     const photo = el('button', 'ophoto');
     photo.type = 'button';
@@ -2052,6 +2132,90 @@ async function sendTaskDone(taskId) {
     return;
   }
   state.notes.set(taskId, ERROR_TEXT);
+  render();
+}
+
+// --- חלונית הפעולות של משימה ("⋯", תתי-משימות 22.11.2026) ---
+// משימה רגילה: ישר רשימת ההורים האפשריים (לחיצה אחת פחות). תת-משימה: "הוצא מתת-משימה" ו"ביטול".
+const SUBTASKS_OFF_TEXT = 'תתי-משימות עוד לא פעילות';
+const SUBTASK_INVALID_TEXT = {
+  self: 'אי אפשר לקשר משימה לעצמה',
+  parent_is_subtask: 'אי אפשר: היא כבר תת-משימה',
+  has_subtasks: 'אי אפשר: יש לה תתי-משימות',
+};
+const SUBTASK_CHANGED_TEXT = 'המשימה השתנתה, נסה שוב';
+const tmEl = document.getElementById('tm');
+const tmMenu = document.getElementById('tmMenu');
+
+function closeTaskMenu() {
+  tmEl.hidden = true;
+  tmMenu.replaceChildren();
+}
+
+function openTaskMenu(taskId) {
+  const tasks = Array.isArray(state.open_tasks) ? state.open_tasks : [];
+  const task = tasks.find((item) => item.id === taskId);
+  const items = task ? taskMenuItems(task, tasks) : [];
+  if (items.length === 0) return;
+  const row = (label, onClick, className = 'mm-row') => {
+    const node = el('button', className);
+    node.type = 'button';
+    node.setAttribute('role', 'menuitem');
+    node.append(el('span', null, label));
+    node.addEventListener('click', onClick);
+    return node;
+  };
+  const head = el('div', 'tm-head');
+  head.append(el('div', 'tm-title', task.title ?? ''));
+  const rows = [];
+  if (items[0] === 'unlink') {
+    const parent = tasks.find((item) => item.id === task.parent_task_id);
+    if (parent) head.append(el('div', null, `תת-משימה של '${parent.title ?? ''}'`));
+    rows.push(row('הוצא מתת-משימה', () => sendSubtask('subtask_unlink', task.id)));
+  } else {
+    head.append(el('div', null, 'הפוך לתת-משימה של…'));
+    for (const parent of subtaskParents(task, tasks)) rows.push(row(parent.title ?? '', () => sendSubtask('subtask_link', task.id, parent.id)));
+  }
+  rows.push(row('ביטול', closeTaskMenu, 'mm-row tm-cancel'));
+  tmMenu.replaceChildren(head, ...rows);
+  tmEl.hidden = false;
+  tmMenu.scrollTop = 0;
+}
+
+document.getElementById('tmBack').addEventListener('click', closeTaskMenu);
+tmEl.addEventListener('contextmenu', (event) => event.preventDefault());
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !tmEl.hidden) closeTaskMenu(); });
+
+// POST subtask_link / subtask_unlink. התשובה נושאת open_tasks ו-badge (גם ב-invalid), והדף מצייר מהם.
+async function sendSubtask(action, taskId, parentId) {
+  closeTaskMenu();
+  if (state.busy.has(taskId)) return;
+  state.busy.add(taskId);
+  render();
+  let data = null;
+  try {
+    const body = action === 'subtask_link' ? { action, task_id: taskId, parent_id: parentId } : { action, task_id: taskId };
+    const res = await postChat(body);
+    if (!res.ok) throw new Error(action + ' ' + res.status);
+    data = await res.json();
+  } catch (err) {
+    console.warn('[app] שינוי תת-משימה נכשל', err?.name);
+  }
+  state.busy.delete(taskId);
+  const status = data?.status;
+  if (status === 'disabled') {
+    showToast(SUBTASKS_OFF_TEXT); // העמודה עוד לא קיימת במסד: לא משנים כלום בדף
+    render();
+    return;
+  }
+  if (status === 'linked' || status === 'unlinked' || status === 'closed' || status === 'invalid') {
+    applyServerLists(data);
+    if (status === 'invalid') showToast(SUBTASK_INVALID_TEXT[data.reason] ?? SUBTASK_CHANGED_TEXT);
+    render();
+    refresh(); // כמו ב-sendTaskDone: GET ישן לא ישחזר את הסדר הקודם
+    return;
+  }
+  showToast(ERROR_TEXT);
   render();
 }
 

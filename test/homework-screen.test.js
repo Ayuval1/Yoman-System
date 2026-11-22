@@ -122,3 +122,55 @@ describe('public/index.html: שלב 8.6-2', () => {
     assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b|rgba?\(|font-family/);
   });
 });
+
+// תתי-משימות במסך (הכרעת יובל 22.11.2026): הזחה, "⋯" ושליחת subtask_link / subtask_unlink. השרת: test/subtask.test.js.
+describe('public/index.html: תתי-משימות ברשימת "פתוחות"', () => {
+  const A = { id: 'a', title: 'מצגת בהיסטוריה' };
+  const B1 = { id: 'b1', title: 'שקופיות', parent_task_id: 'a' };
+  const B2 = { id: 'b2', title: 'תמונות', parent_task_id: 'a' };
+  const C = { id: 'c', title: 'לקנות מחברת' };
+  const list = [A, B1, B2, C];
+
+  test('subtaskPlace: ילד שההורה ברשימה מוזח; הקו ממשיך רק כשהבא הוא אח; ילד שההורה בוצע לא מוזח', () => {
+    const subtaskPlace = extract('subtaskPlace');
+    assert.deepEqual({ ...subtaskPlace(A, list) }, { indented: false, nextIsSibling: false });
+    assert.deepEqual({ ...subtaskPlace(B1, list) }, { indented: true, nextIsSibling: true });
+    assert.deepEqual({ ...subtaskPlace(B2, list) }, { indented: true, nextIsSibling: false });
+    assert.deepEqual({ ...subtaskPlace(B1, [B1, C]) }, { indented: false, nextIsSibling: false });
+  });
+
+  test('taskMenuItems: תת-משימה = הוצא; הורה עם ילדים = כלום; רגילה = הפוך (רק כשיש הורה אפשרי)', () => {
+    const ctx = `${bodyOf('subtaskParents')}\n${bodyOf('taskMenuItems')}\n({ subtaskParents, taskMenuItems })`;
+    const { subtaskParents, taskMenuItems } = vm.runInNewContext(ctx);
+    assert.deepEqual([...taskMenuItems(B1, list)], ['unlink']);
+    assert.deepEqual([...taskMenuItems(A, list)], []);
+    assert.deepEqual([...taskMenuItems(C, list)], ['link']);
+    assert.deepEqual([...taskMenuItems(C, [C])], [], 'משימה יחידה: אין למי להצטרף');
+    assert.deepEqual([...subtaskParents(C, list).map((t) => t.id)], ['a'], 'לא היא עצמה ולא תתי-משימות');
+  });
+
+  test('השורה: "⋯" רק כשיש פעולה, הזחה דרך המחלקות sub/subnext; המצלמה ו"בוצע" נשארים בכל שורה', () => {
+    const row = bodyOf('openTaskRow');
+    assert.match(row, /if \(place\.indented\) row\.classList\.add\('sub'\)/);
+    assert.match(row, /if \(place\.nextIsSibling\) row\.classList\.add\('subnext'\)/);
+    assert.match(row, /if \(taskMenuItems\(task, tasks\)\.length > 0\)/);
+    assert.match(row, /if \(state\.images_enabled\)/);
+    assert.match(row, /el\('button', 'odone', 'בוצע'\)/);
+    assert.match(html, /\.openrow\.sub \{ margin-inline-start: 24px/);
+  });
+
+  test('sendSubtask: גוף הבקשה, disabled = הודעה בלי שינוי, invalid = הודעה לפי הסיבה, והרשימה מהתשובה', () => {
+    const send = bodyOf('sendSubtask');
+    assert.match(send, /\{ action, task_id: taskId, parent_id: parentId \}/);
+    assert.match(send, /status === 'disabled'[\s\S]*?showToast\(SUBTASKS_OFF_TEXT\)[\s\S]*?return;/);
+    assert.match(send, /SUBTASK_INVALID_TEXT\[data\.reason\] \?\? SUBTASK_CHANGED_TEXT/);
+    assert.match(send, /applyServerLists\(data\)/);
+    assert.match(script, /const SUBTASKS_OFF_TEXT = 'תתי-משימות עוד לא פעילות';/);
+  });
+
+  test('כרטיס "זה חלק מ...?" עובר במסלול השאלה הרגיל (questionCard + answer), כמו event_match', () => {
+    assert.match(script, /question\.kind === 'homework' \? homeworkCard\(question, options\) : questionCard\(question, options\)/);
+    assert.match(bodyOf('sendAnswer'), /action: 'answer'/);
+    assert.match(bodyOf('sendAnswer'), /await refresh\(\)/);
+  });
+});
