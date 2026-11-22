@@ -2,7 +2,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { handle } from '../lib/ops/cron-plan.js';
+import { handle as handleReal } from '../lib/ops/cron-plan.js';
+// בלוק 4: תזמון "בוצע?" של משימות (taskChecksEnabled) כבוי כאן, כדי שספירת הקריאות למסד ולתור תישאר כמו לפני הבלוק. נבדק ב-test/personal-task.test.js.
+const handle = (request, deps) => handleReal(request, { taskChecksEnabled: false, ...deps });
 import { fakeSql, captureConsole, req, FAKE_CRON } from './helpers.js';
 
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };

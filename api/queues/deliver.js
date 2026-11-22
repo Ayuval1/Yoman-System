@@ -3,12 +3,15 @@
 // שלב C-1 (docs/08-chapter8/90): במשבצת close נכתבת הודעת הסגירה של 21:00 ל-messages ונשלחת התראה בכל ערב (deliverClose למטה), במקום התראת הסיכום של M.2.
 // מאז שלב 8.2א-3 יש סוג שלישי, notify: התראה מאוגדת על הודעת מערכת שנוצרה מהודעה שהועברה (lib/chat-notify.js), באותו נושא ובלי שינוי ב-vercel.json.
 // שלב 8.6-1 (docs/08-chapter8/60): סוג רביעי, homework: שאלת "היו שיעורי בית?" אחת לרצף שיעורים (נוצרת ב-cron-plan של 01:00 UTC, מגיעה 3 דקות אחרי סוף הרצף). ראו deliverHomework למטה.
+// בלוק 4 (אפיון-מורחב סעיף 3 פריט 13): סוג חמישי, taskcheck: שאלת "בוצע?" מיד כשהשעה הברורה של משימה אישית עוברת (deliverTaskCheck למטה).
+// ובסגירה של 21:00 נוצרות שאלות "בוצע?" לכל משימה פתוחה שמועדה היום או עבר (lib/personal-task.js ensureClosingChecks), לפני טעינת השאלות.
 // התור הוא בטא (queue/v2beta). המסירה at-least-once, ולכן הכתיבה אידמפוטנטית: אותה משבצת נרשמת פעם אחת.
 // ההנחה: ש-@vercel/queue עובד מקובץ api פשוט נבדקה בפריסת ניסוי ב-8.10.2026 (הגיעה 0.8 שניות אחרי היעד).
 // פורמט ה-handler כאן הוא (req, res) של handleNodeCallback ולא export default { fetch }; ראו test/queue-deliver.test.js.
 import { neon } from '@neondatabase/serverless';
 import { QueueClient } from '@vercel/queue';
-import { parseSlotMessage, planNotify } from '../../lib/message-slots.js';
+import { parseSlotMessage, planNotify, taskCheckFromKey } from '../../lib/message-slots.js';
+import { createImmediateCheck, ensureClosingChecks } from '../../lib/personal-task.js';
 import { sendChatNotification, sendBriefNotification, sendClosingNotification, sendResumeNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
@@ -70,6 +73,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
+  if (parsed.kind === 'taskcheck') return deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
 }
 
@@ -226,6 +230,48 @@ async function deliverHomework({ sql, parsed, detail, ok, lateSeconds, delivered
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, sent: outcome.sent };
 }
 
+// שאלת "בוצע?" מיד כשהשעה הברורה של משימה עוברת (בלוק 4, lib/personal-task.js). בדפוס של deliverHomework: יצירה אידמפוטנטית, ואז התראה כללית אחת
+// (sendChatNotification, "שאלה אחת ממתינה"; בלי כותרת המשימה) עם מפתח חלון האגוד. השאלה לא נוצרת אם המשימה כבר לא פתוחה, אם המועד השתנה מאז התזמון
+// (due_at לא שווה ליעד), או אם כבר נשאלה היום או שיש עליה שאלה פתוחה. כשל מסד ביצירה נזרק (התור ינסה שוב); כשל בהתראה נתפס ונרשם.
+async function deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret }) {
+  const { taskId, targetAt } = taskCheckFromKey(parsed.slotKey);
+  const created = await createImmediateCheck({ sql, taskId, targetAt, now: deliveredAt });
+  // כמו בשיעורי בית: שאלה שכבר קיימת בלי ניסיון התראה רשום (קריסה אחרי היצירה) מקבלת התראה עכשיו. שאלה שלא נוצרה כי אין צורך: בלי התראה.
+  let shouldNotify = created;
+  if (!created) {
+    const found = await sql`
+      SELECT 1 AS found FROM messages m
+      WHERE m.entity_type = 'task_check' AND m.entity_id = ${taskId}::uuid AND m.awaiting_reply = true
+        AND NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+      LIMIT 1
+    `;
+    shouldNotify = Array.isArray(found) && found.length > 0;
+  }
+  let outcome = { sent: false, reason: created ? 'exists' : 'not-needed', badge: null };
+  if (shouldNotify) {
+    try {
+      outcome = await sendChatNotification({ sql, slotKey: planNotify(deliveredAt).slotKey, pushHandle, secret, now: deliveredAt });
+    } catch (error) {
+      console.error('queue-deliver: התראת "בוצע?" נכשלה:', error?.name); // רק שם השגיאה
+      outcome = { sent: false, reason: 'error', badge: null };
+    }
+  }
+  const sentOk = outcome.sent || !(String(outcome.reason).startsWith('push-') || outcome.reason === 'no-secret' || outcome.reason === 'error');
+  if (shouldNotify) {
+    const notifyDetail = `${detail}; created=${created}; badge=${outcome.badge}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+    try {
+      await sql`
+        INSERT INTO probe_log (probe, ok, detail)
+        SELECT 'chat-notify', ${ok && sentOk}, ${notifyDetail}
+        WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+      `;
+    } catch (error) {
+      console.error('queue-deliver: רישום התראת "בוצע?" נכשל:', error?.name);
+    }
+  }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, sent: outcome.sent };
+}
+
 // הודעת הסגירה של 21:00 (C-1, docs/08-chapter8/90 E1-E11), בדפוס של deliverBrief. נקראת אחרי שורת message-slot, שנכתבת ראשונה וללא שינוי.
 // הודעה אחת למשבצת (E9): entity_type='close' ו-entity_id = briefEntityId(slotKey) (מיובא, לא מועתק), הכנסה עם WHERE NOT EXISTS, sent_at = read_at = targetAt (לא נספרת באייקון).
 // הזמן הוא targetAt, לא השעון (E8, E11): חלון "נקלט", "מחר", שורת המבחן ומצב ההתראה מחושבים ממנו, ולכן ניסיון חוזר או הגעה אחרי חצות מחשבים אותו דבר.
@@ -265,6 +311,8 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));
   // כרטיס המסגרת של חופשה שמתחילה מחר (lib/vacation-ask.js), לפני טעינת השאלות כדי שייספר בסגירה. לא זורק. "היום" = תאריך המשבצת.
   await ensureVacationEvening({ sql, dateIso, now: deliveredAt });
+  // בלוק 4: "בוצע?" לכל משימה פתוחה (אישית או שיעורי בית) שמועדה עבר עד רגע הסגירה, לפני טעינת השאלות כדי שייספרו בסגירה ובמספר. לא זורק.
+  await ensureClosingChecks({ sql, dateIso, targetAt, now: deliveredAt });
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
   let trainings = [];
   let events = [];

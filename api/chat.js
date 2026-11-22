@@ -13,6 +13,9 @@
 //   שאלת החופשה (lib/vacation-ask.js): pending יכול לכלול פריט { kind: 'vacation', ask: 'day' | 'frame', text, buttons (מחרוזות), allowFreeText: true }, באותה צורה כמו שאלה רגילה.
 //   POST { action: 'vacation', message_id, answer } -> { status: 'answered' | 'closed' | 'unclear', items, pending, badge }   (items = שורת התשובה ובועת התשובה; closed/unclear = לא נכתב דבר)
 //   וגם POST { action: 'answer', ... } על שאלת חופשה עובר ל-answerVacation (אותה תשובה), כדי שהדף הקיים יענה עליה בלי שינוי.
+//   משימה אישית (בלוק 4, lib/personal-task.js): pending יכול לכלול { kind: 'task_due', text, buttons: [], allowFreeText: true } ("עד מתי?") ו-{ kind: 'task_check', text, buttons: ['בוצע', 'עוד לא'], allowFreeText: false } ("בוצע?"),
+//   באותה צורה כמו שאלה רגילה. התשובה נשלחת ב-answer (אחרי answerQuestion ו-answerVacation שמחזירים closed) ועוברת ל-answerTaskQuestion: { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
+//   תשובה ל"עד מתי?" עם שעה ברורה מתזמנת "בוצע?" לתור (sendQueue). task_done סוגר גם שאלות פתוחות על המשימה.
 //   כרטיס המכסה (בלוק 3א, אפיון-מורחב סעיף 4): GET מחזיר גם quota = null, או { until, kind, model, kind_label, returns_label } כשכל רשימת המודלים של המוח חסומה במכסה (lib/brain/state.js). כשל בקריאה = null.
 //   כפתור "חבר Google": GET מחזיר גם google_connected = true | false, או null כשהבדיקה נכשלה (loadGoogleConnected למטה).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
@@ -35,6 +38,10 @@ import { examLineAt } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
+import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../lib/personal-task.js';
+
+// נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
+const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
 
 const SECRET_HEADER = 'x-intake-secret';
 const SECRET_ENV_NAME = 'INTAKE_SECRET';
@@ -173,7 +180,8 @@ async function loadGoogleConnected(sql) {
 // handle מקבל את ה-DB מבחוץ (deps.sql) כדי שאפשר לבדוק בלי מסד אמיתי. timetable (אופציונלי, לבדיקות): מערכת שעות במקום טעינה מהמסד.
 // eventSync (אופציונלי, לבדיקות): הכתיבה ליומן Google אחרי תשובה (שלב 8.3-4, lib/event-sync.js).
 // googleDay (בלוק 3ב-2): אירועי Google של יום, לבדיקת התנגשות כשתשובה ב"לא זמין" משלימה תאריך או שעה. בלי הגדרות Google: undefined.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }) } = {}) {
+// sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -245,6 +253,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
+      // בלוק 4: שאלות פתוחות על המשימה ("עד מתי?", "בוצע?") כבר לא רלוונטיות. כשל לא משנה את התשובה (המשימה כבר סומנה); הכרטיס יישאר עד שיפוג או ייענה (closed).
+      if (done) {
+        try {
+          await closeQuestionsForTask(sql, action.taskId);
+        } catch (error) {
+          console.error('chat: סגירת שאלות המשימה נכשלה:', error?.name);
+        }
+      }
       const openTasks = await loadOpenTasks(sql);
       const badge = await loadBadge(sql, now());
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, now: now() });
@@ -260,6 +276,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: vacation.status, items, pending, badge });
+      }
+      // בלוק 4: שאלה על משימה אישית ("עד מתי?" / "בוצע?"). פקודת כתיבה אחת (או כלום). בלי כתיבה ליומן Google.
+      const task = await answerTaskQuestion({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (task.status !== 'closed') {
+        if (task.task?.timed) await queueTaskCheck({ send: sendQueue, task: task.task, now: now() }); // לא זורק
+        const items = task.status === 'answered' ? await loadCreatedItems(sql, task.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: task.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
