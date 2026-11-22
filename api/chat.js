@@ -36,6 +36,7 @@
 //   POST { action: 'subtask_unlink', task_id } -> { status: 'unlinked' | 'closed' | 'disabled', task, open_tasks, badge }   (closed = לא קיימת או לא תת-משימה)
 //   task_done על משימה שנשארו לה תתי-משימות פתוחות: התשובה כוללת גם open_subtasks = N (תתי-המשימות נשארות פתוחות; ראו lib/personal-task.js answerTaskCheck).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
+//   בלוק 7 חלק א'-1 (lib/calendar-view.js): GET ?view=calendar&from=YYYY-MM-DD&days=N (1..42) -> { from, days: [{ date, weekday, items }], unknownExams } במקום תשובת ה-GET הרגילה. קריאה בלבד, אותה הגנת סוד. from או days לא תקינים (חסרים, תאריך לא קיים, days לא שלם או מחוץ ל-1..42) = 400. בלי view ההתנהגות לא משתנה. כשל מסד = 500. בלי טקסט הודעות.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
 // סדר הבדיקות כמו שם: שיטה (405), סוד (401), גוף (400). כשל מסד = 500. גוף כל שגיאה שהדף מציג: "לא נשלח, נסה שוב." (47).
@@ -53,6 +54,7 @@ import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
+import { loadCalendar, validateCalendarRange } from '../lib/calendar-view.js';
 import { examLineAt, applyExamChanges } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
@@ -230,6 +232,20 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     action = parseChatAction(body);
     if (!action.ok) return reply(400, ERROR_TEXT);
   }
+  // בלוק 7 חלק א'-1: תצוגת היומן (קריאה בלבד). הפרמטרים נבדקים לפני המסד.
+  let calendar = null;
+  if (request.method === 'GET') {
+    const params = new URL(request.url).searchParams;
+    if (params.get('view') === 'calendar') {
+      const daysText = params.get('days');
+      calendar = { from: params.get('from'), days: daysText !== null && /^\d{1,2}$/.test(daysText) ? Number(daysText) : NaN };
+      try {
+        validateCalendarRange(calendar.from, calendar.days);
+      } catch {
+        return reply(400, ERROR_TEXT);
+      }
+    }
+  }
   const imagesEnabled = typeof blobToken === 'string' && blobToken !== '';
 
   // attach בלי טוקן: הודעה ברורה, בלי מסד ובלי העלאה. תמונה שאינה JPEG תקין: 400 לפני כל קריאה.
@@ -242,6 +258,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   }
 
   try {
+    if (calendar !== null) return json(await loadCalendar({ sql, timetable, from: calendar.from, days: calendar.days, now: now() }));
     if (action === null) {
       const items = await loadItems(sql);
       const pending = await loadPending(sql, timetable, now());
