@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { parseTimetableMarkdown, LESSON_PERIODS } from '../lib/timetable.js';
 import {
   buildSchoolSeries, countSeries, seriesSchedule, seriesEventBody, planCut, isOldSchoolSeries, planSchoolSeries,
-  SUBJECT_LEVELS, EXPECTED_COUNTS, BREAK_TITLE, schoolEventId,
+  SUBJECT_LEVELS, EXPECTED_COUNTS, BREAK_TITLE, schoolEventId, buildSchoolHeaders, schoolHeaderId, HEADER_TITLE_PREFIX,
 } from '../lib/school-google.js';
 import { isAppSeriesEvent, APP_PROPERTY, SCHOOL_SERIES_TAG } from '../lib/google.js';
 import vacationsFile from '../data/school-vacations.json' with { type: 'json' };
@@ -238,5 +238,109 @@ describe('בלוק 4: תכנית (טהור)', () => {
     const plan = planSchoolSeries({ series: SERIES, existing: [orphan], activationDate: fromDate, vacations: VACATIONS });
     assert.equal(plan.orphans.length, 1);
     assert.equal(plan.create.length, 74);
+  });
+});
+
+describe('כותרת יום: סדרה של יום שלם לכל יום לימודים', () => {
+  const HEADERS = buildSchoolHeaders(SERIES);
+  const monday = HEADERS.find((h) => h.weekday === 2);
+  const mondaySchedule = seriesSchedule(monday, { fromDate: '2026-11-22', vacations: VACATIONS });
+
+  test('חמש כותרות (ראשון עד חמישי), כותרת = שעת השיעור הראשון עד סוף האחרון', () => {
+    assert.deepEqual(HEADERS.map((h) => h.weekday), [1, 2, 3, 4, 5]);
+    assert.deepEqual(HEADERS.map((h) => h.title), [
+      '🏫 בית ספר · 08:15–14:15', '🏫 בית ספר · 08:15–15:45', '🏫 בית ספר · 08:15–14:15', '🏫 בית ספר · 08:15–15:45', '🏫 בית ספר · 08:15–15:45',
+    ]);
+    assert.ok(HEADERS.every((h) => h.title.startsWith(HEADER_TITLE_PREFIX) && h.kind === 'header' && h.allDay === true && h.location === null));
+  });
+
+  test('השעות נגזרות מהשיעורים עצמם: יום שמתחיל בשיעור 2 מתחיל ב-09:05', () => {
+    const late = buildSchoolHeaders(buildSchoolSeries({ slots: TIMETABLE.slots.filter((s) => !(s.weekday === 1 && s.period === 1)) }));
+    assert.equal(late.find((h) => h.weekday === 1).title, '🏫 בית ספר · 09:05–14:15');
+  });
+
+  test('תיאור: שורה לכל שיעור (שעה, טווח, מקצוע, חדר אם יש), בלי שמות מורים ובלי הפסקות', () => {
+    const lines = monday.description.split('\n');
+    assert.equal(lines.length, 9);
+    assert.equal(lines[0], '1 · 08:15–09:00 · תנ"ך · חדר 121');
+    assert.equal(lines[8], '9 · 15:05–15:45 · פיזיקה · חדר אשכול ה\'');
+    const thursday = HEADERS.find((h) => h.weekday === 5).description.split('\n');
+    assert.equal(thursday[2], '3 · 10:05–10:50 · תחומי בחירה', 'בלי חדר כשאין');
+    const teachers = SERIES.map((s) => s.description).filter(Boolean).flatMap((d) => d.split('\n')).filter((l) => l.startsWith('מורה: ')).map((l) => l.slice(6));
+    for (const h of HEADERS) for (const name of teachers) assert.ok(!h.description.includes(name), `${h.key}: ${name}`);
+    assert.ok(!monday.description.includes(BREAK_TITLE));
+  });
+
+  test('מזהים: base32hex חוקי, קידומת האפליקציה, שונים מכל 74 המזהים, ו-isAppSeriesEvent מזהה (גם מופע)', () => {
+    const ids = HEADERS.map((h) => h.eventId);
+    assert.equal(schoolHeaderId(2027, 2), 'schoolser2027d2hdr');
+    assert.equal(monday.eventId, 'schoolser2027d2hdr');
+    for (const id of ids) assert.match(id, /^schoolser[0-9a-v]{5,1015}$/);
+    assert.equal(new Set([...ids, ...SERIES.map((s) => s.eventId)]).size, 79);
+    assert.ok(ids.every((id) => isAppSeriesEvent({ id })));
+    assert.ok(isAppSeriesEvent({ id: 'schoolser2027d2hdr_20261123', recurringEventId: 'schoolser2027d2hdr' }));
+  });
+
+  test('ספירת 74 לא משתנה בגלל הכותרות, גם כשהן באותה רשימה', () => {
+    assert.deepEqual(countSeries([...SERIES, ...HEADERS]), countSeries(SERIES));
+    assert.equal(countSeries([...SERIES, ...HEADERS]).ok, true);
+  });
+
+  test('חזרה של יום שלם: UNTIL בתאריך בלבד (יום לפני סוף השנה), אותם EXDATE כמו השיעורים של אותו יום', () => {
+    assert.equal(mondaySchedule.firstDate, '2026-11-23');
+    assert.equal(mondaySchedule.until, '20270619');
+    const lesson = SERIES.find((s) => s.weekday === 2 && s.kind === 'lesson');
+    assert.deepEqual(mondaySchedule.exdates, seriesSchedule(lesson, { fromDate: '2026-11-22', vacations: VACATIONS }).exdates);
+    assert.ok(mondaySchedule.exdates.length > 0);
+  });
+
+  test('גוף האירוע: start.date / end.date (למחרת), RRULE עם UNTIL תאריך, EXDATE;VALUE=DATE, ותגית האפליקציה', () => {
+    const body = seriesEventBody(monday, mondaySchedule);
+    assert.deepEqual(body.start, { date: '2026-11-23', timeZone: 'Asia/Jerusalem' });
+    assert.deepEqual(body.end, { date: '2026-11-24', timeZone: 'Asia/Jerusalem' });
+    assert.ok(!('dateTime' in body.start) && !('dateTime' in body.end));
+    assert.equal(body.recurrence[0], 'RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270619');
+    assert.equal(body.recurrence.length, 2);
+    assert.equal(body.recurrence[1], `EXDATE;VALUE=DATE:${mondaySchedule.exdates.map((d) => d.replace(/-/g, '')).join(',')}`);
+    assert.ok(!body.recurrence.some((l) => l.includes('COUNT=') || l.includes('TZID')));
+    assert.equal(body.summary, '🏫 בית ספר · 08:15–15:45');
+    assert.ok(!('location' in body));
+    assert.deepEqual(body.extendedProperties, { private: { [APP_PROPERTY]: SCHOOL_SERIES_TAG, key: '2-header' } });
+  });
+
+  test('כל חמש הכותרות: כל EXDATE באותו יום בשבוע, ובלי EXDATE כשאין חופשה', () => {
+    for (const h of HEADERS) {
+      const body = seriesEventBody(h, seriesSchedule(h, { fromDate: '2026-11-22', vacations: VACATIONS }));
+      const ex = body.recurrence.find((l) => l.startsWith('EXDATE'));
+      for (const date of ex ? ex.slice('EXDATE;VALUE=DATE:'.length).split(',') : []) {
+        assert.match(date, /^\d{8}$/);
+        assert.equal(new Date(`${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}T00:00:00Z`).getUTCDay() + 1, h.weekday, `${h.key}: ${date}`);
+      }
+    }
+    const noVacation = seriesEventBody(monday, seriesSchedule(monday, { fromDate: '2026-11-22', vacations: VACATIONS.filter((v) => v.endOfYear) }));
+    assert.deepEqual(noVacation.recurrence, ['RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20270619']);
+  });
+
+  test('תכנית: ריצה ראשונה יוצרת 5 כותרות; ריצה חוזרת על מה שכבר תואם = אפס יצירה ואפס עדכון', () => {
+    const first = planSchoolSeries({ series: [...SERIES, ...HEADERS], existing: [], activationDate: '2026-11-22', vacations: VACATIONS });
+    assert.equal(first.create.length, 79);
+    assert.equal(first.create.filter((c) => c.item.kind === 'header').length, 5);
+    // מה ש-Google היה מחזיר אחרי היצירה: הגוף עצמו + מזהה.
+    const existing = first.create.map(({ item, body }) => ({ id: item.eventId, status: 'confirmed', ...body }));
+    const again = planSchoolSeries({ series: [...SERIES, ...HEADERS], existing, activationDate: '2026-11-25', vacations: VACATIONS });
+    assert.equal(again.create.length, 0);
+    assert.equal(again.update.length, 0);
+    assert.equal(again.unchanged.length, 79);
+    assert.deepEqual(again.orphans, []);
+  });
+
+  test('כותרת קיימת עם כותרת ישנה: מתעדכנת (בלי start/end), לא נוצרת שוב', () => {
+    const body = seriesEventBody(monday, mondaySchedule);
+    const existing = [{ id: monday.eventId, status: 'confirmed', ...body, summary: '🏫 בית ספר · 08:15–15:05' }];
+    const plan = planSchoolSeries({ series: HEADERS, existing, activationDate: '2026-11-25', vacations: VACATIONS });
+    assert.equal(plan.create.length, 4);
+    assert.equal(plan.update.length, 1);
+    assert.equal(plan.update[0].patch.summary, '🏫 בית ספר · 08:15–15:45');
+    assert.ok(!('start' in plan.update[0].patch));
   });
 });
