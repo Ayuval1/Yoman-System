@@ -491,3 +491,35 @@ CREATE TABLE IF NOT EXISTS exam_asks (
   status      text        NOT NULL DEFAULT 'asked',
   answered_at timestamptz
 );
+
+-- ---------------------------------------------------------------------------
+-- garmin_credentials — אסימוני הכניסה ל-Garmin (בלוק 5, ה-8 ב-docs/01-foundation/אפיון-מורחב.md). שורה אחת, account = 'primary'.
+-- tokens_enc: כל סט האסימונים (access, refresh, client_id) מוצפן AES-256-GCM עם TOKEN_ENC_KEY (lib/google.js encryptToken), אותו מפתח כמו Google.
+-- למה במסד: לא אומת אם Garmin מחליף את טוקן ההתחדשות בכל חידוש (הספרייה הלא רשמית תומכת בשני המצבים), ולכן אחרי כל חידוש נשמר הסט כולו.
+-- זה החריג המותנה ב-docs/02-rules/03-scheduling-rules.md ("טוקני Garmin"). הסיסמה של Garmin לא נשמרת בשום מקום: הכניסה רצה פעם אחת מהמחשב (lib/garmin-login-cli.js).
+-- last_error: קוד קצר בלבד (shortReason), בלי טקסט מ-Garmin. הטבלה נוצרת במסד החי בפקודת CREATE TABLE באישור יובל.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS garmin_credentials (
+  account    text        PRIMARY KEY DEFAULT 'primary',
+  tokens_enc text        NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  last_ok_at timestamptz,
+  last_error text
+);
+
+-- ---------------------------------------------------------------------------
+-- garmin_items — מה שנמשך מ-Garmin (lib/ops/garmin-sync.js): אימונים מתוכננים (היום עד +15) ופעילויות שבוצעו (3 ימים אחורה).
+-- kind: planned / done. בלי CHECK, כמו שאר הטבלאות. פרטיות: רק מזהה, תאריך, כותרת, סוג ספורט, משך ושעת התחלה. בלי מיקום, דופק או מסלול.
+-- אין מחיקה: אימון שהמאמן מחק נשאר, ו-fetched_at מראה מתי נראה לאחרונה (מי שקורא משווה לסנכרון האחרון).
+-- הנחה, לא אומת: שמות העמודות הם הצעה של Claude. הטבלה נוצרת במסד החי בפקודת CREATE TABLE באישור יובל.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS garmin_items (
+  garmin_id    text        PRIMARY KEY,
+  kind         text        NOT NULL,
+  item_date    date        NOT NULL,
+  title        text,
+  sport        text,
+  duration_sec integer,
+  starts_at    timestamptz,
+  fetched_at   timestamptz NOT NULL DEFAULT now()
+);
