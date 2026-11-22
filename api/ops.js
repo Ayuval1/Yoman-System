@@ -6,6 +6,7 @@
 import cronPlan from '../lib/ops/cron-plan.js';
 import dailyCheck from '../lib/ops/daily-check.js';
 import gateProbe from '../lib/ops/gate-probe.js';
+import schoolSeries from '../lib/ops/school-series.js';
 
 // gate-probe צריך עד 300 שניות; הערך חל על כל המשימות כאן (לשתיים האחרות זה רק תקרה).
 export const config = { maxDuration: 300 };
@@ -14,6 +15,8 @@ export const TASKS = {
   'cron-plan': cronPlan,
   'daily-check': dailyCheck,
   'gate-probe': gateProbe,
+  // בלוק 4: 74 השיעורים וההפסקות ביומן "בית ספר". ידני בלבד (אין Cron ואין rewrite); mode=dry כברירת מחדל, mode=apply ב-POST.
+  'school-series': schoolSeries,
 };
 
 export function pickTask(request) {

@@ -20,8 +20,8 @@ describe('ops: בחירת משימה', () => {
     }
   });
 
-  test('בדיוק שלוש משימות, ולכל אחת fetch', () => {
-    assert.deepEqual(Object.keys(TASKS).sort(), ['cron-plan', 'daily-check', 'gate-probe']);
+  test('בדיוק ארבע משימות (שלוש ה-Cron ו-school-series של בלוק 4), ולכל אחת fetch', () => {
+    assert.deepEqual(Object.keys(TASKS).sort(), ['cron-plan', 'daily-check', 'gate-probe', 'school-series']);
     for (const task of Object.values(TASKS)) assert.equal(typeof task.fetch, 'function');
   });
 
@@ -63,7 +63,8 @@ describe('ops: vercel.json והמגבלה', () => {
 
   test('הכתובות הישנות שיובל מריץ ידנית עדיין קיימות כ-rewrite', () => {
     const sources = cfg.rewrites.map((r) => r.source);
-    for (const name of Object.keys(TASKS)) assert.ok(sources.includes(`/api/${name}`), name);
+    // school-series (בלוק 4) חדשה ונקראת רק דרך /api/ops?task=school-series, ולכן אין לה כתובת ישנה.
+    for (const name of ['cron-plan', 'daily-check', 'gate-probe']) assert.ok(sources.includes(`/api/${name}`), name);
   });
 
   test('לא יותר מ-12 פונקציות: קבצי js תחת api/ (כולל תתי-תיקיות)', () => {

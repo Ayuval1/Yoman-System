@@ -217,7 +217,7 @@ describe('C-3: loadGoogleTomorrow (קריאה בלבד)', () => {
       assert.equal(params.get('timeMin'), '2026-10-27T22:00:00.000Z');
       assert.equal(params.get('timeMax'), '2026-10-28T22:00:00.000Z');
       assert.equal(params.get('singleEvents'), 'true');
-      assert.equal(params.get('fields'), 'items(id,status,summary,start,end),nextPageToken');
+      assert.equal(params.get('fields'), 'items(id,status,summary,start,end,recurringEventId,extendedProperties(private)),nextPageToken');
       assert.equal(call.options.headers.authorization, `Bearer ${ACCESS_TOKEN}`);
     }
     assert.deepEqual(f.calls.filter((c) => c.options.method && c.options.method !== 'GET' && c.url !== TOKEN_ENDPOINT), [], 'שום כתיבה ל-Google');
