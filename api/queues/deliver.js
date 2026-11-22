@@ -20,11 +20,11 @@ import { loadTomorrowEvents, loadGoogleTomorrow } from '../../lib/closing-tomorr
 import { loadTrainingsForDate } from '../../lib/training-source.js';
 import { googleConfigFromEnv } from '../../lib/google.js';
 import { loadTimetable } from '../../lib/timetable.js';
-import { examLineAt } from '../../lib/exam-line.js';
+import { examLineAt, applyExamChanges } from '../../lib/exam-line.js';
 import { sequenceFromKey } from '../../lib/homework-schedule.js';
 import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
 import { loadAbsenceRows, decideAbsence } from '../../lib/homework-absence.js';
-import { createExamAsks, loadExamAnswers } from '../../lib/exam-ask.js';
+import { createExamAsks, loadExamAnswers, loadExamChanges } from '../../lib/exam-ask.js';
 import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
@@ -109,6 +109,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   // הכרטיס נוצר כאן רק ביום הראשון ורק אם הסגירה של אתמול לא יצרה אותו (WHERE NOT EXISTS). "היום" = תאריך המשבצת.
   await ensureVacationMorning({ sql, dateIso, now: deliveredAt });
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
+  const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // בלוק 4: מבחן שנדחה / בוטל (lib/event-match.js). לא זורק: כשל = הלוח כמו שהוא
   let partial = false;
   let tasks = [];
   let pending = [];
@@ -130,7 +131,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
       partial = true;
     }
   }
-  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers });
+  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams });
   let created = false;
   if (!exists) {
     const rows = await sql`
@@ -305,7 +306,7 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   };
   const table = timetable === undefined ? await loadPart('מערכת השעות', () => loadTimetable(sql, { rethrowDbError: true })) : timetable;
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
-  const examLine = examLineAt(targetAt, { timetable: table, answers });
+  const examLine = examLineAt(targetAt, { timetable: table, answers, exams: applyExamChanges(undefined, await loadExamChanges(sql)) }); // בלוק 4: שנדחה / בוטל
   const received = await loadPart('נקלט היום', () => loadReceived(sql, closingWindow(targetAt)));
   const done = await loadPart('בוצע היום', () => loadDone(sql, closingWindow(targetAt))); // C-2 (E6): אותו חלון כמו "נקלט"
   const tasks = await loadPart('המשימות', () => loadOpenTasks(sql));

@@ -194,7 +194,8 @@ export async function handle(request, {
   try {
     const source = { id: row.id, channel, raw_content: text, content_hash: contentHash, received_at: receivedAt };
     result = await withTimeout(
-      processor({ sql, source, understand: () => understand({ sql, source, replyTo, now: now() }), googleDay }),
+      // בלוק 4: replyTo גם לזיהוי האירוע ("הגב" על הודעה של אירוע = ההתאמה), ו-extra (טוען המועמדים) עובר למוח.
+      processor({ sql, source, understand: (extra) => understand({ sql, source, replyTo, now: now(), ...extra }), googleDay, replyTo }),
       processTimeoutMs,
     );
   } catch (error) {
@@ -232,9 +233,12 @@ export async function handle(request, {
   if (result?.status === 'recorded' && result.task?.timed) await queueTaskCheck({ send: sendQueue, task: result.task, now: now(), timeoutMs: NOTIFY_QUEUE_TIMEOUT_MS });
   // כתיבה ליומן Google (שלב 8.3-4, lib/event-sync.js): רק אחרי שהעיבוד נרשם במסד, ולאירוע של המקור הזה בלבד (match_key 'source:<id>').
   // בלי הגדרות Google או בלי חיבור: דילוג שקט. כל כשל נתפס ולא משנה את התשובה; כל קריאה ל-Google מוגבלת ב-FETCH_TIMEOUT_MS. הסריקה היומית משלימה מה שלא נכתב.
+  // בלוק 4 (lib/event-match.js): הודעה שעדכנה אירוע קיים (matched) כותבת את האירוע הקיים, לפי המקור שלו, ועם PATCH מותר: השינוי נאמר במפורש בהודעה
+  // (הזזה, פעולה 2 בטבלת ההרשאות, אוטונומי). ביטול = מחיקה מ-Google (פעולה 4, הבועה "בוטל" היא ההודעה).
   if (result?.status === 'recorded') {
     try {
-      await eventSync({ sql, sourceId: String(row.id), now: now() });
+      if (result.matched?.sourceId) await eventSync({ sql, sourceId: String(result.matched.sourceId), now: now(), allowPatch: true });
+      else await eventSync({ sql, sourceId: String(row.id), now: now() });
     } catch (error) {
       console.error('intake: כתיבה ליומן נכשלה:', error?.name);
     }
