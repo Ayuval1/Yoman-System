@@ -279,8 +279,11 @@ CREATE TABLE IF NOT EXISTS tasks (
   -- created_at (שלב 8.6-1): מתי נוצרה, לסדר יציב ברשימת "פתוחות" (אחרי due_at). הנחה, לא אומת: שם העמודה. במסד החי נוספה ב-ALTER עם DEFAULT now(); שורות ישנות מקבלות את רגע ההרצה.
   created_at        timestamptz DEFAULT now(),
   -- done_at (שלב C-2, docs/08-chapter8/90 E6, H2): מתי יובל סימן "בוצע", לשורת "בוצע היום" בסגירה של 21:00. בלי DEFAULT. במסד החי נוספה ב-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS done_at timestamptz שיובל מריץ; משימות שנסגרו לפני כן נשארות ריקות.
-  done_at           timestamptz
+  done_at           timestamptz,
+  -- parent_task_id (תתי-משימות, הכרעת יובל 22.11.2026): משימת-האב. ריק = משימה עצמאית. רמה אחת בלבד (נאכף בקוד, lib/subtask.js). במסד החי נוספה ב-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS ... שיובל מריץ.
+  parent_task_id    uuid        REFERENCES tasks(id)
 );
+CREATE INDEX IF NOT EXISTS tasks_parent_task_id_idx ON tasks (parent_task_id);
 
 -- ---------------------------------------------------------------------------
 -- lesson_asks — שאלת "היו שיעורי בית?" אחת לרצף שיעורים. שלב 8.6-1, docs/08-chapter8/60 "איך נשמר מה". אין מבנה ב-06-db-schema.md.
