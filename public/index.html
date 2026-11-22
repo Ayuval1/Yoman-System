@@ -3143,6 +3143,7 @@ function closeCalendar() {
   calState.req++;
   calEl.hidden = true;
   calBodyEl.replaceChildren();
+  document.getElementById('calOpen').focus(); // הפוקוס חוזר לאייקון (תיקון אחרי הבודק)
 }
 document.getElementById('calOpen').addEventListener('click', openCalendar);
 document.getElementById('calClose').addEventListener('click', closeCalendar);
