@@ -7,6 +7,7 @@ import cronPlan from '../lib/ops/cron-plan.js';
 import dailyCheck from '../lib/ops/daily-check.js';
 import gateProbe from '../lib/ops/gate-probe.js';
 import schoolSeries from '../lib/ops/school-series.js';
+import runSeries from '../lib/ops/run-series.js';
 import { connectTask as garminConnect, statusTask as garminStatus, syncTask as garminSync } from '../lib/ops/garmin-sync.js';
 
 // gate-probe צריך עד 300 שניות; הערך חל על כל המשימות כאן (לשתיים האחרות זה רק תקרה).
@@ -22,6 +23,8 @@ export const TASKS = {
   'garmin-connect': garminConnect,
   'garmin-status': garminStatus,
   'garmin-sync': garminSync,
+  // בלוק 5, ריצות שלישי ושישי: חיתוך הסדרה הישנה "ריצת בוקר" (lib/ops/run-series.js). ידני בלבד; dry כברירת מחדל, apply=1 חותך.
+  'run-series-cut': runSeries,
 };
 
 export function pickTask(request) {
