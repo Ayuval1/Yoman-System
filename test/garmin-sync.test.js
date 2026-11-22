@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { captureConsole, fakeFetch, fakeSql, jsonResponse, randomKeyB64, FAKE_CRON } from './helpers.js';
 import { decryptToken, encryptToken, parseEncKey } from '../lib/google.js';
 import {
-  GARMIN_DOWN_TEXT, GARMIN_DOWN_ENTITY, getAccessToken, isMissingTable, loadGarminItemsForDate, notifyGarminDown, saveTokens, upsertItems,
+  GARMIN_DOWN_TEXT, GARMIN_PULL_FAILED_TEXT, GARMIN_DOWN_ENTITY, getAccessToken, isMissingTable, loadGarminItemsForDate, notifyGarminDown, saveTokens, upsertItems,
 } from '../lib/garmin-store.js';
 import { connectHandle, statusHandle, syncHandle } from '../lib/ops/garmin-sync.js';
 import ops, { TASKS } from '../api/ops.js';
@@ -121,6 +121,16 @@ describe('garmin-store: שמירה וטעינה', () => {
     assert.equal(GARMIN_DOWN_TEXT, 'החיבור ל-Garmin נפל. צריך להתחבר מחדש מהמחשב.');
     assert.equal(await notifyGarminDown(fakeSql(() => []), { today: '2026-11-22', nowIso: NOW.toISOString() }), false);
   });
+
+  test('notifyGarminDown עם auth=false: נוסח "המשיכה נכשלה", אותה בדיקת יום אחד (בועה אחת ביום בסך הכול)', async () => {
+    const sql = fakeSql(() => [{ id: 'm1' }]);
+    assert.equal(await notifyGarminDown(sql, { today: '2026-11-22', nowIso: NOW.toISOString(), auth: false }), true);
+    const [call] = sql.calls;
+    assert.ok(call.values.includes(GARMIN_PULL_FAILED_TEXT));
+    assert.ok(!call.values.includes(GARMIN_DOWN_TEXT));
+    assert.ok(call.text.includes(`WHERE entity_type = '${GARMIN_DOWN_ENTITY}'`));
+    assert.equal(GARMIN_PULL_FAILED_TEXT, 'המשיכה מ-Garmin נכשלה היום. אנסה שוב מחר.');
+  });
 });
 
 describe('ops: garmin-connect', () => {
@@ -220,7 +230,9 @@ describe('ops: garmin-sync', () => {
     assert.equal(fetchImpl.calls.length, 1);
     const [mark] = sql.find('SET last_error');
     assert.ok(mark.values.includes('refresh_auth_rejected (400)'));
-    assert.equal(sql.find('INSERT INTO messages').length, 1);
+    const bubbles = sql.find('INSERT INTO messages');
+    assert.equal(bubbles.length, 1);
+    assert.ok(bubbles[0].values.includes(GARMIN_DOWN_TEXT));
   });
 
   test('בועה כבר נשלחה היום (NOT EXISTS לא החזיר שורה): bubble false', async () => {
@@ -239,25 +251,51 @@ describe('ops: garmin-sync', () => {
     assert.equal(sql.find('SET last_ok_at').length, 0);
   });
 
-  test('403 (Cloudflare?) ו-429: last_error, בלי בועה (לא בעיית התחברות), בלי ניסיון חוזר', async () => {
-    for (const status of [403, 429]) {
+  test('403 (Cloudflare?), 429 ורשת: last_error, ובועת "המשיכה נכשלה" (03-scheduling-rules: כל כשל = הודעה), בלי ניסיון חוזר', async () => {
+    for (const make of [() => new Response('', { status: 403 }), () => new Response('', { status: 429 }), () => { throw new Error('net'); }]) {
       const sql = sqlWith(credRow(FRESH));
-      const fetchImpl = fakeFetch(() => new Response('', { status }));
+      const fetchImpl = fakeFetch(make);
       const body = await (await syncHandle(request('garmin-sync'), deps(sql, fetchImpl))).json();
       assert.equal(body.ok, false);
-      assert.equal(body.bubble, false);
+      assert.equal(body.bubble, true);
       assert.equal(sql.find('SET last_error').length, 1);
-      if (status === 429) assert.equal(fetchImpl.calls.length, 1);
+      const bubbles = sql.find('INSERT INTO messages');
+      assert.equal(bubbles.length, 1);
+      assert.ok(bubbles[0].values.includes(GARMIN_PULL_FAILED_TEXT));
     }
+    const blocked = fakeFetch(() => new Response('', { status: 429 }));
+    await syncHandle(request('garmin-sync'), deps(sqlWith(credRow(FRESH)), blocked));
+    assert.equal(blocked.calls.length, 1);
   });
 
-  test('לא מחובר / טבלה חסרה: ok false עם הסיבה, בלי בועה ובלי fetch', async () => {
-    for (const [sql, reason] of [[sqlWith(null), 'not_connected'], [fakeSql((text) => { if (!text.includes('probe_log')) throw missingTable(); return []; }), 'table_missing']]) {
-      const fetchImpl = fakeFetch(() => { throw new Error('לא אמור לקרוא'); });
-      const body = await (await syncHandle(request('garmin-sync'), deps(sql, fetchImpl))).json();
-      assert.deepEqual(body, { ok: false, reason, bubble: false });
-      assert.equal(fetchImpl.calls.length, 0);
-    }
+  test('רענון נכשל ברשת (לא auth): בועת "המשיכה נכשלה"', async () => {
+    const sql = sqlWith(credRow(STALE));
+    const body = await (await syncHandle(request('garmin-sync'), deps(sql, fakeFetch(() => { throw new Error('net'); })))).json();
+    assert.deepEqual(body, { ok: false, reason: 'refresh_network', bubble: true });
+    assert.ok(sql.find('INSERT INTO messages')[0].values.includes(GARMIN_PULL_FAILED_TEXT));
+  });
+
+  test('לא מחובר: ok false, בלי בועה (לא כשל: עוד לא התחברו) ובלי fetch', async () => {
+    const sql = sqlWith(null);
+    const fetchImpl = fakeFetch(() => { throw new Error('לא אמור לקרוא'); });
+    const body = await (await syncHandle(request('garmin-sync'), deps(sql, fetchImpl))).json();
+    assert.deepEqual(body, { ok: false, reason: 'not_connected', bubble: false });
+    assert.equal(fetchImpl.calls.length, 0);
+    assert.equal(sql.find('INSERT INTO messages').length, 0);
+  });
+
+  test('garmin_credentials חסרה: table_missing, בועת "המשיכה נכשלה", בלי fetch ובלי last_error', async () => {
+    const sql = fakeSql((text) => {
+      if (text.includes('INSERT INTO messages')) return [{ id: 'm1' }];
+      if (!text.includes('probe_log')) throw missingTable();
+      return [];
+    });
+    const fetchImpl = fakeFetch(() => { throw new Error('לא אמור לקרוא'); });
+    const body = await (await syncHandle(request('garmin-sync'), deps(sql, fetchImpl))).json();
+    assert.deepEqual(body, { ok: false, reason: 'table_missing', bubble: true });
+    assert.equal(fetchImpl.calls.length, 0);
+    assert.equal(sql.find('SET last_error').length, 0);
+    assert.ok(sql.find('INSERT INTO messages')[0].values.includes(GARMIN_PULL_FAILED_TEXT));
   });
 
   test('garmin_items חסרה (credentials קיימת): table_missing', async () => {
@@ -265,12 +303,13 @@ describe('ops: garmin-sync', () => {
     const body = await (await syncHandle(request('garmin-sync'), deps(sql, okFetch()))).json();
     assert.equal(body.ok, false);
     assert.equal(body.reason, 'table_missing');
+    assert.equal(body.bubble, true);
   });
 
-  test('בלי מפתח הצפנה: config_missing; POST 405; בלי סוד 401', async () => {
-    const sql = fakeSql();
+  test('בלי מפתח הצפנה: config_missing עם בועה; POST 405; בלי סוד 401', async () => {
+    const sql = fakeSql((text) => (text.includes('INSERT INTO messages') ? [{ id: 'm1' }] : []));
     const noKey = await syncHandle(request('garmin-sync'), { ...deps(sql, okFetch()), encKeyRaw: undefined });
-    assert.deepEqual(await noKey.json(), { ok: false, reason: 'config_missing', bubble: false });
+    assert.deepEqual(await noKey.json(), { ok: false, reason: 'config_missing', bubble: true });
     assert.equal((await syncHandle(request('garmin-sync', { method: 'POST' }), deps(sql, okFetch()))).status, 405);
     assert.equal((await syncHandle(request('garmin-sync', { headers: {} }), deps(sql, okFetch()))).status, 401);
   });
