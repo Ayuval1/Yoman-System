@@ -136,6 +136,21 @@ describe('garmin: כניסה, שלב 3 (החלפת כרטיס בטוקנים)', 
     assert.equal(allFail.calls.length, 4);
   });
 
+  test('403 (Cloudflare) או 5xx או רשת: עוצר מיד, בלי לנסות מזהים נוספים; רק 400/401 ממשיכים למזהה הבא', async () => {
+    for (const [make, expected] of [
+      [() => new Response('', { status: 403 }), { ok: false, reason: 'forbidden', status: 403 }],
+      [() => new Response('', { status: 502 }), { ok: false, reason: 'http_error', status: 502 }],
+      [() => { throw new Error('net'); }, { ok: false, reason: 'network', status: null }],
+    ]) {
+      const fetchImpl = fakeFetch(make);
+      assert.deepEqual(await exchangeTicket({ ticket: 'ST-1', fetchImpl }), expected);
+      assert.equal(fetchImpl.calls.length, 1);
+    }
+    const wrongClient = fakeFetch((url, options, i) => (i === 0 ? new Response('', { status: 401 }) : new Response('', { status: 403 })));
+    assert.deepEqual(await exchangeTicket({ ticket: 'ST-1', fetchImpl: wrongClient }), { ok: false, reason: 'forbidden', status: 403 });
+    assert.equal(wrongClient.calls.length, 2);
+  });
+
   test('תשובה בלי refresh_token לא נחשבת הצלחה', async () => {
     const fetchImpl = fakeFetch(() => jsonResponse({ access_token: 'acc-FAKE' }));
     const result = await exchangeTicket({ ticket: 'ST-1', fetchImpl });
@@ -331,6 +346,41 @@ describe('garmin: pullItems (מה שה-Cron מושך)', () => {
     assert.equal(result.auth, true);
     assert.deepEqual(result.failures, ['activities:auth_rejected (401)']);
     assert.deepEqual(result.items.map((i) => i.garmin_id), ['cal:9']);
+  });
+
+  test('401 באמצע: רענון אחד, ואותה קריאה נשלחת שוב עם הטוקן החדש; הקריאות הבאות עם החדש', async () => {
+    let renewCalls = 0;
+    const renewAccess = async () => { renewCalls += 1; return { ok: true, accessToken: 'new' }; };
+    const fetchImpl = fakeFetch((url, options) => {
+      if (options.headers.authorization === 'Bearer old') return new Response('', { status: 401 });
+      return jsonResponse(url.includes('calendar-service') ? { calendarItems: [] } : []);
+    });
+    const result = await pullItems({ accessToken: 'old', fetchImpl, today: '2026-11-22', renewAccess });
+    assert.equal(result.ok, true);
+    assert.equal(renewCalls, 1);
+    assert.equal(fetchImpl.calls[0].options.headers.authorization, 'Bearer old');
+    assert.ok(fetchImpl.calls.slice(1).every((c) => c.options.headers.authorization === 'Bearer new'));
+    assert.equal(fetchImpl.calls[1].url, fetchImpl.calls[0].url, 'אותה קריאה נשלחת שוב');
+  });
+
+  test('גם הטוקן המרוענן מקבל 401: auth, בלי רענון שני', async () => {
+    let renewCalls = 0;
+    const renewAccess = async () => { renewCalls += 1; return { ok: true, accessToken: 'new' }; };
+    const fetchImpl = fakeFetch(() => new Response('', { status: 401 }));
+    const result = await pullItems({ accessToken: 'old', fetchImpl, today: '2026-11-22', renewAccess });
+    assert.equal(renewCalls, 1);
+    assert.equal(result.auth, true);
+    assert.equal(result.failures[0], 'activities:auth_rejected (401)');
+  });
+
+  test('הרענון עצמו נכשל: עוצרים את המשיכה, הסיבה והסוג (auth או לא) מהרענון', async () => {
+    const fetchImpl = fakeFetch(() => new Response('', { status: 401 }));
+    const notAuth = await pullItems({ accessToken: 'old', fetchImpl, today: '2026-11-22', renewAccess: async () => ({ ok: false, reason: 'refresh_network', auth: false }) });
+    assert.equal(fetchImpl.calls.length, 1);
+    assert.deepEqual(notAuth.failures, ['activities:refresh_network']);
+    assert.equal(notAuth.auth, false);
+    const auth = await pullItems({ accessToken: 'old', fetchImpl: fakeFetch(() => new Response('', { status: 401 })), today: '2026-11-22', renewAccess: async () => ({ ok: false, reason: 'refresh_auth_rejected (400)', auth: true }) });
+    assert.equal(auth.auth, true);
   });
 
   test('429 בקריאה אחת: לא ממשיכים לקריאות הבאות (בלי הצפה)', async () => {
