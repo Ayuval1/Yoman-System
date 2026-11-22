@@ -17,7 +17,7 @@ import { neon } from '@neondatabase/serverless';
 import { processSource } from '../lib/intake-process.js';
 import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
-import { syncEventForSource } from '../lib/event-sync.js';
+import { syncEventForSource, syncEventsByMatchKeys } from '../lib/event-sync.js';
 import { understandSource, parseReplyTo } from '../lib/intake-brain.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
 import { queueTaskCheck } from '../lib/personal-task.js';
@@ -100,6 +100,8 @@ export async function handle(request, {
   sendQueue = realSend,
   now = () => new Date(),
   eventSync = syncEventForSource,
+  // בלוק 5 חלק א': הכתיבה ליומן "אימונים" אחרי לוז 4fitness (כמה אירועים לפי match_key), לבדיקות.
+  fitnessSync = syncEventsByMatchKeys,
   understand = understandSource,
   // בלוק 3ב-2: אירועי Google של יום ("אני פנוי?", התנגשות ב"לא זמין"). בלי הגדרות Google: undefined, ו-Google לא נבדק.
   googleDay = googleDayFromEnv({ sql }),
@@ -237,7 +239,9 @@ export async function handle(request, {
   // (הזזה, פעולה 2 בטבלת ההרשאות, אוטונומי). ביטול = מחיקה מ-Google (פעולה 4, הבועה "בוטל" היא ההודעה).
   if (result?.status === 'recorded') {
     try {
-      if (result.matched?.sourceId) await eventSync({ sql, sourceId: String(result.matched.sourceId), now: now(), allowPatch: true });
+      // בלוק 5 חלק א': לוז 4fitness נוגע בכמה אירועים, גם כאלה שנוצרו מלוז קודם (מפתח של מקור אחר). PATCH רק למה שהלוז עדכן עכשיו.
+      if (result.fitness) await fitnessSync({ sql, keys: result.fitness.keys, patchKeys: result.fitness.patchKeys, now: now() });
+      else if (result.matched?.sourceId) await eventSync({ sql, sourceId: String(result.matched.sourceId), now: now(), allowPatch: true });
       else await eventSync({ sql, sourceId: String(row.id), now: now() });
     } catch (error) {
       console.error('intake: כתיבה ליומן נכשלה:', error?.name);
