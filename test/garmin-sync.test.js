@@ -404,6 +404,64 @@ describe('ops: garmin-sync', () => {
     assert.ok(!text.includes('ref-FAKE'));
     assert.ok(!log.text().includes('ref-FAKE'));
   });
+
+  // בלוק 5: החלת הפריטים על אימוני 4fitness (lib/garmin-apply.js) בסוף משיכה מוצלחת בלבד. כשל בה לא מכשיל את המשיכה.
+  test('משיכה מוצלחת: applyItems נקרא פעם אחת, אחרי השמירה, עם fetched_at של המשיכה', async () => {
+    const sql = sqlWith(credRow(FRESH));
+    const calls = [];
+    const applyItems = async (args) => {
+      calls.push({ ...args, storedBefore: sql.find('INSERT INTO garmin_items').length });
+      return { ok: true };
+    };
+    const body = await (await syncHandle(request('garmin-sync'), { ...deps(sql, okFetch()), applyItems })).json();
+    assert.equal(body.ok, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].sql, sql);
+    assert.equal(calls[0].fetchedAt, NOW.toISOString());
+    assert.equal(calls[0].storedBefore, 2);
+  });
+
+  test('applyItems נכשל או זורק: המשיכה עדיין ok, ונרשם קוד בלבד', async (t) => {
+    const log = captureConsole(t);
+    for (const applyItems of [async () => ({ ok: false, reason: 'db_error' }), async () => { throw new Error('אינטרוולים'); }]) {
+      const sql = sqlWith(credRow(FRESH));
+      const body = await (await syncHandle(request('garmin-sync'), { ...deps(sql, okFetch()), applyItems })).json();
+      assert.deepEqual(body, { ok: true, planned: 1, done: 1, stored: 2, failures: [], bubble: false });
+    }
+    assert.ok(log.text().includes('db_error'));
+    assert.ok(!log.text().includes('אינטרוולים'));
+  });
+
+  test('בועת "Garmin נפל" שנכתבה: דחיפה אחת; בועה שכבר נשלחה היום: בלי דחיפה', async () => {
+    const pushes = [];
+    const push = async (args) => { pushes.push(args); return { sent: true }; };
+    const fetchImpl = () => fakeFetch(() => jsonResponse({ error: 'invalid_grant' }, 400));
+    const written = await (await syncHandle(request('garmin-sync'), { ...deps(sqlWith(credRow(STALE)), fetchImpl()), push })).json();
+    assert.equal(written.bubble, true);
+    assert.equal(pushes.length, 1);
+    const skippedSql = sqlWith(credRow(STALE), (text) => (text.includes('INSERT INTO messages') ? [] : undefined));
+    const skipped = await (await syncHandle(request('garmin-sync'), { ...deps(skippedSql, fetchImpl()), push })).json();
+    assert.equal(skipped.bubble, false);
+    assert.equal(pushes.length, 1);
+  });
+
+  test('משיכה מוצלחת: אותה דחיפה מועברת ל-applyItems; בלי בועה אין דחיפה', async () => {
+    const pushes = [];
+    const push = async () => { pushes.push(1); return { sent: true }; };
+    let got;
+    await syncHandle(request('garmin-sync'), { ...deps(sqlWith(credRow(FRESH)), okFetch()), push, applyItems: async (args) => { got = args.push; return { ok: true }; } });
+    assert.equal(got, push);
+    assert.equal(pushes.length, 0);
+  });
+
+  test('משיכה שנכשלה (חלקית): applyItems לא נקרא', async () => {
+    const sql = sqlWith(credRow(FRESH));
+    let called = 0;
+    const fetchImpl = fakeFetch((url) => (url.includes('activitylist') ? new Response('', { status: 500 }) : jsonResponse({ calendarItems: [] })));
+    const body = await (await syncHandle(request('garmin-sync'), { ...deps(sql, fetchImpl), applyItems: async () => { called += 1; return { ok: true }; } })).json();
+    assert.equal(body.ok, false);
+    assert.equal(called, 0);
+  });
 });
 
 describe('ops: שלוש המשימות רשומות', () => {
