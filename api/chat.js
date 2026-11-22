@@ -25,6 +25,13 @@
 //   POST { action: 'attach', task_id, image } (image = JPEG ב-base64, עד 1,500,000 תווים לכל הגוף) -> { status: 'attached', media_id, open_tasks, badge }
 //     | { status: 'closed', open_tasks, badge } (המשימה לא קיימת / לא פתוחה) | { status: 'failed', message, open_tasks, badge } (ההעלאה נכשלה, אין שורה ב-media)
 //     | { status: 'disabled', message } (אין טוקן; בלי מסד). task_id לא תקף, לא JPEG או גוף גדול מדי = 400.
+//   תתי-משימות (הכרעת יובל 22.11.2026, lib/subtask.js): pending יכול לכלול { kind: 'subtask_link', text, buttons, allowFreeText: false } ("זה חלק מ'<הורה>'?"),
+//   באותה צורה כמו שאלה רגילה. התשובה ב-answer (אחרי שאר השאלות שמחזירות closed) עוברת ל-answerSubtaskLink: { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
+//   open_tasks: לתת-משימה יש parent_task_id, והיא מופיעה מיד אחרי ההורה שלה.
+//   POST { action: 'subtask_link', task_id, parent_id } -> { status: 'linked' | 'invalid' | 'disabled', reason?, task, open_tasks, badge }
+//     (invalid + reason: self / not_found / not_open / parent_is_subtask / has_subtasks / changed; disabled = העמודה tasks.parent_task_id עוד לא קיימת במסד; task = פריט הילד מ-open_tasks או null)
+//   POST { action: 'subtask_unlink', task_id } -> { status: 'unlinked' | 'closed' | 'disabled', task, open_tasks, badge }   (closed = לא קיימת או לא תת-משימה)
+//   task_done על משימה שנשארו לה תתי-משימות פתוחות: התשובה כוללת גם open_subtasks = N (תתי-המשימות נשארות פתוחות; ראו lib/personal-task.js answerTaskCheck).
 //   כרטיס הבריף החי (docs/08-chapter8/68, 21.10.2026): GET, homework ו-task_done מחזירים גם brief = null לפני 07:30 שעון ישראל, אחרת { dateIso, title, school, schoolLessons, schoolStartsAt, schoolEndsAt, schoolDay, exams, freeDay, text } (lib/brief-view.js, briefCardData; schoolDay: true/false/null = לא ידוע, מערכת שעות חסרה). כשל בבנייתו לא שובר את התשובה: brief = null.
 //
 // הגנה: אותו מנגנון כמו api/intake.js: סוד בכותרת x-intake-secret מול INTAKE_SECRET, השוואה בזמן קבוע, ונכשל סגור כשהסוד לא מוגדר.
@@ -48,6 +55,7 @@ import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
 import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../lib/personal-task.js';
+import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtask, unlinkSubtask } from '../lib/subtask.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -285,20 +293,33 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       if (result.status === 'failed') return json({ status: 'failed', message: UPLOAD_FAILED_TEXT, open_tasks: openTasks, badge });
       return json({ status: 'closed', open_tasks: openTasks, badge });
     }
+    if (action.action === 'subtask_link' || action.action === 'subtask_unlink') {
+      // תתי-משימות: כפתור ידני (המסך בהמשך). פקודת כתיבה אחת (או כלום); הבדיקות ב-lib/subtask.js. disabled = העמודה עוד לא קיימת במסד.
+      const result = action.action === 'subtask_link'
+        ? await linkSubtask({ sql, taskId: action.taskId, parentId: action.parentId })
+        : await unlinkSubtask({ sql, taskId: action.taskId });
+      const openTasks = await loadOpenTasks(sql);
+      const badge = await loadBadge(sql, now());
+      const task = openTasks.find((item) => item.id === action.taskId) ?? null;
+      return json({ ...result, task, open_tasks: openTasks, badge });
+    }
     if (action.action === 'task_done') {
       const done = await markTaskDone(sql, action.taskId);
-      // בלוק 4: שאלות פתוחות על המשימה ("עד מתי?", "בוצע?") כבר לא רלוונטיות. כשל לא משנה את התשובה (המשימה כבר סומנה); הכרטיס יישאר עד שיפוג או ייענה (closed).
+      // בלוק 4: שאלות פתוחות על המשימה ("עד מתי?", "בוצע?", ותתי-משימות: "זה חלק מ...?") כבר לא רלוונטיות. כשל לא משנה את התשובה (המשימה כבר סומנה); הכרטיס יישאר עד שיפוג או ייענה (closed).
+      let openSubtasks = 0;
       if (done) {
         try {
           await closeQuestionsForTask(sql, action.taskId);
+          await closeSubtaskQuestions(sql, action.taskId);
         } catch (error) {
           console.error('chat: סגירת שאלות המשימה נכשלה:', error?.name);
         }
+        openSubtasks = await countOpenSubtasks(sql, action.taskId); // לא זורק: כשל או עמודה חסרה = 0
       }
       const openTasks = await loadOpenTasks(sql);
       const badge = await loadBadge(sql, now());
       const brief = await buildBrief({ sql, timetable, tasks: openTasks, now: now() });
-      return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge, brief });
+      return json({ status: done ? 'done' : 'closed', open_tasks: openTasks, badge, brief, ...(openSubtasks > 0 ? { open_subtasks: openSubtasks } : {}) });
     }
     // answer: closed ו-unclear לא כותבים כלום (47 קריטריון 6), ולכן אין פריטים חדשים.
     const result = await answerQuestion({ sql, messageId: action.messageId, answer: action.answer, timetable, googleDay });
@@ -340,6 +361,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: matched.status, items, pending, badge });
+      }
+      // תתי-משימות: כרטיס "זה חלק מ...?". פקודת כתיבה אחת (או כלום). בלי כתיבה ליומן Google.
+      const subtask = await answerSubtaskLink({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (subtask.status !== 'closed') {
+        const items = subtask.status === 'answered' ? await loadCreatedItems(sql, subtask.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: subtask.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").

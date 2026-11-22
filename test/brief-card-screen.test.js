@@ -201,6 +201,9 @@ describe('public/index.html: כרטיס הבריף החי', () => {
       ${bodyOf('dueLabel')}
       ${bodyOf('briefIsSeen')}
       ${bodyOf('markBriefSeen')}
+      ${bodyOf('subtaskPlace')}
+      ${bodyOf('subtaskParents')}
+      ${bodyOf('taskMenuItems')}
       ${bodyOf('openTaskRow')}
       ${bodyOf('openTasksNodes')}
       ${bodyOf('nearestDueLabel')}
@@ -214,6 +217,7 @@ describe('public/index.html: כרטיס הבריף החי', () => {
       localStorage: { getItem() { return null; }, setItem() {} },
       openBrief() { calls.openBrief++; }, closeBrief() {},
       sendTaskDone(id) { calls.done.push(id); },
+      icon: () => new FakeNode('svg'), ICON_MORE: '', openTaskMenu() {}, // "⋯" של תתי-משימות: סמל בלי טקסט
       reviewStrip: () => new FakeNode('review'),
       cardFor: () => new FakeNode('qcard'),
     };
