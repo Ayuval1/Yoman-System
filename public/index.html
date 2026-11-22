@@ -513,11 +513,92 @@
     .quote:not([hidden]) { animation-name: fade-in; }
     .jump { transform: none; transition: opacity 150ms ease-out; }
   }
+
+  /* ---------- מסך היומן (בלוק 7 חלק א'-2): לצפייה בלבד, מסך משני. הבית נשאר הצ'אט. ----------
+     המפרט: docs/02-rules/03-design-rules.md שכבה 4 ("יומן מלא, מסך משני", "שיעורים והפסקות כבלוקים נפרדים", "צבעי המקצועות", "אירוע שגוגל והמערכת לא מסכימים עליו").
+     הצבעים מהמפרט, לא חדשים: בית ספר #ABC0DB, אימונים #9DC7CB, ענבר מהטוקנים. צבעי מקצוע ב-CAL_SUBJECTS בסקריפט.
+     הנחה, לא אומת באייפון: מראה הרשת והרשימה נגזר מהמפרט ומהטוקנים, בלי הדמיה. */
+  :root { --cal-school: #ABC0DB; --cal-training: #9DC7CB; --cal-ink: #0B1410; }
+  .cal-open {
+    position: absolute; z-index: 3; inset-inline-end: 14px; top: calc(env(safe-area-inset-top) + 4px);
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(255, 255, 255, .16);
+  }
+  .cal-open svg { width: 22px; height: 22px; }
+  .rvhead .cal-btn { margin-inline-start: auto; }
+  .cal-bar { flex: none; display: flex; align-items: center; gap: 6px; padding: 0 12px 8px; }
+  .cal-bar h2 { flex: 1; text-align: center; font-size: 20px; font-weight: var(--fw-bold); color: var(--label); }
+  .cal-btn {
+    flex: none; min-width: 44px; min-height: 44px; padding: 0 14px; border: 0; border-radius: var(--r-pill);
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    background: var(--btn-neutral); color: var(--accent); font-size: 15px; font-weight: var(--fw-bold);
+  }
+  .cal-btn svg { width: 18px; height: 18px; }
+  .cal-note { font-size: 14px; line-height: 1.4; color: var(--label2); padding: 0 8px; text-align: center; }
+  .cal-wd, .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+  .cal-wd { padding: 0 2px; font-size: 12px; font-weight: var(--fw-bold); color: var(--label2); text-align: center; }
+  .cal-day {
+    position: relative; min-width: 0; min-height: 84px; padding: 5px 2px 4px; border: 0; border-radius: 12px;
+    background: var(--card1); box-shadow: var(--sh-card3); color: var(--label);
+    display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: start; overflow: hidden;
+  }
+  .cal-day.out { opacity: .42; box-shadow: none; }
+  .cal-n { font-size: 13px; font-weight: var(--fw-med); text-align: center; line-height: 20px; height: 20px; }
+  .cal-day.today .cal-n { background: var(--deep); color: #fff; border-radius: 10px; }
+  .cal-chip {
+    display: block; min-width: 0; font-size: 10.5px; line-height: 1.25; font-weight: var(--fw-bold); padding: 2px 1px; border-radius: 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+    background: var(--sf); color: var(--cal-ink); border: 1.5px solid var(--sf);
+  }
+  .cal-chip.quiz { background: transparent; color: var(--si); border-color: var(--si); }
+  .cal-chip.pending { display: flex; gap: 2px; justify-content: center; }
+  .cal-chip .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .cal-chip.pending { background: var(--amberbg); color: var(--amber); border: 1.5px dashed var(--amber); }
+  .cal-more { font-size: 10.5px; color: var(--label2); text-align: center; }
+  .cal-dots { display: flex; justify-content: center; gap: 4px; margin-top: auto; }
+  .cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--label3); }
+  .cal-dot.train { background: var(--cal-training); }
+  .cal-list { display: flex; flex-direction: column; gap: 8px; }
+  .cal-item {
+    position: relative; width: 100%; min-height: 44px; border: 0; text-align: start; font: inherit; color: var(--label);
+    background: var(--card1); border-radius: var(--r-mini); box-shadow: var(--sh-card3); padding: 10px 16px;
+    display: flex; flex-direction: column; gap: 2px; overflow: hidden;
+  }
+  .cal-row { display: flex; align-items: baseline; gap: 10px; }
+  .cal-time { flex: none; min-width: 46px; font-size: var(--fs-time); color: var(--label2); }
+  .cal-title { flex: 1; min-width: 0; font-size: 16px; font-weight: var(--fw-med); overflow-wrap: anywhere; }
+  .cal-tag { flex: none; font-size: 12px; font-weight: var(--fw-bold); color: var(--amber); }
+  .cal-det { font-size: 14px; line-height: 1.5; color: inherit; opacity: .78; padding-inline-start: 56px; }
+  .cal-item.lesson { background: var(--cal-school); color: var(--cal-ink); }
+  .cal-item.lesson::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 5px; background: var(--sf, transparent); }
+  .cal-item.lesson .cal-time { color: inherit; opacity: .72; }
+  .cal-item.brk { background: var(--sep); box-shadow: none; padding-block: 6px; }
+  .cal-item.brk .cal-title { font-size: 14px; font-weight: 400; color: var(--label2); }
+  .cal-item.exam { background: var(--sf); color: var(--cal-ink); }
+  .cal-item.exam .cal-time, .cal-item.exam .cal-tag { color: inherit; opacity: .72; }
+  .cal-item.exam.quiz { background: transparent; color: var(--si); border: 1.5px solid var(--si); box-shadow: none; }
+  .cal-item.exam.quiz .cal-title, .cal-item.exam.quiz .cal-time, .cal-item.exam.quiz .cal-tag { color: var(--si); opacity: 1; }
+  .cal-item.train::before, .cal-item.evt::before { content: ""; position: absolute; inset-block: 0; inset-inline-start: 0; width: 5px; background: var(--label3); }
+  .cal-item.train::before { background: var(--cal-training); }
+  .cal-item.pending { background: var(--amberbg); color: var(--amber); border: 1.5px dashed var(--amber); box-shadow: none; }
+  .cal-item.pending::before { display: none; }
+  .cal-item.pending .cal-time { color: var(--amber); }
+  .cal-item.noclr { background: var(--btn-neutral); color: var(--label); }
+  .cal-item.noclr.quiz { border-color: var(--label2); }
+  .cal-item.noclr.quiz .cal-title, .cal-item.noclr.quiz .cal-time, .cal-item.noclr.quiz .cal-tag { color: var(--label); }
+  /* מצב כהה: מסגרת המבדק בגוון המילוי (המפרט: "מצב כהה") */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .cal-chip.quiz, :root:not([data-theme="light"]) .cal-item.exam.quiz { color: var(--sf); border-color: var(--sf); }
+    :root:not([data-theme="light"]) .cal-item.exam.quiz .cal-title, :root:not([data-theme="light"]) .cal-item.exam.quiz .cal-time, :root:not([data-theme="light"]) .cal-item.exam.quiz .cal-tag { color: var(--sf); }
+  }
+  :root[data-theme="dark"] .cal-chip.quiz, :root[data-theme="dark"] .cal-item.exam.quiz { color: var(--sf); border-color: var(--sf); }
+  :root[data-theme="dark"] .cal-item.exam.quiz .cal-title, :root[data-theme="dark"] .cal-item.exam.quiz .cal-time, :root[data-theme="dark"] .cal-item.exam.quiz .cal-tag { color: var(--sf); }
 </style>
 </head>
 <body>
   <div class="app">
     <header class="hero">
+      <button type="button" class="cal-open" id="calOpen" aria-label="פתח את היומן"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button>
       <h1 id="today">—</h1>
       <p id="todayDate"></p>
       <button type="button" id="enablePush" class="push-btn">הפעל התראות</button>
@@ -546,6 +627,16 @@
       </div>
     </form>
   </div>
+
+  <!-- היומן: מסך משני לצפייה בלבד (בלוק 7 חלק א'-2). נבנה ב-JS מטקסט בלבד. -->
+  <section class="rvscreen" id="cal" role="dialog" aria-modal="true" aria-label="היומן" hidden>
+    <header class="rvhead">
+      <h2>יומן</h2>
+      <button type="button" class="cal-btn" id="calClose">חזרה לצ'אט</button>
+    </header>
+    <div class="cal-bar" id="calBar"></div>
+    <div class="rvbody" id="calBody"></div>
+  </section>
 
   <!-- סיכום היום: מסך מלא (M.2). נבנה ב-JS מטקסט בלבד. -->
   <section class="rvscreen" id="rv" role="dialog" aria-modal="true" aria-label="סיכום היום" hidden>
@@ -2820,6 +2911,243 @@ document.addEventListener('visibilitychange', () => {
 });
 // חזרה מ-bfcache (iOS): visibilitychange לא תמיד נורה.
 window.addEventListener('pageshow', () => { paintDate(); scheduleMidnightPaint(); });
+
+// ============================================================
+// מסך היומן (בלוק 7 חלק א'-2): לצפייה בלבד. שינויים עוברים דרך הצ'אט, ולכן אין כאן כפתורי עריכה.
+// נתונים: GET /api/chat?view=calendar&from=YYYY-MM-DD&days=N (lib/calendar-view.js). הטקסט נכנס רק דרך textContent.
+// שיעורים והפסקות לא מוצגים ברשת החודש (⏸ לא הוכרע במפרט); הם מופיעים ברשימת היום בלבד.
+// צבעי מקצועות: docs/02-rules/03-design-rules.md "צבעי המקצועות" (מילוי ודיו). למקצוע בלי צבע בפלטה: ניטרלי, בלי פס.
+// [הנחה, לא אומת: פיזיקה וכימיה בצבע "מדעים", כי הפלטה לא מפרידה ביניהן. מדעי המחשב, חנ"ג, חינוך פיננסי, כישורי חיים ושיח אישי: בלי צבע, לפי המפרט.]
+// ============================================================
+const CAL_SUBJECTS = {
+  'מתמטיקה': ['#6CA6CA', '#235E7F'], 'מדעים': ['#7ACBC8', '#2B807E'], 'פיזיקה': ['#7ACBC8', '#2B807E'], 'כימיה': ['#7ACBC8', '#2B807E'],
+  'היסטוריה': ['#A9AE62', '#626614'], 'ערבית': ['#CC8C83', '#7F463E'], 'אנגלית': ['#FCA9BD', '#AB6073'],
+  'עברית': ['#948EFD', '#5144AC'], 'ספרות': ['#BCA5DB', '#735D8F'], 'תנ"ך': ['#F69EFE', '#A754AF'], 'אזרחות': ['#E770A9', '#952361'],
+};
+const calSubjectColors = (subject) => CAL_SUBJECTS[String(subject ?? '').replace(/[״“”]/g, '"').trim()] ?? null;
+const CAL_WEEKDAYS = ['א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ש'];
+const CAL_TZ = 'Asia/Jerusalem';
+const CAL_ERROR_TEXT = 'לא הצלחתי לטעון את היומן';
+const calEl = document.getElementById('cal');
+const calBodyEl = document.getElementById('calBody');
+const calBarEl = document.getElementById('calBar');
+const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0 };
+
+const calPad = (n) => String(n).padStart(2, '0');
+const calIso = (y, m, d) => `${y}-${calPad(m + 1)}-${calPad(d)}`;
+// התאריך של היום בשעון ישראל, YYYY-MM-DD
+function calToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: CAL_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function calHm(iso) {
+  if (!iso) return '';
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return '';
+  return new Intl.DateTimeFormat('en-GB', { timeZone: CAL_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(at);
+}
+const calSvg = (path) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+function calButton(className, label, svgPath, text) {
+  const b = el('button', className);
+  b.type = 'button';
+  if (label) b.setAttribute('aria-label', label);
+  if (svgPath) b.insertAdjacentHTML('beforeend', calSvg(svgPath));
+  if (text) b.append(document.createTextNode(text));
+  return b;
+}
+function calSetColors(node, subject) {
+  const c = calSubjectColors(subject);
+  if (!c) return false;
+  node.style.setProperty('--sf', c[0]);
+  node.style.setProperty('--si', c[1]);
+  return true;
+}
+
+// רשת החודש מתחילה בראשון שלפני (או ב-)1 לחודש, ו-42 ימים מכסים כל חודש.
+function calGridStart(y, m) {
+  const first = new Date(Date.UTC(y, m, 1));
+  const start = new Date(Date.UTC(y, m, 1 - first.getUTCDay()));
+  return calIso(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate());
+}
+
+async function calLoad() {
+  const req = ++calState.req;
+  calState.status = 'loading';
+  calState.data = null;
+  calRender();
+  try {
+    const res = await authedFetch(`/api/chat?view=calendar&from=${calGridStart(calState.y, calState.m)}&days=42`);
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    if (req !== calState.req) return;
+    if (!data || !Array.isArray(data.days)) throw new Error('shape');
+    calState.data = data;
+    calState.status = 'ok';
+  } catch (err) {
+    if (req !== calState.req) return;
+    console.warn('[app] טעינת היומן נכשלה', err?.name);
+    calState.status = 'error';
+  }
+  calRender();
+}
+
+function calMonthCell(day, today) {
+  const date = day.date;
+  const inMonth = Number(date.slice(5, 7)) - 1 === calState.m;
+  const cell = el('button', 'cal-day' + (inMonth ? '' : ' out') + (date === today ? ' today' : ''));
+  cell.type = 'button';
+  cell.setAttribute('aria-label', `${Number(date.slice(8))} ב${MONTHS[Number(date.slice(5, 7)) - 1]}`);
+  cell.append(el('span', 'cal-n tnum', Number(date.slice(8))));
+  const chips = [];
+  let train = false;
+  let evt = false;
+  for (const item of day.items) {
+    if (item.kind === 'exam') {
+      const chip = el('span', 'cal-chip' + (item.quiz ? ' quiz' : ''), item.subject || item.title);
+      if (!calSetColors(chip, item.subject)) { chip.style.setProperty('--sf', 'var(--btn-neutral)'); chip.style.setProperty('--si', 'var(--label2)'); }
+      chips.push(chip);
+    } else if (item.pending) { const chip = el('span', 'cal-chip pending'); chip.append(el('span', 'ct', item.title), el('span', '', '?')); chips.push(chip); }
+    else if (item.kind === 'training') train = true;
+    else if (item.kind === 'event') evt = true;
+    // שיעורים והפסקות: לא ברשת החודש (⏸ לא הוכרע במפרט).
+  }
+  chips.slice(0, 2).forEach((chip) => cell.append(chip));
+  if (chips.length > 2) cell.append(el('span', 'cal-more tnum', `+${chips.length - 2}`));
+  if (train || evt) {
+    const dots = el('span', 'cal-dots');
+    if (evt) dots.append(el('span', 'cal-dot'));
+    if (train) dots.append(el('span', 'cal-dot train'));
+    cell.append(dots);
+  }
+  cell.addEventListener('click', () => { calState.view = 'day'; calState.day = date; calState.openItem = null; calRender(); calBodyEl.scrollTop = 0; });
+  return cell;
+}
+
+function calRenderMonth() {
+  const today = calToday();
+  const wd = el('div', 'cal-wd');
+  CAL_WEEKDAYS.forEach((d) => wd.append(el('span', '', d)));
+  const grid = el('div', 'cal-grid');
+  calState.data.days.forEach((day) => grid.append(calMonthCell(day, today)));
+  const nodes = [];
+  const monthKey = `${calState.y}-${calPad(calState.m + 1)}`;
+  const unknown = (calState.data.unknownExams ?? []).find((u) => u.month === monthKey);
+  if (unknown) nodes.push(el('p', 'cal-note', unknown.text));
+  nodes.push(wd, grid);
+  calBodyEl.replaceChildren(...nodes);
+}
+
+function calItemNode(item, index) {
+  const b = el('button', 'cal-item');
+  b.type = 'button';
+  const open = calState.openItem === index;
+  b.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const row = el('div', 'cal-row');
+  const from = calHm(item.start);
+  const to = calHm(item.end);
+  if (item.kind === 'break') {
+    b.classList.add('brk');
+    const brk = el('span', 'cal-title tnum');
+    if (from && to) brk.append(el('span', 'ltr', `${from}–${to}`), document.createTextNode(' · הפסקה')); else brk.append(document.createTextNode('הפסקה'));
+    row.append(brk);
+  } else {
+    if (item.kind === 'lesson') {
+      b.classList.add('lesson');
+      calSetColors(b, item.subject); // בלי צבע בפלטה: בלי פס
+    } else if (item.kind === 'exam') {
+      b.classList.add('exam');
+      if (item.quiz) b.classList.add('quiz');
+      if (!calSetColors(b, item.subject)) b.classList.add('noclr');
+    } else if (item.pending) b.classList.add('pending');
+    else b.classList.add(item.kind === 'training' ? 'train' : 'evt');
+    const timeNode = el('span', 'cal-time tnum ltr', from || 'כל היום');
+    if (!from) timeNode.classList.remove('ltr');
+    row.append(timeNode, el('span', 'cal-title', item.title));
+    if (item.pending) row.append(el('span', 'cal-tag', 'ממתין לתשובה'));
+    else if (item.kind === 'exam') row.append(el('span', 'cal-tag', item.quiz ? 'מבדק' : 'מבחן'));
+  }
+  b.append(row);
+  if (open) {
+    const detail = [];
+    // שורות: [תווית, ערך, ערך משמאל לימין?]
+    if (from) detail.push(['שעה', to ? `${from}–${to}` : from, true]); else if (item.kind !== 'break') detail.push(['שעה', 'כל היום', false]);
+    if (item.subject) detail.push(['מקצוע', item.subject, false]);
+    if (item.room) detail.push(['חדר', item.room, false]);
+    if (item.pending) detail.push(['סטטוס', 'ממתין לתשובה שלך בצ\'אט', false]);
+    const det = el('div', 'cal-det');
+    detail.forEach(([label, value, ltr], i) => {
+      if (i) det.append(document.createElement('br'));
+      det.append(document.createTextNode(`${label}: `), el('span', ltr ? 'ltr' : '', value));
+    });
+    b.append(det);
+  }
+  b.addEventListener('click', () => { calState.openItem = open ? null : index; calRender(); });
+  return b;
+}
+
+function calRenderDay() {
+  const day = calState.data.days.find((d) => d.date === calState.day);
+  const list = el('div', 'cal-list');
+  if (!day || day.items.length === 0) list.append(el('p', 'rvempty', 'אין כלום ביום הזה'));
+  else day.items.forEach((item, i) => list.append(calItemNode(item, i)));
+  calBodyEl.replaceChildren(list);
+}
+
+function calRender() {
+  // סרגל: חודש = קודם / שם החודש / הבא. יום = חזרה לחודש / תאריך.
+  calBarEl.replaceChildren();
+  if (calState.view === 'day' && calState.status === 'ok') {
+    const back = calButton('cal-btn', 'חזרה לחודש', '<path d="M9 6l6 6-6 6"/>', 'חודש');
+    back.addEventListener('click', () => { calState.view = 'month'; calState.openItem = null; calRender(); });
+    const [y, m, d] = calState.day.split('-').map(Number);
+    const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    calBarEl.append(back, el('h2', 'tnum', `יום ${DAYS[wd]}, ${d} ב${MONTHS[m - 1]}`));
+  } else {
+    const prev = calButton('cal-btn', 'החודש הקודם', '<path d="M9 6l6 6-6 6"/>');
+    const next = calButton('cal-btn', 'החודש הבא', '<path d="M15 6l-6 6 6 6"/>');
+    prev.addEventListener('click', () => calShift(-1));
+    next.addEventListener('click', () => calShift(1));
+    calBarEl.append(prev, el('h2', 'tnum', `${MONTHS[calState.m]} ${calState.y}`), next);
+  }
+  if (calState.status === 'loading') { calBodyEl.replaceChildren(el('p', 'rvempty', 'טוען…')); return; }
+  if (calState.status === 'error') {
+    const retry = el('button', 'cal-btn', 'נסה שוב');
+    retry.type = 'button';
+    retry.addEventListener('click', calLoad);
+    const box = el('div', 'loaderr', CAL_ERROR_TEXT);
+    box.append(retry);
+    calBodyEl.replaceChildren(box);
+    return;
+  }
+  if (calState.view === 'day') calRenderDay(); else calRenderMonth();
+}
+
+function calShift(delta) {
+  const at = new Date(Date.UTC(calState.y, calState.m + delta, 1));
+  calState.y = at.getUTCFullYear();
+  calState.m = at.getUTCMonth();
+  calState.view = 'month';
+  calLoad();
+}
+
+function openCalendar() {
+  const [y, m] = calToday().split('-').map(Number);
+  calState.open = true;
+  calState.y = y; calState.m = m - 1; calState.view = 'month'; calState.openItem = null;
+  calEl.hidden = false;
+  calBodyEl.scrollTop = 0;
+  calLoad();
+  document.getElementById('calClose').focus();
+}
+function closeCalendar() {
+  calState.open = false;
+  calState.req++;
+  calEl.hidden = true;
+  calBodyEl.replaceChildren();
+  document.getElementById('calOpen').focus(); // הפוקוס חוזר לאייקון (תיקון אחרי הבודק)
+}
+document.getElementById('calOpen').addEventListener('click', openCalendar);
+document.getElementById('calClose').addEventListener('click', closeCalendar);
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && calState.open) closeCalendar(); });
 
 refresh();
 </script>
