@@ -462,6 +462,42 @@ describe('ops: garmin-sync', () => {
     assert.equal(body.ok, false);
     assert.equal(called, 0);
   });
+
+  // ריצות שלישי ושישי (lib/weekly-runs.js): אחרי כל משיכה. מוצלחת = עם fetched_at (יצירה / עדכון / שאלה); נכשלה = fetchedAt null (שאלה בלבד).
+  test('משיכה מוצלחת: weekly נקרא אחרי applyItems, עם fetched_at של המשיכה ואותה דחיפה', async () => {
+    const order = [];
+    const push = async () => ({ sent: true });
+    let got;
+    const body = await (await syncHandle(request('garmin-sync'), {
+      ...deps(sqlWith(credRow(FRESH)), okFetch()), push,
+      applyItems: async () => { order.push('apply'); return { ok: true }; },
+      weekly: async (args) => { order.push('weekly'); got = args; return { ok: true }; },
+    })).json();
+    assert.equal(body.ok, true);
+    assert.deepEqual(order, ['apply', 'weekly']);
+    assert.equal(got.fetchedAt, NOW.toISOString());
+    assert.equal(got.push, push);
+    assert.equal(got.now.toISOString(), NOW.toISOString());
+  });
+
+  test('משיכה שנכשלה (גם לא מחובר): weekly נקרא עם fetchedAt null, והתשובה לא משתנה', async () => {
+    const calls = [];
+    const weekly = async (args) => { calls.push(args.fetchedAt); return { ok: true }; };
+    const failed = await (await syncHandle(request('garmin-sync'), { ...deps(sqlWith(credRow(STALE)), fakeFetch(() => jsonResponse({ error: 'invalid_grant' }, 400))), weekly })).json();
+    assert.equal(failed.ok, false);
+    const notConnected = await (await syncHandle(request('garmin-sync'), { ...deps(sqlWith(null), okFetch()), weekly })).json();
+    assert.equal(notConnected.reason, 'not_connected');
+    assert.deepEqual(calls, [null, null]);
+  });
+
+  test('weekly זורק: המשיכה לא נכשלת, ונרשם קוד בלבד', async (t) => {
+    const log = captureConsole(t);
+    const body = await (await syncHandle(request('garmin-sync'), {
+      ...deps(sqlWith(credRow(FRESH)), okFetch()), applyItems: async () => ({ ok: true }), weekly: async () => { throw new Error('ריצה קלה'); },
+    })).json();
+    assert.equal(body.ok, true);
+    assert.ok(!log.text().includes('ריצה קלה'));
+  });
 });
 
 describe('ops: שלוש המשימות רשומות', () => {

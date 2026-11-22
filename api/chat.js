@@ -27,6 +27,9 @@
 //     | { status: 'disabled', message } (אין טוקן; בלי מסד). task_id לא תקף, לא JPEG או גוף גדול מדי = 400.
 //   תתי-משימות (הכרעת יובל 22.11.2026, lib/subtask.js): pending יכול לכלול { kind: 'subtask_link', text, buttons, allowFreeText: false } ("זה חלק מ'<הורה>'?"),
 //   באותה צורה כמו שאלה רגילה. התשובה ב-answer (אחרי שאר השאלות שמחזירות closed) עוברת ל-answerSubtaskLink: { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
+//   ריצת שלישי / שישי (lib/weekly-runs.js): pending יכול לכלול { kind: 'weekly_run', text, buttons: ['כן', 'לא'], allowFreeText: false } ("יש ריצה ביום שלישי 24.11?" או שאלת התנגשות).
+//   התשובה ב-answer (אחרי שאר השאלות שמחזירות closed) עוברת ל-answerWeeklyRun, ואז האירועים שנוצרו / עודכנו נכתבים ליומן (keysSync, לפי match_key):
+//   { status: 'answered' | 'closed' | 'unclear', items, pending, badge }.
 //   open_tasks: לתת-משימה יש parent_task_id, והיא מופיעה מיד אחרי ההורה שלה.
 //   POST { action: 'subtask_link', task_id, parent_id } -> { status: 'linked' | 'invalid' | 'disabled', reason?, task, open_tasks, badge }
 //     (invalid + reason: self / not_found / not_open / parent_is_subtask / has_subtasks / changed; disabled = העמודה tasks.parent_task_id עוד לא קיימת במסד; task = פריט הילד מ-open_tasks או null)
@@ -40,7 +43,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { answerQuestion } from '../lib/intake-process.js';
-import { syncEventAfterAnswer, syncEventForSource } from '../lib/event-sync.js';
+import { syncEventAfterAnswer, syncEventForSource, syncEventsByMatchKeys } from '../lib/event-sync.js';
 import { answerEventMatch } from '../lib/event-match.js';
 import { processSource } from '../lib/intake-process.js';
 import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-view.js';
@@ -56,6 +59,7 @@ import { loadQuotaCard } from '../lib/brain/state.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
 import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../lib/personal-task.js';
 import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtask, unlinkSubtask } from '../lib/subtask.js';
+import { answerWeeklyRun } from '../lib/weekly-runs.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -203,7 +207,8 @@ async function loadGoogleConnected(sql) {
 // googleDay (בלוק 3ב-2): אירועי Google של יום, לבדיקת התנגשות כשתשובה ב"לא זמין" משלימה תאריך או שעה. בלי הגדרות Google: undefined.
 // sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
 // blobToken, upload (שלב 8.6-3, אופציונלי, לבדיקות): הטוקן של Vercel Blob וההעלאה עצמה. בדיקות מזריקות upload ולא נוגעות ברשת.
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload } = {}) {
+// keysSync (בלוק 5, אופציונלי, לבדיקות): הכתיבה ליומן לפי match_key אחרי תשובה לשאלת ריצה (lib/event-sync.js, syncEventsByMatchKeys).
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, keysSync = syncEventsByMatchKeys, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -369,6 +374,21 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: subtask.status, items, pending, badge });
+      }
+      // בלוק 5: ריצת שלישי / שישי ("יש ריצה?" / התנגשות). פקודת כתיבה אחת (או כלום), ואז כתיבה ליומן לפי המפתחות. כשל ביומן נתפס ולא משנה את התשובה.
+      const weekly = await answerWeeklyRun({ sql, messageId: action.messageId, answer: action.answer, now: now(), googleDay });
+      if (weekly.status !== 'closed') {
+        if (weekly.keys.length > 0) {
+          try {
+            await keysSync({ sql, keys: weekly.keys, patchKeys: weekly.patchKeys, now: now() });
+          } catch (error) {
+            console.error('chat: כתיבה ליומן נכשלה:', error?.name);
+          }
+        }
+        const items = weekly.status === 'answered' ? await loadCreatedItems(sql, weekly.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: weekly.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
