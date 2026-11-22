@@ -660,3 +660,40 @@ describe('chat: GET google_connected', () => {
     assert.ok(!cap.text().includes('secret detail'));
   });
 });
+
+// בלוק 7 חלק א'-1: GET ?view=calendar (lib/calendar-view.js). בלי view ההתנהגות לא משתנה.
+describe('chat: GET view=calendar', () => {
+  const getCal = (query, sql, headers = H) => handle(req(`${URL_CHAT}?${query}`, { method: 'GET', headers }), { sql, secret: FAKE_SECRET, timetable: TIMETABLE, now: () => REVIEW_NOW });
+  const calSql = () => fakeSql((text) => (text.includes('FROM events') ? [{ id: 'e1', title: 'ארוחה', starts_at: '2026-11-22T16:00:00Z', ends_at: null, domain: 'personal', match_key: null }] : []));
+
+  test('מחזיר { from, days, unknownExams } וכותב כלום', async () => {
+    const sql = calSql();
+    const res = await getCal('view=calendar&from=2026-11-22&days=2', sql);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.from, '2026-11-22');
+    assert.equal(body.days.length, 2);
+    assert.ok(Array.isArray(body.unknownExams));
+    assert.ok(body.days[0].items.some((i) => i.title === 'ארוחה'));
+    assert.equal(body.items, undefined, 'לא מחזיר את שאר ה-GET');
+    assert.equal(writesOf(sql).length, 0);
+  });
+  test('בלי סוד: 401', async () => {
+    assert.equal((await getCal('view=calendar&from=2026-11-22&days=2', calSql(), {})).status, 401);
+  });
+  for (const query of ['view=calendar', 'view=calendar&from=2026-11-22', 'view=calendar&days=3', 'view=calendar&from=2026-13-40&days=3', 'view=calendar&from=2026-11-22&days=0', 'view=calendar&from=2026-11-22&days=43', 'view=calendar&from=2026-11-22&days=2.5', 'view=calendar&from=2026-11-22&days=abc']) {
+    test(`פרמטר לא תקין = 400: ${query}`, async () => {
+      assert.equal((await getCal(query, calSql())).status, 400);
+    });
+  }
+  test('view לא מוכר: ההתנהגות הקיימת', async () => {
+    const res = await getCal('view=other', fakeSql(() => []));
+    assert.equal(res.status, 200);
+    assert.ok('pending' in (await res.json()));
+  });
+  test('כשל מסד: 500', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql((text) => { if (text.includes('FROM events')) throw new Error('boom'); return []; });
+    assert.equal((await getCal('view=calendar&from=2026-11-22&days=2', sql)).status, 500);
+  });
+});
