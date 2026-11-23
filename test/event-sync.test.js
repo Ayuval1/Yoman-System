@@ -72,8 +72,8 @@ const sync = (deps) => syncEventForSource({ sourceId: SRC_ID, now: NOW, config: 
 const externalUpdates = (sql) => sql.calls.filter((c) => c.text.startsWith('UPDATE events SET external_id'));
 
 describe('8.3-4: הטבלה, המזהה והיומן (קריטריונים 1, 2)', () => {
-  test('הטבלה בקוד: personal ← "אישי", school ← "בית ספר", running ← "ריצה" (בלוק 5), ותו לא', () => {
-    assert.deepEqual({ ...CALENDAR_BY_DOMAIN }, { personal: 'אישי', school: 'בית ספר', running: 'ריצה' });
+  test('הטבלה בקוד: personal ← "אישי", school ← "בית ספר", running ← "ריצה" (בלוק 5), study ← "לימוד" (בלוק 7), ותו לא', () => {
+    assert.deepEqual({ ...CALENDAR_BY_DOMAIN }, { personal: 'אישי', school: 'בית ספר', running: 'ריצה', study: 'לימוד' });
     assert.ok(Object.isFrozen(CALENDAR_BY_DOMAIN));
   });
   test('מזהה Google נגזר מ-events.id: בלי מקפים, אותיות קטנות, base32hex תקין; קלט פגום = null', () => {
@@ -429,7 +429,7 @@ describe('8.3-4: הסריקה היומית (קריטריונים 7, 8)', () => {
     const [query] = sql.find("WHERE match_key LIKE 'source:%'");
     assert.match(query.text, /status = 'planned' AND external_id IS NULL AND starts_at > \?::timestamptz/);
     assert.match(query.text, /status = 'cancelled' AND ends_at > \?::timestamptz/);
-    assert.deepEqual(query.values, [JSON.stringify(['personal', 'school', 'running']), NOW.toISOString(), NOW.toISOString()]);
+    assert.deepEqual(query.values, [JSON.stringify(['personal', 'school', 'running', 'study']), NOW.toISOString(), NOW.toISOString()]);
   });
   test('ריצה שנכשלה בגלל שם יומן שגוי (23.11.2026): הסריקה יוצרת אותה ביומן "ריצה", ויומן בשם "אימונים" לא נחשב', async (t) => {
     captureConsole(t);

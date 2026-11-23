@@ -64,6 +64,7 @@ import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtas
 import { answerWeeklyRun } from '../lib/weekly-runs.js';
 import { answerCorrectionRule } from '../lib/correction-rules.js';
 import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
+import { answerStudyPlan } from '../lib/study-plan.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -504,6 +505,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: suggested.status, items, pending, badge });
+      }
+      // בלוק 7: תוכנית למידה למבחן ("כן" / "עוד זמן" / "לא"). פקודת כתיבה אחת (או כלום), ואז כתיבה ליומן "לימוד" לפי המפתחות. כשל ביומן נתפס ולא משנה את התשובה.
+      const study = await answerStudyPlan({ sql, messageId: action.messageId, answer: action.answer, now: now(), timetable, googleDay });
+      if (study.status !== 'closed') {
+        if (study.keys.length > 0) await syncKeysQuietly({ sql, keys: study.keys, keysSync, now: now() });
+        const items = study.status === 'answered' ? await loadCreatedItems(sql, study.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: study.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
