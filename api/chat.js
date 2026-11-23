@@ -142,7 +142,7 @@ const blobReader = (token) => async (location) => {
 
 // תמונה שמורה לתצוגה בצ'אט. סוד כבר נבדק. 404 לכל כשל (לא נמצא, נמחקה, אין טוקן, Blob נכשל): הדף פשוט לא מציג תמונה. התמונה פרטית: cache פרטי בלבד.
 async function serveMedia({ sql, id, blobToken, readBlob }) {
-  const notFound = () => reply(404, 'Not Found');
+  const notFound = () => new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
   if (typeof blobToken !== 'string' || blobToken === '') return notFound();
   try {
     const [row] = rowsOf(await sql`
@@ -303,7 +303,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     // בלוק 8 ("תביא לי"): תמונה שמורה אחת לתצוגה בצ'אט. מזהה לא תקין = 400, לפני כל קריאה.
     if (params.get('view') === 'media') {
       const id = params.get('id');
-      if (!isUuid(id)) return reply(400, ERROR_TEXT);
+      if (!isUuid(id)) return new Response(ERROR_TEXT, { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
       return serveMedia({ sql, id, blobToken, readBlob });
     }
     if (params.get('view') === 'calendar') {

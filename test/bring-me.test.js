@@ -19,10 +19,16 @@ describe('detectBringMe', () => {
     'תביא לי מה שצילמתי בשיעור מתמטיקה ביום שלישי',
     'תשלח לי את התמונה של הלוח',
     'תביא לי את הצילום מאתמול',
+    'תביא לי את מה שכתבו בהיסטוריה',
+    'תשלח לי דף מהמתמטיקה',
   ]) test(`כן: ${text}`, () => assert.equal(detectBringMe(text), true));
   for (const text of [
     'תביא לי מים', // אין מקצוע או מילת תמונה
     'תביא לי מחר',
+    'תשלח לי תזכורת לשיעור',
+    'תשלח לי תזכורת לדף של המתמטיקה', // מילת משימה גוברת
+    'תביא לי ספר למתמטיקה מחר', // מקצוע לבדו אינו מספיק
+    'תביא לי את המחברת להיסטוריה',
     'לך תביא לי את הלוח', // הפועל לא ראשון
     'אני פנוי מחר?',
     'להביא ספר להיסטוריה',
@@ -113,6 +119,12 @@ describe('searchMedia', () => {
   test('בלי שום סינון: התמונות האחרונות; בלי תמונות בכלל: none', () => {
     assert.equal(searchMedia({ rows, timetable: TIMETABLE, request: { subjects: [], date: null, period: null, topic: null } }).items[0].id, uuid(4));
     assert.deepEqual(searchMedia({ rows: [], timetable: TIMETABLE, request: { subjects: [], date: null, period: null, topic: null } }), { kind: 'none', items: [] });
+  });
+  test('עמודת DATE כ-Date: חצות ישראל (22:00Z יום קודם) היא אותו יום, לא היום הקודם', () => {
+    const request = { subjects: ['היסטוריה'], date: '2026-11-17', period: null, topic: null };
+    for (const d of ['2026-11-16T22:00:00Z', '2026-11-17T00:00:00Z']) {
+      assert.equal(searchMedia({ rows: [row(1, { lesson_date: new Date(d) })], timetable: TIMETABLE, request }).kind, 'exact', d);
+    }
   });
   test('תאריך מהמסד כ-Date ולא כמחרוזת', () => {
     const r = searchMedia({ rows: [row(1, { lesson_date: new Date('2026-11-17T00:00:00Z') })], timetable: TIMETABLE, request: { subjects: ['היסטוריה'], date: '2026-11-17', period: null, topic: null } });

@@ -28,6 +28,19 @@ describe('bring-me: בצינור הקליטה ובמוח', () => {
     const out = await processSource({ sql: intakeSql({ duplicate: true }), source: src('תביא לי את הלוח מהשיעור בהיסטוריה'), timetable: TIMETABLE });
     assert.equal(out.status, 'recorded');
   });
+  test('כפילות: בקשה שרק המוח מזהה (בלי מילת תמונה) וחוזרת באותו יום נענית; בלי המוח או עם kind אחר: "כבר קיבלתי"', async () => {
+    const { processSource } = await import('../lib/intake-process.js');
+    const text = 'תביא לי את ההיסטוריה של יום שלישי';
+    const understanding = { kind: 'bring_me', subject: 'היסטוריה', topic: null, date_text: 'יום שלישי', new_date_text: null, time_text: null, new_room: null, uncertain: [] };
+    const ok = await processSource({ sql: intakeSql({ duplicate: true }), source: src(text), timetable: TIMETABLE, understand: async () => ({ ok: true, model: 'm', understanding }) });
+    assert.equal(ok.status, 'recorded');
+    const other = await processSource({ sql: intakeSql({ duplicate: true }), source: src(text), timetable: TIMETABLE, understand: async () => ({ ok: true, model: 'm', understanding: { ...understanding, kind: 'task' } }) });
+    assert.equal(other.status, 'duplicate');
+    const noBrain = await processSource({ sql: intakeSql({ duplicate: true }), source: src(text), timetable: TIMETABLE });
+    assert.equal(noBrain.status, 'duplicate');
+    const failed = await processSource({ sql: intakeSql({ duplicate: true }), source: src(text), timetable: TIMETABLE, understand: async () => ({ ok: false, reason: 'exhausted' }) });
+    assert.equal(failed.status, 'duplicate');
+  });
   test('"תשלח לי" לא הופך למשימה (שלח הוא פועל משימה), ו"תביא לי מים" אינו בקשה למאגר', async () => {
     const { processSource } = await import('../lib/intake-process.js');
     const out = await processSource({ sql: intakeSql(), source: src('תשלח לי את הלוח של המתמטיקה'), timetable: TIMETABLE });
@@ -105,7 +118,11 @@ describe('bring-me: הצ\'אט מציג את התמונות', () => {
     const found = fakeSql((text) => (text.includes('FROM media') ? [{ blob_path: 'p', content_type: 'image/jpeg' }] : []));
     const url = (id) => `https://x.test/api/chat?view=media&id=${id}`;
     const ok = async () => new Response('x');
-    assert.equal((await handle(req(url('nope'), { headers: H }), { sql: found, secret: FAKE_SECRET, blobToken: 't', readBlob: ok })).status, 400);
+    const bad = await handle(req(url('nope'), { headers: H }), { sql: found, secret: FAKE_SECRET, blobToken: 't', readBlob: ok });
+    assert.equal(bad.status, 400);
+    assert.equal(bad.headers.get('cache-control'), 'no-store');
+    const missing = await handle(req(url(uuid(1)), { headers: H }), { sql: fakeSql(() => []), secret: FAKE_SECRET, blobToken: 't', readBlob: ok });
+    assert.equal(missing.headers.get('cache-control'), 'no-store');
     assert.equal((await handle(req(url(uuid(1))), { sql: found, secret: FAKE_SECRET, blobToken: 't', readBlob: ok })).status, 401);
     assert.equal((await handle(req(url(uuid(1)), { headers: H }), { sql: fakeSql(() => []), secret: FAKE_SECRET, blobToken: 't', readBlob: ok })).status, 404);
     assert.equal((await handle(req(url(uuid(1)), { headers: H }), { sql: found, secret: FAKE_SECRET, blobToken: '', readBlob: ok })).status, 404);
