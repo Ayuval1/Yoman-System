@@ -3,6 +3,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { handle, scrub, config } from '../lib/ops/gate-probe.js';
+import { parsePool } from '../lib/brain/models.js';
 import { fakeSql, fakeFetch, captureConsole, req, jsonResponse, FAKE_CRON } from './helpers.js';
 
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
@@ -598,16 +599,40 @@ describe('gate-probe: תיקוני שער Gemini (404, סינון מודלים, 
     await rot(deps);
     assert.match(detailOf(sql), /; no_free_quota/);
   });
+  test('429 במשפט הראשון עם PerDay בגוף (מכסה יומית שנוצלה): לא no_free_quota', async () => {
+    const perDay = () => jsonResponse({ error: { status: 'RESOURCE_EXHAUSTED', message: 'You exceeded your current quota', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } }, 429);
+    const { deps, sql } = setupH(['gemini-a-flash'], [], perDay);
+    await rot(deps);
+    assert.doesNotMatch(detailOf(sql), /no_free_quota/);
+  });
+  test('המשך שבו ran המאוחד שונה ממספר המשפטים (שורה קודמת חסרה): ok=false גם אם כולם נכונים', async () => {
+    const odd = 'range=s01-s20; 15/20 ran=15; failed: none; not-run: s18,s19,s20; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
+    const { deps, sql } = setupH(['gemini-b-flash'], [{ ok: false, at: at(5), detail: odd }], () => good());
+    await rot(deps);
+    assert.match(detailOf(sql), /; 18\/20 ran=18;/);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+  });
+  test('אינטגרציה: שורת המשך שעברה 18/20 נקראת על ידי parsePool כמודל שעבר', async () => {
+    const prior = 'range=s01-s20; 16/20 ran=17; failed: s15; not-run: s18,s19,s20; aborted_at=s18; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
+    // 2 מתוך 3 נכונים: 18/20
+    const { deps, sql } = setupH(['gemini-b-flash'], [{ ok: false, at: at(5), detail: prior }], (u, o, i) => (i <= 2 ? good() : answer('query_schedule', null)));
+    await rot(deps);
+    const [ok, detail] = sql.find('INSERT INTO probe_log')[0].values;
+    assert.equal(ok, true);
+    assert.match(detail, /; 18\/20 ran=20;/);
+    const pool = parsePool([{ ok, detail, at: new Date(NOW) }], new Date(NOW));
+    assert.deepEqual(pool, [{ model: 'gemini-b-flash', passed: 18, total: 20 }]);
+  });
   test('429 באמצע ריצה (מכסה יומית): לא no_free_quota', async () => {
     const { deps, sql } = setupH(['gemini-a-flash'], [], (u, o, i) => (i >= 3 ? quota429() : good()));
     await rot(deps);
     assert.doesNotMatch(detailOf(sql), /no_free_quota/);
   });
-  test('מודל עם no_free_quota מדולג 7 ימים, ואחרי זה חוזר', async () => {
+  test('מודל עם no_free_quota מדולג יומיים, ואחרי זה חוזר', async () => {
     const row = (hoursAgo) => [{ ok: false, at: at(hoursAgo), detail: 'range=s01-s20; 0/20 ran=1; failed: s01; not-run: s02; aborted_at=s01; model=gemini-b-flash; pool=3; slot=0/1; no_free_quota; elapsed=1s' }];
     const calls = async (rows) => { const { deps, fetchFn } = setupH(['gemini-b-flash'], rows, () => good()); await rot(deps); return gens(fetchFn).length; };
-    assert.equal(await calls(row(24 * 6)), 0); // עדיין מדולג (המודל היחיד)
-    assert.equal(await calls(row(24 * 8)), 20); // חזר
+    assert.equal(await calls(row(24 * 1)), 0); // עדיין מדולג (המודל היחיד)
+    assert.equal(await calls(row(24 * 3)), 20); // חזר
   });
   test('מודל שלא נבדק מועדף על מודל שנבדק (גם אם הרוטציה מצביעה על הנבדק)', async () => {
     const rows = [{ ok: false, at: at(30), detail: 'range=s01-s20; 10/20 ran=20; failed: s01; model=gemini-b-flash; pool=3; slot=0/1; elapsed=200s' }];
