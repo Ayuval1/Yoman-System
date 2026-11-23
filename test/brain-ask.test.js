@@ -1,7 +1,7 @@
 // בדיקות ל-lib/brain/ask.js (בלוק 3א): קריאה למוח עם מעבר אוטומטי בין מודלים. fetch ומסד מזויפים; אין רשת אמיתית.
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { askBrain } from '../lib/brain/ask.js';
+import { askBrain, PILOT_POOL, PILOT_PROBE, PILOT_ENABLED, pilotOn, pilotOutcome } from '../lib/brain/ask.js';
 import { fakeSql, fakeFetch, captureConsole, jsonResponse } from './helpers.js';
 
 const NOW = new Date('2026-11-21T12:00:00.000Z');
@@ -23,7 +23,7 @@ function db({ pool = POOL_ROWS, quota = [], failQuotaInsert = false } = {}) {
 }
 const modelOf = (url) => /models\/([^:]+):generateContent$/.exec(url)?.[1];
 function run(options = {}) {
-  const { sql = db(), route, notify, schema } = options;
+  const { sql = db(), route, notify, schema, env = {} } = options;
   const apiKey = 'apiKey' in options ? options.apiKey : API_KEY;
   const notified = [];
   const fetchFn = fakeFetch((url, options, i) => {
@@ -31,7 +31,7 @@ function run(options = {}) {
     if (v instanceof Error) throw v;
     return v;
   });
-  const promise = askBrain({ sql, fetchFn, apiKey, now: NOW, prompt: PROMPT, schema, notify: notify ?? (async (x) => { notified.push(x); }) });
+  const promise = askBrain({ sql, fetchFn, apiKey, now: NOW, prompt: PROMPT, schema, env, notify: notify ?? (async (x) => { notified.push(x); }) });
   return { sql, fetchFn, notified, promise };
 }
 const quotaInserts = (sql) => sql.find('INSERT INTO probe_log');
@@ -103,8 +103,8 @@ describe('brain/ask: מעבר למודל הבא', () => {
 });
 
 describe('brain/ask: אין מודל', () => {
-  test('רשימה ריקה: no-pool, בלי קריאה', async () => {
-    const { promise, fetchFn } = run({ sql: db({ pool: [] }), route: () => answer({}) });
+  test('רשימה ריקה והפיילוט כבוי (BRAIN_PILOT=off): no-pool, בלי קריאה', async () => {
+    const { promise, fetchFn } = run({ sql: db({ pool: [] }), route: () => answer({}), env: { BRAIN_PILOT: 'off' } });
     assert.deepEqual(await promise, { ok: false, reason: 'no-pool' });
     assert.equal(fetchFn.calls.length, 0);
   });
@@ -164,5 +164,46 @@ describe('brain/ask: פרטיות ועמידות', () => {
     const fetchFn = fakeFetch(() => answer({}));
     await assert.rejects(askBrain({ sql, fetchFn, apiKey: API_KEY, now: NOW, prompt: PROMPT, notify: async () => {} }), { name: 'NeonDbError' });
     assert.equal(fetchFn.calls.length, 0);
+  });
+});
+
+describe('brain/ask: פיילוט (חריג לשער, 23.11.2026)', () => {
+  const pilotRows = (sql) => sql.find('INSERT INTO probe_log').filter((c) => c.values[0] === PILOT_PROBE);
+  test('רשימה ריקה: רצים על רשימת הפיילוט לפי הסדר; תשובה תקינה מסומנת pilot, ונרשמת שורה בלי טקסט', async () => {
+    const { promise, fetchFn, sql } = run({ sql: db({ pool: [] }), route: () => answer({ kind: 'x' }) });
+    const result = await promise;
+    assert.deepEqual(result, { ok: true, model: PILOT_POOL[0].model, data: { kind: 'x' }, pilot: true });
+    assert.deepEqual(fetchFn.calls.map((c) => modelOf(c.url)), [PILOT_POOL[0].model]);
+    const rows = pilotRows(sql);
+    assert.equal(rows.length, 1);
+    assert.deepEqual(rows[0].values, [PILOT_PROBE, true, `model=${PILOT_POOL[0].model}; outcome=ok`]);
+    assert.ok(!rows[0].values[2].includes(PROMPT));
+  });
+  test('תשובה לא בפורמט: המודל הבא בפיילוט; שתיהן לא בפורמט = failed (הקוד ממשיך), ושתי שורות format', async () => {
+    const { promise, sql } = run({ sql: db({ pool: [] }), route: () => answer({ kind: 'x' }), schema: () => false });
+    assert.deepEqual(await promise, { ok: false, reason: 'failed' });
+    assert.deepEqual(pilotRows(sql).map((c) => c.values[2]), PILOT_POOL.map(({ model }) => `model=${model}; outcome=format`));
+  });
+  test('429 בפיילוט: חסימת מכסה נרשמת והמודל הבא; כולם במכסה = exhausted', async () => {
+    const { promise, sql } = run({ sql: db({ pool: [] }), route: () => quota429('PerDay') });
+    const result = await promise;
+    assert.equal(result.reason, 'exhausted');
+    assert.deepEqual(pilotRows(sql).map((c) => c.values[2].split('; ')[1]), ['outcome=quota', 'outcome=quota']);
+  });
+  test('מודל שעבר את השער גובר: אין קריאה למודלי הפיילוט ואין שורות פיילוט', async () => {
+    const { promise, fetchFn, sql } = run({ route: () => answer({}) });
+    const result = await promise;
+    assert.equal(result.pilot, undefined);
+    assert.ok(!PILOT_POOL.some(({ model }) => fetchFn.calls.map((c) => modelOf(c.url)).includes(model)));
+    assert.equal(pilotRows(sql).length, 0);
+  });
+  test('pilotOutcome ו-pilotOn', () => {
+    assert.equal(pilotOutcome({ error: null, status: 200 }), 'ok');
+    assert.equal(pilotOutcome({ error: 'x', status: 429 }), 'quota');
+    assert.equal(pilotOutcome({ error: 'x', status: null }), 'network');
+    assert.equal(pilotOutcome({ error: 'פורמט: y', status: 200 }), 'format');
+    assert.equal(pilotOutcome({ error: 'HTTP 503', status: 503 }), 'http-503');
+    assert.equal(pilotOn({}), PILOT_ENABLED);
+    assert.equal(pilotOn({ BRAIN_PILOT: 'OFF' }), false);
   });
 });
