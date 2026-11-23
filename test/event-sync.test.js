@@ -72,8 +72,8 @@ const sync = (deps) => syncEventForSource({ sourceId: SRC_ID, now: NOW, config: 
 const externalUpdates = (sql) => sql.calls.filter((c) => c.text.startsWith('UPDATE events SET external_id'));
 
 describe('8.3-4: הטבלה, המזהה והיומן (קריטריונים 1, 2)', () => {
-  test('הטבלה בקוד: personal ← "אישי", school ← "בית ספר", running ← "אימונים" (בלוק 5), ותו לא', () => {
-    assert.deepEqual({ ...CALENDAR_BY_DOMAIN }, { personal: 'אישי', school: 'בית ספר', running: 'אימונים' });
+  test('הטבלה בקוד: personal ← "אישי", school ← "בית ספר", running ← "ריצה" (בלוק 5), ותו לא', () => {
+    assert.deepEqual({ ...CALENDAR_BY_DOMAIN }, { personal: 'אישי', school: 'בית ספר', running: 'ריצה' });
     assert.ok(Object.isFrozen(CALENDAR_BY_DOMAIN));
   });
   test('מזהה Google נגזר מ-events.id: בלי מקפים, אותיות קטנות, base32hex תקין; קלט פגום = null', () => {
@@ -430,6 +430,18 @@ describe('8.3-4: הסריקה היומית (קריטריונים 7, 8)', () => {
     assert.match(query.text, /status = 'planned' AND external_id IS NULL AND starts_at > \?::timestamptz/);
     assert.match(query.text, /status = 'cancelled' AND ends_at > \?::timestamptz/);
     assert.deepEqual(query.values, [JSON.stringify(['personal', 'school', 'running']), NOW.toISOString(), NOW.toISOString()]);
+  });
+  test('ריצה שנכשלה בגלל שם יומן שגוי (23.11.2026): הסריקה יוצרת אותה ביומן "ריצה", ויומן בשם "אימונים" לא נחשב', async (t) => {
+    captureConsole(t);
+    const RUN_CAL = 'running-cal-id-DO-NOT-LEAK@group.calendar.google.com';
+    const weekly = eventRow({ domain: 'running', match_key: 'source:weekly:2026-11-24:run' });
+    const f = gFetch({ calendars: [...CALENDARS, { id: RUN_CAL, summary: 'ריצה', accessRole: 'owner' }] });
+    const ok = await sweepEventSync({ sql: syncSql({ sweepRows: [weekly] }), config: CONFIG, fetchFn: f, nowMs: NOW.getTime() });
+    assert.deepEqual(ok, { created: 1, deleted: 0, failed: 0, skipped: 0 });
+    assert.equal(eventCalls(f)[0].url, eventsEndpoint(RUN_CAL));
+    const old = gFetch({ calendars: [...CALENDARS, { id: 'x', summary: 'אימונים', accessRole: 'owner' }] });
+    const bad = await sweepEventSync({ sql: syncSql({ sweepRows: [weekly] }), config: CONFIG, fetchFn: old, nowMs: NOW.getTime() });
+    assert.deepEqual(bad, { created: 0, deleted: 0, failed: 1, skipped: 0, last_failure: 'calendar_not_found' });
   });
   test('לא מעדכנת (PATCH) אירוע קיים, ולא נוגעת בשורות שאינן לטיפול', async () => {
     const f = gFetch();
