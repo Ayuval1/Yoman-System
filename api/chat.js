@@ -63,6 +63,7 @@ import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../li
 import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtask, unlinkSubtask } from '../lib/subtask.js';
 import { answerWeeklyRun } from '../lib/weekly-runs.js';
 import { answerCorrectionRule } from '../lib/correction-rules.js';
+import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -113,6 +114,21 @@ async function loadItems(sql) {
 }
 
 // הפריטים שנוצרו בתשובה אחת: שורת התשובה ב-sources והבועה (אם נכתבה). מזהה ריק לא מחזיר שורה.
+// בלוק 7: כתיבה ליומן Google לפי מפתחות (keysSync), כשל נתפס ולא משנה את התשובה.
+async function syncKeysQuietly({ sql, keys, keysSync, now }) {
+  try {
+    await keysSync({ sql, keys, patchKeys: [], now });
+  } catch (error) {
+    console.error('chat: כתיבה ליומן נכשלה:', error?.name);
+  }
+}
+
+// בלוק 7: משימה שסומנה "בוצע" מהרשימה: ביטול אירוע ההצעה העתידי שלה (lib/time-suggest.js) ומחיקתו מ-Google. לא זורק.
+async function syncCancelledTaskEvent({ sql, taskId, keysSync, now }) {
+  const { keys } = await cancelTaskEvent({ sql, taskId });
+  if (keys.length > 0) await syncKeysQuietly({ sql, keys, keysSync, now });
+}
+
 async function loadCreatedItems(sql, { answerSourceId, bubbleId }) {
   if (!answerSourceId && !bubbleId) return [];
   const rows = await sql`
@@ -337,6 +353,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         } catch (error) {
           console.error('chat: סגירת שאלות המשימה נכשלה:', error?.name);
         }
+        await syncCancelledTaskEvent({ sql, taskId: action.taskId, keysSync, now: now() }); // בלוק 7: לא זורק
         openSubtasks = await countOpenSubtasks(sql, action.taskId); // לא זורק: כשל או עמודה חסרה = 0
       }
       const openTasks = await loadOpenTasks(sql);
@@ -358,7 +375,9 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       // בלוק 4: שאלה על משימה אישית ("עד מתי?" / "בוצע?"). פקודת כתיבה אחת (או כלום). בלי כתיבה ליומן Google.
       const task = await answerTaskQuestion({ sql, messageId: action.messageId, answer: action.answer, now: now() });
       if (task.status !== 'closed') {
+        if (task.keys?.length > 0) await syncKeysQuietly({ sql, keys: task.keys, keysSync, now: now() }); // בלוק 7: "בוצע" ביטל אירוע הצעה עתידי; לא זורק
         if (task.task?.timed) await queueTaskCheck({ send: sendQueue, task: task.task, now: now() }); // לא זורק
+        else if (task.status === 'answered' && task.task) await suggestTimeForTask({ sql, task: task.task, now: now(), timetable, googleDay }); // בלוק 7: תאריך בלי שעה, מציעים חלון מיד. לא זורק
         const items = task.status === 'answered' ? await loadCreatedItems(sql, task.created) : [];
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
@@ -415,6 +434,21 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: correction.status, items, pending, badge });
+      }
+      // בלוק 7: הצעת שעה למשימה אישית ("כן" / "שעה אחרת" / "לא"). פקודת כתיבה אחת (או כלום), ואז כתיבה ליומן "אישי" לפי המפתח אחרי "כן". כשל ביומן נתפס ולא משנה את התשובה.
+      const suggested = await answerTimeSuggest({ sql, messageId: action.messageId, answer: action.answer, now: now(), timetable, googleDay });
+      if (suggested.status !== 'closed') {
+        if (suggested.keys.length > 0) {
+          try {
+            await keysSync({ sql, keys: suggested.keys, patchKeys: suggested.patchKeys, now: now() });
+          } catch (error) {
+            console.error('chat: כתיבה ליומן נכשלה:', error?.name);
+          }
+        }
+        const items = suggested.status === 'answered' ? await loadCreatedItems(sql, suggested.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: suggested.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
