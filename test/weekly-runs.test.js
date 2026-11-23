@@ -8,7 +8,7 @@ import { pendingFromRows } from '../lib/chat-view.js';
 import { handle as chatHandle } from '../api/chat.js';
 import {
   planWeeklyRuns, applyWeeklyRuns, answerWeeklyRun, findConflict, askText, conflictText, weeklyKey, weeklyTimes, isWeeklyRunKey,
-  askEntityId, conflictEntityId, ASK_ENTITY, CONFLICT_ENTITY, FACT_ENTITY, WEEKLY_RUN_TITLE, WEEKLY_PREP_TITLE, DEFAULT_RUN_MINUTES, yesBubble, noBubble,
+  askEntityId, conflictEntityId, ASK_ENTITY, CONFLICT_ENTITY, FACT_ENTITY, WEEKLY_RUN_TITLE, WEEKLY_PREP_TITLE, DEFAULT_RUN_MINUTES, yesBubble, noBubble, ALREADY_BUBBLE, CANCELLED_BUBBLE,
 } from '../lib/weekly-runs.js';
 import { eventBody } from '../lib/event-sync.js';
 
@@ -129,6 +129,14 @@ describe('weekly-runs: התוכנית (טהורה)', () => {
     assert.deepEqual(plan({ now: MON_1300Z, fetchedAt: MON_1300Z.toISOString() }).asks, []);
     assert.deepEqual(plan({ now: THU_1400Z, fetchedAt: THU_1400Z.toISOString() }).asks, [FRI]);
     assert.ok(!plan({ now: MON_1400Z }).asks.includes(NEXT_TUE));
+  });
+  test('שני ה-crons של היום שלפני הוחמצו: שואלים ביום הריצה עצמו, לפני ההתארגנות (רשת ביטחון)', () => {
+    const tueMorning = new Date(`${TUE}T07:00:00.000Z`);
+    const tueAfterPrep = new Date(`${TUE}T16:10:00.000Z`);
+    assert.deepEqual(plan({ now: tueMorning, fetchedAt: tueMorning.toISOString() }).asks, [TUE]);
+    assert.deepEqual(plan({ now: tueMorning, fetchedAt: tueMorning.toISOString(), events: [weeklyRun()] }).asks, []);
+    assert.deepEqual(plan({ now: tueMorning, fetchedAt: tueMorning.toISOString(), asks: [{ date: TUE, entity_type: ASK_ENTITY, awaiting_reply: true }] }).asks, []);
+    assert.deepEqual(plan({ now: tueAfterPrep, fetchedAt: tueAfterPrep.toISOString() }).asks, []);
   });
   test('לא שואלים כשכבר יש אירוע ריצה או שאלה על התאריך', () => {
     assert.deepEqual(plan({ events: [weeklyRun()] }).asks, []);
@@ -337,6 +345,19 @@ describe('weekly-runs: תשובה בצ\'אט', () => {
     const sql = answerSql({ ask: askRow({ entity_type: CONFLICT_ENTITY, minutes: '80' }), run: [weeklyRun()] });
     const result = await answerWeeklyRun({ sql, messageId: MSG_ID, answer: 'כן', now: NOW });
     assert.deepEqual(result.patchKeys, [weeklyKey(TUE, 'run')]);
+  });
+  test('"כן" אחרי שהריצה בוטלה: בועת "בוטלה", בלי כתיבת אירועים (שאלה רגילה וגם התנגשות)', async () => {
+    for (const ask of [askRow(), askRow({ entity_type: CONFLICT_ENTITY, minutes: '80' })]) {
+      const sql = answerSql({ ask, run: [weeklyRun({ status: 'cancelled' })] });
+      const result = await answerWeeklyRun({ sql, messageId: MSG_ID, answer: 'כן', now: NOW });
+      assert.equal(result.status, 'answered');
+      assert.deepEqual(result.keys, []);
+      assert.deepEqual(result.patchKeys, []);
+      const { call, json } = writeParams(sql);
+      assert.ok(call.values.includes(CANCELLED_BUBBLE));
+      assert.ok(!call.values.includes(ALREADY_BUBBLE));
+      assert.deepEqual(json.filter((list) => Array.isArray(list) && list.some((row) => row?.match_key)), []);
+    }
   });
   test('תשובה אחרת = unclear, שאלה סגורה או לא קיימת = closed; לא נכתב כלום', async () => {
     assert.equal((await answerWeeklyRun({ sql: answerSql(), messageId: MSG_ID, answer: 'אולי', now: NOW })).status, 'unclear');
