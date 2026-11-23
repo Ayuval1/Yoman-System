@@ -94,6 +94,20 @@ describe('garmin-shape: צורה בלבד', () => {
     assert.equal(urls.length, 3);
   });
 
+  test('ערכים מספריים: מזהים וחותמות זמן לא יוצאים, מספר מחוץ ל-0..604800 לא יוצא, בוליאני כן', () => {
+    const shape = shapeOf({
+      stepId: 5, workoutId: 7, ownerId: 3, updateDate: 5, createdDate: 6, updateTime: 1732000000000, sizeSec: 604801, negativeSec: -1,
+      endConditionValue: 600, okSec: 604800, hasTimer: true, endCondition: { conditionTypeId: 2, conditionTypeKey: 'time' },
+    });
+    assert.deepEqual(shape.values, { endConditionValue: 600, okSec: 604800, hasTimer: true });
+    assert.ok(shape.keys.includes('stepId'), 'שם המפתח עדיין מופיע, רק הערך לא');
+  });
+
+  test('מפתח עם 4 ספרות רצופות או יותר (מזהה/תאריך) הופך ל-*', () => {
+    const shape = shapeOf({ '1746800115': { durationSec: 5 }, a123: 1, '2026_11_23': 1 });
+    assert.deepEqual(shape.keys, ['*', '*.durationSec', 'a123']);
+  });
+
   test('שם מפתח חריג (תאריך כמפתח) מוחלף ב-* ולא דולף', () => {
     const shape = shapeOf({ '2026-11-23': { durationSec: 5 } });
     assert.deepEqual(shape.keys, ['*', '*.durationSec']);
