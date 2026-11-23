@@ -15,6 +15,7 @@ import { createImmediateCheck, ensureClosingChecks } from '../../lib/personal-ta
 import { sendChatNotification, sendBriefNotification, sendClosingNotification, sendResumeNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
+import { composeWeekly, weeklyPushText, loadWeekTasks, loadWeekTrainings, loadWeekFresh } from '../../lib/weekly-brief.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTomorrowEvents, loadGoogleTomorrow } from '../../lib/closing-tomorrow.js';
 import { loadTrainingsForDate } from '../../lib/training-source.js';
@@ -71,6 +72,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   // C-1 (docs/08-chapter8/90 E9, E10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), הודעת הסגירה בצ'אט והתראה אחת בכל ערב (deliverClose למטה).
   // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
   if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
+  if (parsed.kind === 'weekly') return deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   if (parsed.kind === 'taskcheck') return deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
@@ -168,6 +170,75 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
     `;
   } catch (error) {
     console.error('queue-deliver: רישום התראת הבוקר נכשל:', error?.name);
+  }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, push: { sent: outcome.sent, reason: outcome.reason ?? null } };
+}
+
+// הבריף השבועי (בלוק 8, אפיון-מורחב 15; lib/weekly-brief.js). מסר נפרד בשבת 20:00, באותו מסלול של הבריף: הודעה אחת למשבצת (entity_type='weekly_brief', entity_id דטרמיניסטי, WHERE NOT EXISTS), read_at מלא (לא נספרת באייקון), ודחיפה עם מספרים בלבד (dedupe_key = המשבצת).
+// כשל טעינה נזרק לניסיון חוזר של התור, ובניסיון האחרון החלק מושמט וההודעה לא טוענת "אין כלום" (partial). הודעה שכבר קיימת: לא נכתבת שוב ולא נטענת מחדש; הדחיפה נוסחה מ-0 ולכן נשלחת רק כשההודעה נוצרה עכשיו (ניסיון חוזר אחרי הצלחה נעצר ב-dedupe_key).
+async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable }) {
+  const saturdayIso = parsed.slotKey.slice('weekly-'.length);
+  const entityId = briefEntityId(parsed.slotKey);
+  const existing = await sql`SELECT 1 AS found FROM messages WHERE entity_type = 'weekly_brief' AND entity_id = ${entityId}::uuid LIMIT 1`;
+  const exists = Array.isArray(existing) && existing.length > 0;
+  const lastAttempt = deliveryCount !== null && deliveryCount >= MAX_DELIVERIES;
+  let created = false;
+  let counts = { exams: 0, tasks: 0, trainings: 0, fresh: 0 };
+  let text = null;
+  if (!exists) {
+    let partial = false;
+    const loadPart = async (label, load, fallback) => {
+      try {
+        return await load();
+      } catch (error) {
+        if (!lastAttempt) throw error;
+        console.error(`queue-deliver: הבריף השבועי נשלח בלי ${label}:`, error?.name);
+        partial = true;
+        return fallback;
+      }
+    };
+    const table = timetable === undefined ? await loadPart('מערכת השעות', () => loadTimetable(sql, { rethrowDbError: true }), null) : timetable;
+    const answers = await loadExamAnswers(sql); // לא זורק
+    const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // לא זורק
+    const tasks = await loadPart('ההגשות', () => loadWeekTasks(sql, saturdayIso), []);
+    const trainings = await loadPart('האימונים', () => loadWeekTrainings(sql, saturdayIso), []);
+    const received = await loadPart('החדש', () => loadWeekFresh(sql, parsed.targetAt), []);
+    const weekly = composeWeekly({ saturdayIso, timetable: table, exams, answers, tasks, trainings, received, partial });
+    text = weekly.text;
+    counts = weekly.counts;
+    const rows = await sql`
+      INSERT INTO messages (direction, body, kind, sent_at, awaiting_reply, reply_source_id, expires_at, entity_type, entity_id, attempt, read_at)
+      SELECT 'out', ${text}::text, 'update', ${parsed.targetAt}::timestamptz, false, NULL::uuid, NULL::timestamptz, 'weekly_brief', ${entityId}::uuid, NULL::integer, ${parsed.targetAt}::timestamptz
+      WHERE NOT EXISTS (SELECT 1 FROM messages WHERE entity_type = 'weekly_brief' AND entity_id = ${entityId}::uuid)
+      RETURNING id
+    `;
+    created = Array.isArray(rows) && rows.length > 0;
+  }
+
+  let outcome;
+  if (!created) {
+    outcome = { sent: false, reason: 'exists', badge: null };
+  } else {
+    try {
+      outcome = await sendBriefNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret, body: weeklyPushText(counts), now: deliveredAt });
+    } catch (error) {
+      if (!lastAttempt) throw error;
+      console.error('queue-deliver: התראת הבריף השבועי נכשלה:', error?.name);
+      outcome = { sent: false, reason: 'error', badge: null };
+    }
+    const transient = outcome.reason === 'push-error' || (outcome.reason === 'push-status' && outcome.status >= 500);
+    if (transient && !lastAttempt) throw new Error(`queue-deliver: התראת הבריף השבועי נכשלה זמנית (${outcome.reason})`);
+  }
+  const sentOk = outcome.sent || outcome.reason === 'exists';
+  const notifyDetail = `${detail}; created=${created}; exams=${counts.exams}; tasks=${counts.tasks}; trainings=${counts.trainings}; fresh=${counts.fresh}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  try {
+    await sql`
+      INSERT INTO probe_log (probe, ok, detail)
+      SELECT 'chat-notify', ${ok && sentOk}, ${notifyDetail}
+      WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+    `;
+  } catch (error) {
+    console.error('queue-deliver: רישום התראת הבריף השבועי נכשל:', error?.name);
   }
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, push: { sent: outcome.sent, reason: outcome.reason ?? null } };
 }
