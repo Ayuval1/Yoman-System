@@ -66,7 +66,7 @@ describe('backfillLessonLinks', () => {
   test('קורא תמונות בלי קישור ומעדכן אחת אחת, רק היכן שעדיין ריק', async () => {
     const sql = fakeSql((text) => (text.startsWith('SELECT') ? [{ id: 'a', received_at: '2026-11-24T08:20:00Z', subject: null }, { id: 'c', received_at: '2026-11-24T18:00:00Z', subject: null }] : []));
     const result = await backfillLessonLinks({ sql, timetable: TIMETABLE });
-    assert.deepEqual(result, { scanned: 2, linked: 1 });
+    assert.deepEqual(result, { scanned: 2, linked: 1, nextBefore: null });
     const updates = sql.find('UPDATE media');
     assert.equal(updates.length, 1);
     assert.match(updates[0].text, /lesson_date IS NULL/);
@@ -74,7 +74,7 @@ describe('backfillLessonLinks', () => {
   });
   test('בלי מערכת שעות: לא נוגע במסד', async () => {
     const sql = fakeSql();
-    assert.deepEqual(await backfillLessonLinks({ sql, timetable: null }), { scanned: 0, linked: 0 });
+    assert.deepEqual(await backfillLessonLinks({ sql, timetable: null }), { scanned: 0, linked: 0, nextBefore: null });
     assert.equal(sql.calls.length, 0);
   });
 });
