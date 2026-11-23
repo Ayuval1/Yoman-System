@@ -344,8 +344,15 @@ describe('closing-view: closingPushText (H6, [הצעה])', () => {
     assert.equal(closingPushText({ receivedCount: 1 }), 'נקלטו 1');
   });
   test('ערב שבו הגיעו רק הודעות שלא הובנו: לא "יום שקט" (ביקורת C-1)', () => {
-    assert.equal(closingPushText({ notUnderstoodCount: 3 }), 'לא הובנו 3');
-    assert.equal(closingPushText({ receivedCount: 2, notUnderstoodCount: 1, openTasks: 2 }), 'נקלטו 2 · לא הובנו 1 · 2 משימות פתוחות');
+    assert.equal(closingPushText({ unsureCount: 3 }), 'לא הייתי בטוח 3');
+    assert.equal(closingPushText({ receivedCount: 2, unsureCount: 1, openTasks: 2 }), 'נקלטו 2 · לא הייתי בטוח 1 · 2 משימות פתוחות');
+  });
+  test('ההתראה סופרת את אותו מספר שבכותרת הכרטיס, גם בערב עם "שאלתי" בלבד ומעל התקרה', () => {
+    const unsure = Array.from({ length: 9 }, () => ({ time: '10:00', text: null, label: 'שאלתי' }));
+    const closing = composeClosing({ dateIso: '2026-10-27', received: [], unsure });
+    assert.equal(closing.notUnderstood, 0);
+    assert.ok(closing.text.includes(`${UNSURE_TITLE} (9):`));
+    assert.equal(closingPushText({ unsureCount: closing.unsure }), 'לא הייתי בטוח 9');
   });
   test('אפסים מושמטים; בלי חלקים: "יום שקט"; חלקי בלי חלקים: "הסגירה של היום מחכה"', () => {
     assert.equal(closingPushText({ reviewDue: 0, receivedCount: 0, pendingCount: 0, openTasks: 0, examLine: null }), QUIET_PUSH);
