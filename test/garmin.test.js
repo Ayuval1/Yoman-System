@@ -337,6 +337,36 @@ describe('garmin: pullItems (מה שה-Cron מושך)', () => {
     assert.equal(actUrl.searchParams.get('start'), '0');
   });
 
+  test('כפילות: הפריט מלוח השנה בלי אורך מקבל את האורך מפריט התוכנית שנזרק', async () => {
+    const fetchImpl = fakeFetch((url) => {
+      if (url.includes('/activitylist-service/')) return jsonResponse([]);
+      if (url.includes('/calendar-service/')) return jsonResponse({ calendarItems: [{ itemType: 'workout', id: 9, date: '2026-11-23', title: 'אינטרוולים' }] });
+      if (url.includes('workoutScheduleByPeriod')) {
+        return jsonResponse([{ workoutScheduleId: 501, calendarDate: '2026-11-23', workout: { workoutName: 'אינטרוולים', estimatedDurationInSecs: 2700 } }]);
+      }
+      return new Response('', { status: 404 });
+    });
+    const result = await pullItems({ accessToken: 'a', fetchImpl, today: '2026-11-22' });
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].garmin_id, 'cal:9');
+    assert.equal(result.items[0].duration_sec, 2700);
+  });
+
+  test('כפילות: אורך שכבר קיים בפריט מלוח השנה לא נדרס; ובלי אורך בשניהם נשאר null', async () => {
+    const make = (calDuration, schedDuration) => fakeFetch((url) => {
+      if (url.includes('/activitylist-service/')) return jsonResponse([]);
+      if (url.includes('/calendar-service/')) return jsonResponse({ calendarItems: [{ itemType: 'workout', id: 9, date: '2026-11-23', title: 'ג', duration: calDuration }] });
+      if (url.includes('workoutScheduleByPeriod')) {
+        return jsonResponse([{ workoutScheduleId: 501, calendarDate: '2026-11-23', workout: { workoutName: 'ג', estimatedDurationInSecs: schedDuration } }]);
+      }
+      return new Response('', { status: 404 });
+    });
+    const kept = await pullItems({ accessToken: 'a', fetchImpl: make(1800, 2700), today: '2026-11-22' });
+    assert.equal(kept.items[0].duration_sec, 1800);
+    const none = await pullItems({ accessToken: 'a', fetchImpl: make(undefined, undefined), today: '2026-11-22' });
+    assert.equal(none.items[0].duration_sec, null);
+  });
+
   test('קריאה אחת נכשלת: השאר נשמרים, והכשל מדווח; auth מסומן', async () => {
     const fetchImpl = fakeFetch((url) => (url.includes('activitylist')
       ? new Response('', { status: 401 })
