@@ -59,9 +59,9 @@ describe('calendar-view: מבחנים', () => {
     { date: '2026-11-22', type: 'מועד ב\'', subject: null, makeup: true },
     { date: '2026-11-22', type: 'מבחן', subject: 'מדעים', makeup: false },
   ];
-  test('מבחן בשעת השיעור, מבדק = quiz, מועד ב לא מוצג, מדעים בלי שעה = יום שלם וראשון', async () => {
+  test('מבחן בשעת השיעור, מבדק = quiz, מועד ב מוצג עם makeup (פער 3), מדעים בלי שעה = יום שלם וראשון', async () => {
     const out = await run({ exams });
-    const items = out.days[0].items.filter((i) => i.kind === 'exam');
+    const items = out.days[0].items.filter((i) => i.kind === 'exam' && i.makeup !== true);
     assert.equal(items.length, 3);
     assert.equal(items[0].start, null);
     assert.equal(items[0].subject, 'מדעים');
@@ -111,14 +111,56 @@ describe('calendar-view: אירועים', () => {
 
 describe('calendar-view: חודש בלי לוח מבחנים', () => {
   const exams = [{ date: '2026-12-24', type: 'מבחן', subject: 'מתמטיקה', makeup: false }];
-  test('חודש שמתחיל אחרי סוף הלוח = לא ידוע; חודש שהלוח מכסה חלקית לא', async () => {
+  test('חודש שמתחיל אחרי סוף הלוח = לא ידוע (וגם שורת החודש החלקי, ראו למטה)', async () => {
     const out = await run({ from: '2026-12-01', days: 42, exams });
-    assert.deepEqual(out.unknownExams.map((u) => u.month), ['2027-01']);
-    assert.equal(out.unknownExams[0].text, 'מבחנים בינואר — לא ידוע');
-    assert.equal(out.unknownExams[0].coverageEnd, '2026-12-24');
+    assert.deepEqual(out.unknownExams.map((u) => u.month), ['2026-12', '2027-01']);
+    assert.equal(out.unknownExams[1].text, 'מבחנים בינואר — לא ידוע');
+    assert.equal(out.unknownExams[1].coverageEnd, '2026-12-24');
   });
   test('כל הטווח מכוסה = ריק', async () => {
     assert.deepEqual((await run({ from: '2026-12-01', days: 20, exams })).unknownExams, []);
+  });
+});
+
+describe('calendar-view: פערים (חודש חלקי, אירוע רב-יומי, מועד ב\')', () => {
+  test('חודש שהלוח מכסה חלקית = "מבחנים מ-<יום אחרי> — לא ידוע"', async () => {
+    const exams = [{ date: '2026-12-24', type: 'מבחן', subject: 'מתמטיקה', makeup: false }, { date: '2026-12-30', type: 'מועד ב\'', subject: null, makeup: true }];
+    const out = await run({ from: '2026-12-01', days: 42, exams });
+    assert.deepEqual(out.unknownExams.map((u) => [u.month, u.text]), [['2026-12', 'מבחנים מ-25.12 — לא ידוע'], ['2027-01', 'מבחנים בינואר — לא ידוע']]);
+    assert.equal(out.unknownExams[0].coverageEnd, '2026-12-24');
+  });
+  test('הלוח מסתיים בסוף החודש = אין שורה חלקית', async () => {
+    const exams = [{ date: '2026-12-31', type: 'מבחן', subject: 'מתמטיקה', makeup: false }];
+    assert.deepEqual((await run({ from: '2026-12-01', days: 31, exams })).unknownExams, []);
+  });
+  const ev = (over) => ({ id: 'e1', title: 'טיול', starts_at: '2026-11-22T10:00:00Z', ends_at: '2026-11-24T10:00:00Z', domain: 'personal', match_key: null, ...over });
+  test('אירוע רב-יומי מופיע בכל יום שהוא מכסה', async () => {
+    const out = await run({ timetable: null, days: 4 }, { events: [ev({})] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [1, 1, 1, 0]);
+  });
+  test('אירוע שהתחיל לפני from מופיע בטווח (והשאילתה היא חפיפה)', async () => {
+    const sql = sqlWith({ events: [ev({ starts_at: '2026-11-20T10:00:00Z' })] });
+    const out = await loadCalendar({ sql, timetable: null, from: '2026-11-22', days: 2, now: NOW, vacations: [], exams: [] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [1, 1]);
+    const text = sql.find('FROM events')[0].text;
+    assert.ok(text.includes('e.starts_at < ') && text.includes('COALESCE(e.ends_at, e.starts_at)'));
+  });
+  test('אירוע שנגמר בדיוק ב-00:00 מקומי לא מופיע ביום הבא', async () => {
+    const out = await run({ timetable: null, days: 2 }, { events: [ev({ starts_at: '2026-11-22T10:00:00Z', ends_at: '2026-11-22T22:00:00Z' })] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [1, 0]);
+  });
+  test('אירוע בלי שעת סיום או באורך אפס מופיע ביום שלו בלבד', async () => {
+    const out = await run({ timetable: null, days: 2 }, { events: [ev({ id: 'a', ends_at: null }), ev({ id: 'b', ends_at: '2026-11-22T10:00:00Z' })] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [2, 0]);
+  });
+  test('מועד ב\' מוצג עם makeup: true, ולא משפיע על coverageEnd', async () => {
+    const exams = [{ date: '2026-11-22', type: 'מבחן', subject: 'מתמטיקה', makeup: false }, { date: '2026-11-22', type: 'מועד ב\'', subject: null, makeup: true }];
+    const out = await run({ exams });
+    const items = out.days[0].items.filter((i) => i.kind === 'exam');
+    assert.equal(items.length, 2);
+    assert.equal(items.filter((i) => i.makeup === true).length, 1);
+    assert.equal(items.find((i) => i.makeup).title, 'מועד ב\'');
+    assert.equal(items.find((i) => !i.makeup).makeup, undefined);
   });
 });
 
