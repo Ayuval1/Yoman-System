@@ -93,7 +93,13 @@ describe('בלוק 3ב-1: understandSource מול askBrain האמיתי (fetch �
     assert.deepEqual(await understandSource({ sql, source: source('שלום'), apiKey: '', fetchFn }), { ok: false, reason: 'no-key' });
     assert.equal(sql.calls.length, 0);
     const empty = fakeSql(() => []);
-    assert.deepEqual(await understandSource({ sql: empty, source: source('שלום'), apiKey: API_KEY, fetchFn }), { ok: false, reason: 'no-pool' });
+    const before = process.env.BRAIN_PILOT;
+    process.env.BRAIN_PILOT = 'off'; // רשימה ריקה בלי פיילוט (lib/brain/ask.js)
+    try {
+      assert.deepEqual(await understandSource({ sql: empty, source: source('שלום'), apiKey: API_KEY, fetchFn }), { ok: false, reason: 'no-pool' });
+    } finally {
+      if (before === undefined) delete process.env.BRAIN_PILOT; else process.env.BRAIN_PILOT = before;
+    }
     assert.equal(fetchFn.calls.length, 0);
   });
   test('"הגב": הטקסט המצוטט נטען ונכנס לפרומפט; הטלפון מוחלף לפני השליחה', async () => {

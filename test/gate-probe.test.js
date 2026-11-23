@@ -225,12 +225,14 @@ describe('gate-probe: חישוב ציון וסף 90%', () => {
 });
 
 describe('gate-probe: כשלי Gemini', () => {
-  test('429 - עוצרים מיד, שאר המשפטים not-run ולא נספרים ככישלון איכות', async (t) => {
+  test('429 - עוצרים מיד; המשפט עצמו תקלה טכנית (tech) ולא תשובה שגויה; שאר המשפטים not-run', async (t) => {
     const { deps, fetchFn } = setup({ route: (u, o, i) => (i === 2 ? new Response('{}', { status: 429 }) : good()) });
     const text = await (await handle(get(), deps)).text();
     assert.equal(fetchFn.calls.length, 3);
     assert.match(text, /^לא עבר: /);
-    assert.match(text, /failed: s03/);
+    assert.match(text, /failed: none; tech: s03;/);
+    assert.match(text, /; 2\/10 ran=2;/);
+    assert.match(text, /; new=2;/);
     assert.match(text, /not-run: s04,s05,s06,s07,s08,s09,s10/);
     assert.match(text, /aborted_at=s03/);
   });
@@ -296,12 +298,21 @@ describe('gate-probe: כשלי Gemini', () => {
     assert.equal(fetchFn.calls.length, 1);
     assert.deepEqual(sleeps, []);
   });
-  test('401/403/400 - לא עוצר (ממשיך למשפט הבא)', async () => {
+  test('401/403/400 - עוצר מיד (24.11: לא שורף את הסט), נרשם כתקלה טכנית ולא כתשובה שגויה, ולא מסמן model_unavailable', async () => {
     for (const status of [400, 401, 403]) {
-      const { deps, fetchFn } = setup({ sentences: mk(3), route: () => new Response('{}', { status }) });
-      await handle(get('?count=3'), deps);
-      assert.equal(fetchFn.calls.length, 3, String(status));
+      const { deps, fetchFn, sql } = setup({ sentences: mk(3), route: () => new Response('{}', { status }) });
+      const text = await (await handle(get('?count=3'), deps)).text();
+      assert.equal(fetchFn.calls.length, 1, String(status));
+      assert.match(text, /failed: none; tech: s01; not-run: s02,s03;/);
+      assert.ok(!/model_unavailable/.test(sql.find('INSERT INTO probe_log')[0].values[1]));
     }
+  });
+  test('200 שאינו JSON: תקלה טכנית; פעמיים ברצף = עוצרים', async () => {
+    const { deps, fetchFn } = setup({ sentences: mk(5), route: () => new Response('not json', { status: 200 }) });
+    const text = await (await handle(get('?count=5'), deps)).text();
+    assert.equal(fetchFn.calls.length, 2);
+    assert.match(text, /failed: none; tech: s01,s02; not-run: s03,s04,s05;/);
+    assert.match(text, /; new=0;/);
   });
   test('שגיאת רשת / timeout (fetch זורק) - עוצר, status null', async () => {
     const { deps, fetchFn, sql } = setup({ route: () => new TypeError('fetch failed') });
@@ -605,12 +616,12 @@ describe('gate-probe: תיקוני שער Gemini (404, סינון מודלים, 
     await rot(deps);
     assert.doesNotMatch(detailOf(sql), /no_free_quota/);
   });
-  test('המשך שבו ran המאוחד שונה ממספר המשפטים (שורה קודמת חסרה): ok=false גם אם כולם נכונים', async () => {
+  test('המשך שבו ran המאוחד שונה ממספר המשפטים: 18 נכונות מתוך 20 = עבר (24.11: הסף הוא 18 נכונות מכל הסט, מה שלא נענה לא מוריד)', async () => {
     const odd = 'range=s01-s20; 15/20 ran=15; failed: none; not-run: s18,s19,s20; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
     const { deps, sql } = setupH(['gemini-b-flash'], [{ ok: false, at: at(5), detail: odd }], () => good());
     await rot(deps);
     assert.match(detailOf(sql), /; 18\/20 ran=18;/);
-    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], true);
   });
   test('אינטגרציה: שורת המשך שעברה 18/20 נקראת על ידי parsePool כמודל שעבר', async () => {
     const prior = 'range=s01-s20; 16/20 ran=17; failed: s15; not-run: s18,s19,s20; aborted_at=s18; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
@@ -698,5 +709,91 @@ describe('gate-probe: תיקוני שער Gemini (404, סינון מודלים, 
     const fetchFn = fakeFetch((url) => (isList(url) ? jsonResponse({ models: [entry('models/gemini-a-flash')] }) : good()));
     await rot({ sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sleep: async () => {}, now: () => NOW });
     assert.equal(gens(fetchFn).length, 20);
+  });
+});
+
+// 24.11.2026: שער הוגן לאורך כמה ריצות, עם שעון מזויף שמתקדם (sleep מקדם אותו) ו-probe_log מזויף שזוכר את השורות.
+describe('gate-probe: שער הוגן לאורך ריצות (שעון מתקדם)', () => {
+  const BASE = 20416 * 86400000 + 4 * 3600000;
+  const entry = (name) => ({ name, supportedGenerationMethods: ['generateContent'] });
+  const isList = (url) => url.includes('/v1beta/models') && !url.includes(':generateContent');
+  const modelOf = (url) => url.match(/models\/(.+):generateContent/)?.[1];
+  function world(names, route, seed = []) {
+    let clock = BASE;
+    const rows = seed.map((row) => ({ ...row }));
+    const sql = fakeSql((text, values) => {
+      if (text.startsWith('SELECT') && text.includes('probe_log')) return [...rows].sort((a, b) => (a.at < b.at ? 1 : -1));
+      if (text.startsWith('INSERT INTO probe_log')) rows.push({ ok: values[0], detail: values[1], at: new Date(clock).toISOString() });
+      return [];
+    });
+    const gens = [];
+    const fetchFn = fakeFetch((url, options, i) => {
+      if (isList(url)) return jsonResponse({ models: names.map((n) => entry(`models/${n}`)) });
+      gens.push(modelOf(url));
+      clock += 2000; // כל קריאה לוקחת זמן
+      return route(modelOf(url), gens.length - 1);
+    });
+    const deps = { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sleep: async (ms) => { clock += ms; }, now: () => clock, sentences: mk(20) };
+    const run = async (q = '?model=rotate&from=0') => {
+      const text = await (await handle(get(q), deps)).text();
+      clock += 2 * 3600000; // ה-Cron הבא
+      return text;
+    };
+    return { run, rows, gens, now: () => clock };
+  }
+
+  test('מודל שמחזיר 503 תמיד: אף משפט לא נספר כשגוי, ואחרי 3 ריצות בלי תשובה הוא נח יומיים (לא שורף מכסה לעד)', async () => {
+    const w = world(['gemini-a-flash'], () => new Response('{}', { status: 503 }));
+    for (let i = 0; i < 3; i += 1) await w.run();
+    const callsAfterThree = w.gens.length;
+    assert.ok(w.rows.every((row) => /failed: none/.test(row.detail)), 'תקלה טכנית אינה תשובה שגויה');
+    assert.ok(w.rows.every((row) => /; new=0;/.test(row.detail)));
+    const fourth = await w.run();
+    assert.equal(w.gens.length, callsAfterThree, 'ריצה רביעית לא קוראת למודל');
+    assert.match(fourth, /אין מודל מתאים/);
+  });
+  test('200 שאינו JSON בכל פעם: עוצר אחרי שתיים בכל ריצה, ונח אחרי 3 ריצות', async () => {
+    const w = world(['gemini-a-flash'], () => new Response('oops', { status: 200 }));
+    for (let i = 0; i < 4; i += 1) await w.run();
+    assert.equal(w.gens.length, 6);
+  });
+  test('400 במודל אחד לא פוסל את האחרים: הריצה הבאה בודקת מודל אחר, שעובר', async () => {
+    const w = world(['gemini-a-flash', 'gemini-b-flash'], (model) => (model === 'gemini-a-flash' ? new Response('{}', { status: 400 }) : good()));
+    const seen = [];
+    for (let i = 0; i < 4; i += 1) {
+      await w.run();
+      seen.push(/model=([^;]+)/.exec(w.rows.at(-1).detail)[1]);
+    }
+    assert.ok(seen.includes('gemini-b-flash'));
+    assert.ok(w.rows.every((row) => !/model_unavailable/.test(row.detail)));
+    const pool = parsePool(w.rows, new Date(w.now()));
+    assert.deepEqual(pool.map((p) => p.model), ['gemini-b-flash']);
+  });
+  test('ריצה שנחתכה ב-503 באמצע: ההמשך מריץ רק את מה שלא נענה, והתוצאות מתאחדות ל-20/20 שעובר', async () => {
+    let calls = 0;
+    const w = world(['gemini-a-flash'], () => {
+      calls += 1;
+      return calls >= 6 && calls <= 8 ? new Response('{}', { status: 503 }) : good();
+    });
+    await w.run();
+    assert.match(w.rows[0].detail, /5\/20 ran=5; failed: none; tech: s06; not-run: s07,/);
+    await w.run();
+    const last = w.rows.at(-1);
+    assert.equal(last.ok, true);
+    assert.match(last.detail, /20\/20 ran=20;/);
+    assert.deepEqual(parsePool(w.rows, new Date(w.now())).map((p) => p.model), ['gemini-a-flash']);
+  });
+  test('כיוון ידני: model=gemini-3.1-flash-lite&resume=1 ממשיך את 16/17 (s15 שגוי, s18–s20 לא רצו) ועובר ב-19/20', async () => {
+    const prior = { ok: false, at: new Date(BASE - 15 * 3600000).toISOString(), detail: 'range=s01-s20; 16/20 ran=17; failed: s15; not-run: s18,s19,s20; aborted_at=s18; model=gemini-3.1-flash-lite; pool=9; slot=2/4; time_budget; elapsed=262s' };
+    const w = world([], () => good(), [prior]);
+    const text = await w.run('?model=gemini-3.1-flash-lite&resume=1');
+    assert.deepEqual(w.gens, ['gemini-3.1-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite']);
+    assert.match(text, /^עבר: range=s01-s20; 19\/20 ran=20; failed: s15;/);
+    assert.deepEqual(parsePool(w.rows, new Date(w.now())).map((p) => p.model), ['gemini-3.1-flash-lite']);
+  });
+  test('resume=1 בלי ריצה להמשיך: כל 20 המשפטים', async () => {
+    const w = world([], () => good());
+    await w.run('?model=gemini-3.1-flash-lite&resume=1');
+    assert.match(w.rows.at(-1).detail, /^range=s01-s20; /);
   });
 });
