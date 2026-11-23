@@ -114,7 +114,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   await ensureVacationMorning({ sql, dateIso, now: deliveredAt });
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
   const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // בלוק 4: מבחן שנדחה / בוטל (lib/event-match.js). לא זורק: כשל = הלוח כמו שהוא
-  // בלוק 7: תוכנית למידה לכל מבחן שנכנס היום לטווח ההכנה (lib/study-plan.js), לפני טעינת השאלות כדי שתיספר בבריף. לא זורק. רק כשההודעה עוד לא קיימת (ניסיון חוזר לא קורא שוב ל-Google).
+  // בלוק 7: תוכנית למידה לכל מבחן שנכנס היום לטווח ההכנה (lib/study-plan.js), לפני טעינת השאלות כדי שתיספר בבריף. לא זורק. רק כשההודעה עוד לא קיימת; ניסיון חוזר לפני שנוצרה קורא שוב ל-Google, אבל העובדה 'exam' מונעת כרטיס כפול.
   if (!exists) await offerStudyPlans({ sql, todayIso: dateIso, now: deliveredAt, exams, timetable: table, googleDay });
   let partial = false;
   let tasks = [];

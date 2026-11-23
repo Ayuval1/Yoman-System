@@ -265,3 +265,27 @@ describe('study-plan: "לא לומד היום, אני מוכן"', () => {
     assert.equal(sql.find('study-not-today-bubble').length, 0);
   });
 });
+
+describe('study-plan: ממצאי הבודק', () => {
+  test('אירועי למידה לא נכנסים למאגר ההתאמה של event-match (הודעה לא קשורה לא תזיז אותם)', async () => {
+    const { loadEventPool } = await import('../lib/event-match.js');
+    const sql = fakeSql(() => []);
+    await loadEventPool(sql, NOW.toISOString());
+    assert.ok(sql.calls.some((c) => c.text.includes("NOT LIKE 'source:study:%'")));
+  });
+  test('שני מבחנים באותו יום: בין בלוק של מבחן אחד לבלוק של השני יש הפסקה של רבע שעה לפחות', async () => {
+    const other = { date: THU, type: 'מבדק', subject: 'ערבית' };
+    const sql = fakeSql((text) => (text.includes('study-plan-create') ? [{ message_id: MSG_ID }] : []));
+    await offerStudyPlans({ sql, todayIso: MON, now: NOW, exams: [MATH, other], timetable: null, googleDay: freeGoogle });
+    const all = sql.find('study-plan-create').flatMap((call) => {
+      const facts = factsOf(call);
+      return [...JSON.parse(facts.find((f) => f.field === 'blocks').value), ...JSON.parse(facts.find((f) => f.field === 'spare').value)];
+    });
+    for (const a of all) {
+      for (const b of all) {
+        if (a === b || a.date !== b.date || min(a.start) > min(b.start)) continue;
+        assert.ok(min(b.start) >= min(a.end) + 15, `${a.date} ${a.start} / ${b.start}`);
+      }
+    }
+  });
+});
