@@ -586,6 +586,9 @@
   .cal-item.noclr { background: var(--btn-neutral); color: var(--label); }
   .cal-item.noclr.quiz { border-color: var(--label2); }
   .cal-item.noclr.quiz .cal-title, .cal-item.noclr.quiz .cal-time, .cal-item.noclr.quiz .cal-tag { color: var(--label); }
+  /* מועד ב' (design-rules:401): מילוי --btn-neutral (הגוון המוגדר שם) וטקסט אפור; מצב כהה לא מוגדר שם, ולכן הטוקן הקיים (--btn-neutral כהה) [הנחה, לא אומת] */
+  .cal-chip.makeup, .cal-item.exam.makeup { background: var(--btn-neutral); color: var(--label2); border-color: transparent; }
+  .cal-item.exam.makeup .cal-title, .cal-item.exam.makeup .cal-time { color: var(--label2); opacity: 1; }
   /* מצב כהה: מסגרת המבדק בגוון המילוי (המפרט: "מצב כהה") */
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .cal-chip.quiz, :root:not([data-theme="light"]) .cal-item.exam.quiz { color: var(--sf); border-color: var(--sf); }
@@ -3002,8 +3005,9 @@ function calMonthCell(day, today) {
   let evt = false;
   for (const item of day.items) {
     if (item.kind === 'exam') {
-      const chip = el('span', 'cal-chip' + (item.quiz ? ' quiz' : ''), item.subject || item.title);
-      if (!calSetColors(chip, item.subject)) { chip.style.setProperty('--sf', 'var(--btn-neutral)'); chip.style.setProperty('--si', 'var(--label2)'); }
+      const chip = el('span', 'cal-chip' + (item.quiz ? ' quiz' : '') + (item.makeup ? ' makeup' : ''), item.subject || item.title);
+      if (item.makeup) { /* מועד ב': אפור לפי design-rules:401, בלי צבע מקצוע */ }
+      else if (!calSetColors(chip, item.subject)) { chip.style.setProperty('--sf', 'var(--btn-neutral)'); chip.style.setProperty('--si', 'var(--label2)'); }
       chips.push(chip);
     } else if (item.pending) { const chip = el('span', 'cal-chip pending'); chip.append(el('span', 'ct', item.title), el('span', '', '?')); chips.push(chip); }
     else if (item.kind === 'training') train = true;
@@ -3056,14 +3060,15 @@ function calItemNode(item, index) {
     } else if (item.kind === 'exam') {
       b.classList.add('exam');
       if (item.quiz) b.classList.add('quiz');
-      if (!calSetColors(b, item.subject)) b.classList.add('noclr');
+      if (item.makeup) b.classList.add('makeup'); // מועד ב': אפור (design-rules:401)
+      else if (!calSetColors(b, item.subject)) b.classList.add('noclr');
     } else if (item.pending) b.classList.add('pending');
     else b.classList.add(item.kind === 'training' ? 'train' : 'evt');
     const timeNode = el('span', 'cal-time tnum ltr', from || 'כל היום');
     if (!from) timeNode.classList.remove('ltr');
     row.append(timeNode, el('span', 'cal-title', item.title));
     if (item.pending) row.append(el('span', 'cal-tag', 'ממתין לתשובה'));
-    else if (item.kind === 'exam') row.append(el('span', 'cal-tag', item.quiz ? 'מבדק' : 'מבחן'));
+    else if (item.kind === 'exam' && !item.makeup) row.append(el('span', 'cal-tag', item.quiz ? 'מבדק' : 'מבחן'));
   }
   b.append(row);
   if (open) {
