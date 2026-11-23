@@ -241,6 +241,8 @@ export async function handle(request, {
     try {
       // בלוק 5 חלק א': לוז 4fitness נוגע בכמה אירועים, גם כאלה שנוצרו מלוז קודם (מפתח של מקור אחר). PATCH רק למה שהלוז עדכן עכשיו.
       if (result.fitness) await fitnessSync({ sql, keys: result.fitness.keys, patchKeys: result.fitness.patchKeys, now: now() });
+      // בלוק 7: "לא לומד היום" ביטל אירועי למידה (lib/study-plan.js): מחיקה מיומן "לימוד" לפי המפתחות.
+      else if (Array.isArray(result.calendarKeys)) { if (result.calendarKeys.length > 0) await fitnessSync({ sql, keys: result.calendarKeys, patchKeys: [], now: now() }); }
       else if (result.matched?.sourceId) await eventSync({ sql, sourceId: String(result.matched.sourceId), now: now(), allowPatch: true });
       else await eventSync({ sql, sourceId: String(row.id), now: now() });
     } catch (error) {

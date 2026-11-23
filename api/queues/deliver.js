@@ -27,6 +27,8 @@ import { createLessonAsk, loadOpenTasks } from '../../lib/homework-view.js';
 import { loadAbsenceRows, decideAbsence } from '../../lib/homework-absence.js';
 import { createExamAsks, loadExamAnswers, loadExamChanges } from '../../lib/exam-ask.js';
 import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
+import { offerStudyPlans } from '../../lib/study-plan.js';
+import { googleDayFromEnv } from '../../lib/free-check.js';
 
 const LATE_OK_SECONDS = 120; // איחור מעל זה נרשם כ-ok=false
 const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון האחרון הבריף נשלח גם בלי מערכת השעות (D10 ז)
@@ -35,7 +37,7 @@ const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
 // ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief (B-1): אחרי הרישום הקיים, כותב את הודעת הבוקר ל-messages. close (C-1, docs/08-chapter8/90): אחרי הרישום הקיים, הודעת הסגירה והתראה בכל ערב.
 // homework (שלב 8.6-1, docs/08-chapter8/60 סעיפים 3-5): אחרי הרישום הקיים, יוצר את שאלת שיעורי הבית של הרצף ושולח התראה כללית אחת. timetable (אופציונלי, לבדיקות): במקום טעינה מהמסד.
-export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable, googleConfig, googleFetch, loadTrainings }) {
+export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable, googleConfig, googleFetch, loadTrainings, googleDay = googleDayFromEnv({ sql }) }) {
   const parsed = parseSlotMessage(message);
   if (!parsed.ok) {
     // הודעה פגומה לא תתתקן בניסיון חוזר: רושמים ומאשרים (לא זורקים), כדי שלא תיכנס ללולאת ניסיונות.
@@ -73,7 +75,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
   if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
   if (parsed.kind === 'weekly') return deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
-  if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
+  if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleDay });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   if (parsed.kind === 'taskcheck') return deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
@@ -87,7 +89,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
 // B-2 (68 D4 מעודכן בהכרעת יובל, D6, D10 ו): אחרי שההודעה נוצרה או כבר קיימת, תמיד מנסים את הדחיפה (sendBriefNotification), בכל יום, גם בשבת ובחופשה.
 // הנוסח נגזר מאותם נתונים כמו ההודעה (composeBrief). כשההודעה כבר קיימת, מערכת השעות והמשימות נטענות מחדש באותם טוענים (ואותם fallbacks), והשאלות לא נטענות (הדחיפה לא משתמשת בהן).
 // כל כשל בדחיפה או ברישומה נתפס ולא נזרק (זריקה הייתה גורמת לניסיון חוזר של התור); dedupe_key של push-send מונע שליחה כפולה. התוצאה בשדה push, ובשורת chat-notify ב-probe_log (כמו deliverHomework).
-async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable }) {
+async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleDay }) {
   const dateIso = parsed.slotKey.slice('brief-'.length);
   const entityId = briefEntityId(parsed.slotKey);
   const existing = await sql`SELECT 1 AS found FROM messages WHERE entity_type = 'brief' AND entity_id = ${entityId}::uuid LIMIT 1`;
@@ -112,6 +114,8 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   await ensureVacationMorning({ sql, dateIso, now: deliveredAt });
   const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה (מבחן "מדעים" בלי שם מקצוע)
   const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // בלוק 4: מבחן שנדחה / בוטל (lib/event-match.js). לא זורק: כשל = הלוח כמו שהוא
+  // בלוק 7: תוכנית למידה לכל מבחן שנכנס היום לטווח ההכנה (lib/study-plan.js), לפני טעינת השאלות כדי שתיספר בבריף. לא זורק. רק כשההודעה עוד לא קיימת; ניסיון חוזר לפני שנוצרה קורא שוב ל-Google, אבל העובדה 'exam' מונעת כרטיס כפול.
+  if (!exists) await offerStudyPlans({ sql, todayIso: dateIso, now: deliveredAt, exams, timetable: table, googleDay });
   let partial = false;
   let tasks = [];
   let pending = [];
