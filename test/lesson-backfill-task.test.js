@@ -22,7 +22,7 @@ describe('ops: lesson-backfill', () => {
     const sql = db();
     const res = await handle(req('https://x.test/api/ops?task=lesson-backfill', { headers: AUTH }), { sql, secret: FAKE_CRON, timetable: TIMETABLE });
     const body = await res.json();
-    assert.deepEqual(body, { ok: true, mode: 'dry', scanned: 2, would_link: 1, more_may_remain: false });
+    assert.deepEqual(body, { ok: true, mode: 'dry', scanned: 2, would_link: 1, next_before: null });
     assert.equal(sql.find('UPDATE media').length, 0);
     assert.ok(!JSON.stringify(body).includes('היסטוריה'));
   });
@@ -39,5 +39,11 @@ describe('ops: lesson-backfill', () => {
     const body = await (await handle(req('https://x.test/api/ops?task=lesson-backfill&apply=1', { headers: AUTH }), { sql, secret: FAKE_CRON, timetable: null })).json();
     assert.deepEqual(body, { ok: false, mode: 'apply', reason: 'no_timetable' });
     assert.equal(sql.find('UPDATE media').length, 0);
+  });
+  test('עימוד: before עובר לשאילתה; ערך לא תקין = 400', async () => {
+    const sql = db();
+    await handle(req('https://x.test/api/ops?task=lesson-backfill&before=2026-11-01T00:00:00.000Z', { headers: AUTH }), { sql, secret: FAKE_CRON, timetable: TIMETABLE });
+    assert.ok(sql.find('FROM media')[0].values.includes('2026-11-01T00:00:00.000Z'));
+    assert.equal((await handle(req('https://x.test/api/ops?task=lesson-backfill&before=xx', { headers: AUTH }), { sql: db(), secret: FAKE_CRON, timetable: TIMETABLE })).status, 400);
   });
 });
