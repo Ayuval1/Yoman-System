@@ -155,6 +155,17 @@ describe('public/index.html: נגישות מסך היומן', () => {
     assert.doesNotMatch(block, /setAttribute\('aria-live'/);
   });
 
+  test('חופש: תווית בתא החודש, שורה ביום ו-aria-label, בלי לתפוס מקום של צ׳יפ', () => {
+    const cell = bodyOf('calMonthCell');
+    assert.match(cell, /day\.noSchool/);
+    assert.match(cell, /'cal-off'/);
+    assert.match(cell, /'חופש'/);
+    assert.match(bodyOf('calDayLabel'), /day\.noSchool[^\n]*'חופש'/);
+    assert.match(bodyOf('calRenderDay'), /day\??\.noSchool/);
+    assert.match(bodyOf('calRenderDay'), /'אין בית ספר'/);
+    assert.match(css, /\.cal-off \{[^}]*var\(--label2\)/);
+  });
+
   test('פתיחה כפולה לא דורסת את הפותח; סגירת הסיכום מחזירה פוקוס לפס החדש', () => {
     assert.match(bodyOf('openCalendar'), /if \(calState\.open\) return;/);
     assert.match(script, /function openReview\(\) \{\s*if \(state\.rvOpen\) return;/);

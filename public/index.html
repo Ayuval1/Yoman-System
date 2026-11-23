@@ -555,6 +555,8 @@
   .cal-chip.pending { display: flex; gap: 2px; justify-content: center; }
   .cal-chip .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .cal-chip.pending { background: var(--amberbg); color: var(--amber); border: 1.5px dashed var(--amber); }
+  .cal-off { font-size: 10.5px; line-height: 1.2; color: var(--label2); text-align: center; }
+  .cal-off.day { font-size: 14px; text-align: start; padding: 0 4px; }
   .cal-more { font-size: 10.5px; color: var(--label2); text-align: center; }
   .cal-dots { display: flex; justify-content: center; gap: 4px; margin-top: auto; }
   .cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--label3); }
@@ -3011,6 +3013,7 @@ function calDayLabel(day, today) {
   const [y, m, d] = day.date.split('-').map(Number);
   const parts = [`יום ${DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ב${MONTHS[m - 1]}`];
   if (day.date === today) parts.push('היום');
+  if (day.noSchool) parts.push('חופש');
   let exams = 0; let quizzes = 0; let makeups = 0; let events = 0; let trainings = 0; let pending = 0;
   for (const item of day.items) {
     if (item.kind === 'exam') { if (item.makeup) makeups++; else if (item.quiz) quizzes++; else exams++; }
@@ -3034,6 +3037,7 @@ function calMonthCell(day, today) {
   cell.type = 'button';
   cell.setAttribute('aria-label', calDayLabel(day, today));
   cell.append(el('span', 'cal-n tnum', Number(date.slice(8))));
+  if (day.noSchool) cell.append(el('span', 'cal-off', 'חופש')); // תווית שקטה, לא צ'יפ: לא נספרת במגבלת 2 הצ'יפים
   const chips = [];
   let train = false;
   let evt = false;
@@ -3126,6 +3130,7 @@ function calItemNode(item, index) {
 function calRenderDay() {
   const day = calState.data.days.find((d) => d.date === calState.day);
   const list = el('div', 'cal-list');
+  if (day?.noSchool) list.append(el('p', 'cal-off day', 'אין בית ספר'));
   if (!day || day.items.length === 0) list.append(el('p', 'rvempty', 'אין כלום ביום הזה'));
   else day.items.forEach((item, i) => list.append(calItemNode(item, i)));
   calBodyEl.replaceChildren(list);
