@@ -21,7 +21,7 @@ const CAND = '44444444-4444-4444-8444-444444444444';
 const TEXT_A = 'בדיקה רפואית אצל דני היום ב-16:00';
 const TEXT_B = 'פגישה אצל דני מחר ב-16:00';
 const source = (over = {}) => ({ id: SRC, channel: 'app', raw_content: TEXT_A, ...over });
-const priorRow = (id, text) => ({ id, raw_content: text });
+const priorRow = (id, text, read_time = '16:00') => ({ id, raw_content: text, read_time });
 const sha = (value) => createHash('sha256').update(value).digest('hex');
 const allValues = (sql) => sql.calls.flatMap((call) => call.values.map(String));
 
@@ -77,7 +77,7 @@ describe('correction-rules: findRepeat (מה נחשב "אותו תיקון שח�
 });
 
 describe('correction-rules: applyCorrectionRules (קוד דטרמיניסטי, בלי AI)', () => {
-  const rule = (over = {}) => ({ roots: ['אצל', 'דני'], field: 'time', value: '17:00', ...over });
+  const rule = (over = {}) => ({ roots: ['אצל', 'דני'], field: 'time', value: '17:00', from: ['16:00'], ...over });
   const facts = [
     { field: 'date', value: '2026-10-19', origin: 'inferred', extracted_by: 'script' },
     { field: 'time', value: '16:00', origin: 'read', extracted_by: 'script' },
@@ -93,6 +93,14 @@ describe('correction-rules: applyCorrectionRules (קוד דטרמיניסטי, �
     assert.equal(applyCorrectionRules({ rules: [rule()], text: TEXT_A, facts: read, type: 'personal_event' }).find((f) => f.field === 'end_time').value, '19:00');
     const early = facts.map((f) => (f.field === 'end_time' ? { ...f, value: '16:30', origin: 'read' } : f));
     assert.equal(applyCorrectionRules({ rules: [rule()], text: TEXT_A, facts: early, type: 'personal_event' }).find((f) => f.field === 'end_time').value, '18:00');
+  });
+  test('שעה מפורשת (origin=read): נשמרת אם אינה מהשעות השגויות; מוסקת: מוחלפת; מפורשת ששווה לשגויה: מוחלפת; כלל בלי from לא דורס מפורשת', () => {
+    const withTime = (value, origin) => facts.map((f) => (f.field === 'time' ? { ...f, value, origin } : f));
+    const timeOf = (list, r = rule()) => applyCorrectionRules({ rules: [r], text: TEXT_A, facts: list, type: 'personal_event' }).find((f) => f.field === 'time').value;
+    assert.equal(timeOf(withTime('18:30', 'read')), '18:30');
+    assert.equal(timeOf(withTime('18:30', 'inferred')), '17:00');
+    assert.equal(timeOf(withTime('16:00', 'read')), '17:00');
+    assert.equal(timeOf(withTime('16:00', 'read'), rule({ from: [] })), '16:00');
   });
   test('שורש חסר בהודעה: לא מופעל', () => {
     assert.deepEqual(applyCorrectionRules({ rules: [rule({ roots: ['אצל', 'סבתא'] })], text: TEXT_A, facts, type: 'personal_event' }), facts);
@@ -124,7 +132,7 @@ describe('correction-rules: loadApprovedCorrectionRules', () => {
       { pattern: 'y', evidence: { kind: 'correction', field: 'time', value: 'לא שעה', roots: ['אצל'] } },
       { pattern: 'z', evidence: { kind: 'correction', field: 'time', value: '09:00', roots: [] } },
     ]);
-    assert.deepEqual(await loadApprovedCorrectionRules(sql), [{ roots: ['אצל', 'דני'], field: 'time', value: '17:00' }]);
+    assert.deepEqual(await loadApprovedCorrectionRules(sql), [{ roots: ['אצל', 'דני'], field: 'time', value: '17:00', from: [] }]);
     assert.match(sql.calls[0].text, /status = 'approved'/);
   });
   test('כשל מסד: [] ושם השגיאה בלבד בלוג (נכשל פתוח)', async (t) => {
@@ -170,7 +178,7 @@ describe('correction-rules: recordCorrection (זיהוי חזרה והצעת כ�
     assert.equal(withName[0], cardText({ roots: ['אצל', 'דני'], value: '17:00' }));
     const evidence = call.values.find((v) => typeof v === 'string' && v.startsWith('{') && v.includes('"kind"'));
     assert.ok(evidence && !evidence.includes(NAME) && !evidence.includes('אצל'), 'ה-evidence בלי מילים');
-    assert.deepEqual(JSON.parse(evidence), { kind: 'correction', field: 'time', value: '17:00', key, source_ids: [PRIOR, SRC] });
+    assert.deepEqual(JSON.parse(evidence), { kind: 'correction', field: 'time', value: '17:00', key, from: ['16:00'], source_ids: [PRIOR, SRC] });
   });
 
   test('מועמד קיים (כבר הוצע, נדחה או אושר): הפקודה אטומית ולא יוצרת כפילות (NOT EXISTS על המפתח)', async () => {
@@ -358,7 +366,7 @@ describe('correction-rules: חיבור לצינור הקליטה', () => {
   };
 
   test('כלל מאושר שמתאים: השעה בקליטה היא של הכלל (origin=inferred), בלי קריאת AI', async () => {
-    const { facts } = await intake([{ pattern: 'אצל דני', evidence: { kind: 'correction', field: 'time', value: '17:00', roots: ['אצל', 'דני'] } }]);
+    const { facts } = await intake([{ pattern: 'אצל דני', evidence: { kind: 'correction', field: 'time', value: '17:00', from: ['16:00'], roots: ['אצל', 'דני'] } }]);
     assert.equal(facts.find((f) => f.field === 'time').value, '17:00');
     assert.equal(facts.find((f) => f.field === 'time').origin, 'inferred');
   });
