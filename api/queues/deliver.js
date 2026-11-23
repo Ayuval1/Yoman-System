@@ -29,6 +29,7 @@ import { createExamAsks, loadExamAnswers, loadExamChanges } from '../../lib/exam
 import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
 import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
+import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
 import { askBrain } from '../../lib/brain/ask.js';
 import { googleDayFromEnv } from '../../lib/free-check.js';
 
@@ -80,6 +81,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleDay, ask });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   if (parsed.kind === 'taskcheck') return deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
+  if (parsed.kind === 'listen') return deliverListen({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok };
 }
 
@@ -142,7 +144,9 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
       partial = true;
     }
   }
-  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams });
+  // בלוק 9: שורת "להאזנה היום" (lib/listening.js). לא זורק: כשל = בלי השורה.
+  const listening = exists ? null : listenBriefLine(pickForDay(await loadListening(sql), dateIso));
+  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams, listening });
   let created = false;
   if (!exists) {
     const rows = await sql`
@@ -469,4 +473,21 @@ export default function deliver(req, res) {
     handler = new QueueClient().handleNodeCallback((message, metadata) => handleDelivery(message, metadata, { sql }));
   }
   return handler(req, res);
+}
+
+// בלוק 9: הצעת האזנה ב-17:00 בימי אימון (lib/listening.js). הודעה אחת ליום, ואז התראה כללית אחת (כמו "בוצע?"). לא יום אימון או רשימה ריקה: כלום.
+// כשל מסד ביצירה נזרק (התור ינסה שוב); כשל בהתראה נתפס.
+async function deliverListen({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret }) {
+  const dateIso = parsed.slotKey.slice('listen-'.length);
+  const result = await createListenSuggestion({ sql, dateIso });
+  let outcome = { sent: false, reason: result.reason, badge: null };
+  if (result.created) {
+    try {
+      outcome = await sendChatNotification({ sql, slotKey: planNotify(deliveredAt).slotKey, pushHandle, secret, now: deliveredAt });
+    } catch (error) {
+      console.error('queue-deliver: התראת ההאזנה נכשלה:', error?.name);
+      outcome = { sent: false, reason: 'error', badge: null };
+    }
+  }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok, created: result.created, reason: result.reason, sent: outcome.sent };
 }
