@@ -353,7 +353,7 @@ describe('api/intake.js: לוז -> כתיבה ליומן לפי המפתחות �
 // lib/event-sync.js: יומן "אימונים", גוף האירוע, PATCH וסנכרון לפי מפתחות
 // ---------------------------------------------------------------------------
 const RUNNING_CAL = 'running-cal-id-DO-NOT-LEAK@group.calendar.google.com';
-const CALENDARS = [{ id: 'p', summary: 'אישי', accessRole: 'owner' }, { id: RUNNING_CAL, summary: 'אימונים', accessRole: 'owner' }];
+const CALENDARS = [{ id: 'p', summary: 'אישי', accessRole: 'owner' }, { id: RUNNING_CAL, summary: 'ריצה', accessRole: 'owner' }];
 const NOW = new Date('2026-11-22T08:00:00Z');
 const runRow = (over = {}) => ({
   id: RUN_ID, title: 'אימון ריצה - משתלה', starts_at: new Date('2026-11-23T16:00:00Z'), ends_at: new Date('2026-11-23T18:00:00Z'),
@@ -384,8 +384,8 @@ const keysSql = (rows) => fakeSql((text) => {
 const eventCalls = (f) => f.calls.filter((c) => c.url.includes('/events'));
 
 describe('event-sync: אימונים', () => {
-  test('running -> "אימונים" בטבלה', () => {
-    assert.equal(CALENDAR_BY_DOMAIN.running, 'אימונים');
+  test('running -> "ריצה" בטבלה', () => {
+    assert.equal(CALENDAR_BY_DOMAIN.running, 'ריצה');
   });
   test('גוף אימון: מיקום, תיאור, צבע 11, תזכורות 1440 ו-60', () => {
     const body = eventBody(runRow());
