@@ -62,6 +62,7 @@ import { googleDayFromEnv } from '../lib/free-check.js';
 import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../lib/personal-task.js';
 import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtask, unlinkSubtask } from '../lib/subtask.js';
 import { answerWeeklyRun } from '../lib/weekly-runs.js';
+import { answerCorrectionRule } from '../lib/correction-rules.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -406,6 +407,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: weekly.status, items, pending, badge });
+      }
+      // בלוק 6 חלק ב': הצעת כלל מתיקון שחוזר ("לקבוע שמעכשיו...?", כן / לא). פקודת כתיבה אחת (או כלום). בלי כתיבה ליומן Google.
+      const correction = await answerCorrectionRule({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (correction.status !== 'closed') {
+        const items = correction.status === 'answered' ? await loadCreatedItems(sql, correction.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: correction.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
