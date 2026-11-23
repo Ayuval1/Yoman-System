@@ -77,3 +77,9 @@ describe('public/index.html: תצוגת שבוע', () => {
     assert.doesNotMatch(wkCss.replaceAll("#fff", ""), /#[0-9a-fA-F]{3,8}\b/); // #fff = כמו .cal-todaytag הקיים
   });
 });
+
+test('חודש אחרי שבוע: 7 ימים שנטענו לא נחשבים כחודש טעון (מקור "from" מסומן לשבוע)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  assert.match(html, /calState\.from = week \? `week:\$\{calState\.week\}` : calGridStart\(calState\.y, calState\.m\);/);
+});

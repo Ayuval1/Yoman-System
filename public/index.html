@@ -3321,7 +3321,7 @@ async function calLoad() {
   const req = ++calState.req;
   // שבוע: 7 ימים מראשון. חודש ויום: רשת של 42 ימים. calState.from = תחילת מה שנטען: מעברי תצוגה בודקים מולו אם צריך טעינה.
   const week = calState.view === 'week';
-  calState.from = week ? calState.week : calGridStart(calState.y, calState.m);
+  calState.from = week ? `week:${calState.week}` : calGridStart(calState.y, calState.m); // שבוע מסומן בקידומת: חודש לא ייחשב טעון מ-7 ימים בלבד (תיקון בודק)
   calState.status = 'loading';
   calState.data = null;
   calRender();
