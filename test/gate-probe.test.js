@@ -797,3 +797,24 @@ describe('gate-probe: שער הוגן לאורך ריצות (שעון מתקדם
     assert.match(w.rows.at(-1).detail, /^range=s01-s20; /);
   });
 });
+
+describe('gate-probe: קירור למודל תקוע גם בקצב של ריצה ביום', () => {
+  test('stuckUntil: 3 ריצות ב-24 שעות זו מזו, כולן new=0: חסום יומיים מהאחרונה, ואז ריצה אחת מותרת', async () => {
+    const { stuckUntil, STUCK_COOLDOWN_DAYS } = await import('../lib/ops/gate-probe.js');
+    const H = 3600000;
+    const t0 = 1_000_000_000_000;
+    const rows = [0, 24, 48].map((h) => ({ at: t0 + h * H, fresh: 0 }));
+    assert.equal(stuckUntil(rows, t0 + 49 * H), t0 + 48 * H + STUCK_COOLDOWN_DAYS * 86400000);
+    assert.equal(stuckUntil(rows, t0 + 48 * H + STUCK_COOLDOWN_DAYS * 86400000 + 1), null);
+    assert.equal(stuckUntil([...rows, { at: t0 + 47 * H, fresh: 3 }], t0 + 49 * H), null); // תשובה אמיתית באחת משלוש האחרונות
+    assert.equal(stuckUntil([{ at: t0, fresh: 0 }, { at: t0 + 24 * H, fresh: null }, { at: t0 + 48 * H, fresh: 0 }], t0 + 49 * H), null);
+  });
+  test('resume=1 על מודל שכבר עבר: לא מריצים כלום', async () => {
+    const at = new Date(Date.now() - 3600000).toISOString();
+    const sql = fakeSql((text) => (text.startsWith('SELECT') ? [{ ok: true, at, detail: 'range=s01-s20; 19/20 ran=20; failed: s15; model=gemini-3.1-flash-lite; new=3; elapsed=40s' }] : []));
+    const fetchFn = fakeFetch(() => good());
+    const text = await (await handle(get('?model=gemini-3.1-flash-lite&resume=1'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {} })).text();
+    assert.match(text, /^כבר עבר/);
+    assert.equal(fetchFn.calls.length, 0);
+  });
+});
