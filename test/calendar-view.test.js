@@ -164,6 +164,29 @@ describe('calendar-view: פערים (חודש חלקי, אירוע רב-יומי
   });
 });
 
+describe('calendar-view: חופש (noSchool)', () => {
+  const VAC = [{ name: 'חנוכה', from: '2026-12-06', to: '2026-12-12' }, { name: 'סוף', from: '2027-06-20', to: '2027-06-20', endOfYear: true }];
+  const tt = { slots: [{ weekday: 1, period: 1, startsAt: '08:15', endsAt: '09:00', subject: 'מתמטיקה' }, { weekday: 2, period: 1, startsAt: '08:15', endsAt: '09:00', subject: 'אנגלית' }] };
+  const flags = async (from, days, vacations = VAC, timetable = tt) => (await run({ from, days, vacations, timetable })).days.map((d) => d.noSchool === true);
+  test('יום ראשון בחופשה = noSchool', async () => {
+    assert.deepEqual(await flags('2026-12-06', 1), [true]);
+  });
+  test('שבת בחופשה, ושישי בלי שיעורים: בלי סימון', async () => {
+    assert.deepEqual(await flags('2026-12-11', 2), [false, false]);
+  });
+  test('יום לימודים רגיל: בלי סימון', async () => {
+    assert.deepEqual(await flags('2026-11-22', 1), [false]);
+  });
+  test('תאריך מחוץ לכיסוי הקובץ: בלי סימון (לא ידוע אינו חופש)', async () => {
+    assert.deepEqual(await flags('2026-08-30', 1), [false]);
+    assert.deepEqual(await flags('2027-06-27', 1), [false]);
+  });
+  test('יום סוף השנה עצמו (בתוך הכיסוי) = noSchool; בלי מערכת שעות = בלי סימון', async () => {
+    assert.deepEqual(await flags('2027-06-20', 1), [true]);
+    assert.deepEqual(await flags('2026-12-06', 1, VAC, null), [false]);
+  });
+});
+
 describe('calendar-view: קלט לא תקין', () => {
   for (const [name, options] of [['days 0', { days: 0 }], ['days 43', { days: 43 }], ['days שבר', { days: 1.5 }], ['days טקסט', { days: '3' }], ['from פגום', { from: '2026-13-01' }], ['from חסר', { from: undefined }]]) {
     test(name, async () => { await assert.rejects(run(options), RangeError); });
