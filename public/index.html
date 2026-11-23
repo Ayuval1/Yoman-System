@@ -550,6 +550,7 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
     background: var(--sf); color: var(--cal-ink); border: 1.5px solid var(--sf);
   }
+  .cal-status { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .cal-chip.quiz { background: transparent; color: var(--si); border-color: var(--si); }
   .cal-chip.pending { display: flex; gap: 2px; justify-content: center; }
   .cal-chip .ct { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -637,6 +638,7 @@
       <h2>יומן</h2>
       <button type="button" class="cal-btn" id="calClose">חזרה לצ'אט</button>
     </header>
+    <p class="cal-status" id="calStatus" role="status" aria-live="polite"></p>
     <div class="cal-bar" id="calBar"></div>
     <div class="rvbody" id="calBody"></div>
   </section>
@@ -1851,6 +1853,7 @@ function reviewStrip() {
 
 let rvOpener = null;
 function openReview() {
+  if (state.rvOpen) return; // כבר פתוח: לא דורסים את rvOpener
   state.rvOpen = true;
   state.rvRows = [...state.review.items];
   state.rvMarks.clear(); state.rvPicking.clear(); state.rvEditing.clear(); state.rvNotes.clear();
@@ -1871,7 +1874,9 @@ function closeReview() {
   rvBodyEl.replaceChildren();
   appEl.inert = false;
   renderPending();
-  if (rvOpener && rvOpener.isConnected) rvOpener.focus();
+  // renderPending בנה את הפס מחדש, ולכן הפותח הישן מנותק: מחזירים פוקוס לפס החדש, ואם אין, לפותח אם עוד בדף.
+  const strip = pinEl.querySelector('.mini .ch')?.parentElement; // פס הסיכום: הכפתור היחיד עם חץ
+  if (strip && strip.tagName === 'BUTTON') strip.focus(); else if (rvOpener && rvOpener.isConnected) rvOpener.focus();
 }
 rvCloseBtn.addEventListener('click', closeReview);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && state.rvOpen) closeReview(); });
@@ -2940,6 +2945,7 @@ const CAL_ERROR_TEXT = 'לא הצלחתי לטעון את היומן';
 const calEl = document.getElementById('cal');
 const calBodyEl = document.getElementById('calBody');
 const calBarEl = document.getElementById('calBar');
+const calStatusEl = document.getElementById('calStatus');
 const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0 };
 
 const calPad = (n) => String(n).padStart(2, '0');
@@ -3141,8 +3147,8 @@ function calRender() {
     next.addEventListener('click', () => calShift(1));
     calBarEl.append(prev, el('h2', 'tnum', `${MONTHS[calState.m]} ${calState.y}`), next);
   }
-  if (calState.status === 'loading') { calBodyEl.replaceChildren(el('p', 'rvempty', 'טוען…')); calBodyEl.setAttribute('aria-live', 'polite'); return; }
-  calBodyEl.removeAttribute('aria-live');
+  calStatusEl.textContent = calState.status === 'loading' ? 'טוען…' : ''; // אזור חי קבוע (VoiceOver לא מקריא אזור שנוצר יחד עם הטקסט)
+  if (calState.status === 'loading') { const wait = el('p', 'rvempty', 'טוען…'); wait.setAttribute('aria-hidden', 'true'); calBodyEl.replaceChildren(wait); return; }
   if (calState.status === 'error') {
     const retry = el('button', 'cal-btn', 'נסה שוב');
     retry.type = 'button';
@@ -3165,6 +3171,7 @@ function calShift(delta) {
 
 let calOpener = null;
 function openCalendar() {
+  if (calState.open) return; // כבר פתוח: לא דורסים את calOpener
   const [y, m] = calToday().split('-').map(Number);
   calState.open = true;
   calState.y = y; calState.m = m - 1; calState.view = 'month'; calState.openItem = null;

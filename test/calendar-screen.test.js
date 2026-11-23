@@ -150,6 +150,15 @@ describe('public/index.html: נגישות מסך היומן', () => {
   });
 
   test('"טוען…" נקרא בקורא מסך (aria-live)', () => {
-    assert.match(bodyOf('calRender'), /'טוען…'\)\); calBodyEl\.setAttribute\('aria-live', 'polite'\)/);
+    assert.match(section, /<p class="cal-status" id="calStatus" role="status" aria-live="polite"><\/p>/);
+    assert.match(bodyOf('calRender'), /calStatusEl\.textContent = calState\.status === 'loading' \? 'טוען…' : ''/);
+    assert.doesNotMatch(block, /setAttribute\('aria-live'/);
+  });
+
+  test('פתיחה כפולה לא דורסת את הפותח; סגירת הסיכום מחזירה פוקוס לפס החדש', () => {
+    assert.match(bodyOf('openCalendar'), /if \(calState\.open\) return;/);
+    assert.match(script, /function openReview\(\) \{\s*if \(state\.rvOpen\) return;/);
+    assert.match(script.slice(script.indexOf('function closeReview'), script.indexOf('rvCloseBtn.addEventListener')), /pinEl\.querySelector\('\.mini \.ch'\)/);
+    assert.match(script.slice(script.indexOf('function closeReview'), script.indexOf('rvCloseBtn.addEventListener')), /rvOpener\.isConnected/);
   });
 });
