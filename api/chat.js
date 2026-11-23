@@ -51,7 +51,7 @@ import { answerHomework, loadOpenTasks, markTaskDone } from '../lib/homework-vie
 import { answerExam, loadExamAnswers, loadExamChanges } from '../lib/exam-ask.js';
 import { answerVacation } from '../lib/vacation-ask.js';
 import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
-import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction } from '../lib/chat-view.js';
+import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction, attachMedia, isUuid } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
 import { loadCalendar, validateCalendarRange } from '../lib/calendar-view.js';
@@ -110,7 +110,54 @@ async function loadItems(sql) {
     ORDER BY x.at DESC NULLS LAST, x.rank DESC, x.id DESC
     LIMIT ${CHAT_ITEMS_LIMIT}::int
   `;
-  return itemsFromRows(rowsOf(rows));
+  const items = itemsFromRows(rowsOf(rows));
+  return attachMedia(items, await loadBubbleMedia(sql, items));
+}
+
+// בלוק 8 ("תביא לי"): הקישורים בין בועות לתמונות שנשמרו. כשל = בלי תמונות (הצ'אט עצמו לא נשבר); בלוג רק שם השגיאה.
+async function loadBubbleMedia(sql, items) {
+  const ids = items.filter((item) => item.role === 'system').map((item) => item.id);
+  if (ids.length === 0) return [];
+  try {
+    return rowsOf(await sql`
+      SELECT l.from_id, l.to_id
+      FROM links l JOIN media m ON m.id = l.to_id
+      WHERE l.from_type = 'message' AND l.to_type = 'media' AND l.relation = 'relates_to'
+        AND m.status = 'stored' AND m.deleted_at IS NULL
+        AND l.from_id IN (SELECT jsonb_array_elements_text(${JSON.stringify(ids)}::jsonb)::uuid)
+    `);
+  } catch (error) {
+    console.error('chat: טעינת תמונות הבועות נכשלה:', error?.name);
+    return [];
+  }
+}
+
+// הקריאה האמיתית מ-Vercel Blob הפרטי, נטענת בעצלות (בדיקות מזריקות readBlob ולא נוגעות ברשת). null = לא נמצא.
+// הנחה, לא אומת: ש-get של @vercel/blob 2.9.0 מקבל { access: 'private', token } ומחזיר { statusCode, stream } או null. לא הורץ מול Blob אמיתי.
+const blobReader = (token) => async (location) => {
+  const { get } = await import('@vercel/blob');
+  const result = await get(location, { access: 'private', token });
+  return result?.stream ? new Response(result.stream) : null;
+};
+
+// תמונה שמורה לתצוגה בצ'אט. סוד כבר נבדק. 404 לכל כשל (לא נמצא, נמחקה, אין טוקן, Blob נכשל): הדף פשוט לא מציג תמונה. התמונה פרטית: cache פרטי בלבד.
+async function serveMedia({ sql, id, blobToken, readBlob }) {
+  const notFound = () => reply(404, 'Not Found');
+  if (typeof blobToken !== 'string' || blobToken === '') return notFound();
+  try {
+    const [row] = rowsOf(await sql`
+      SELECT blob_path, content_type FROM media
+      WHERE id = ${id}::uuid AND status = 'stored' AND deleted_at IS NULL AND content_type LIKE 'image/%'
+    `);
+    if (!row?.blob_path) return notFound();
+    const blob = await (readBlob ?? blobReader(blobToken))(row.blob_path);
+    if (!blob?.body) return notFound();
+    const type = /^image\/(?:jpeg|png|webp)$/.test(row.content_type ?? '') ? row.content_type : 'image/jpeg';
+    return new Response(blob.body, { status: 200, headers: { 'content-type': type, 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' } });
+  } catch (error) {
+    console.error('chat: הצגת תמונה נכשלה:', error?.name);
+    return notFound();
+  }
 }
 
 // הפריטים שנוצרו בתשובה אחת: שורת התשובה ב-sources והבועה (אם נכתבה). מזהה ריק לא מחזיר שורה.
@@ -227,7 +274,7 @@ async function loadGoogleConnected(sql) {
 // sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
 // blobToken, upload (שלב 8.6-3, אופציונלי, לבדיקות): הטוקן של Vercel Blob וההעלאה עצמה. בדיקות מזריקות upload ולא נוגעות ברשת.
 // keysSync (בלוק 5, אופציונלי, לבדיקות): הכתיבה ליומן לפי match_key אחרי תשובה לשאלת ריצה (lib/event-sync.js, syncEventsByMatchKeys).
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, keysSync = syncEventsByMatchKeys, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload } = {}) {
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, keysSync = syncEventsByMatchKeys, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload, readBlob } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -253,6 +300,12 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   let calendar = null;
   if (request.method === 'GET') {
     const params = new URL(request.url).searchParams;
+    // בלוק 8 ("תביא לי"): תמונה שמורה אחת לתצוגה בצ'אט. מזהה לא תקין = 400, לפני כל קריאה.
+    if (params.get('view') === 'media') {
+      const id = params.get('id');
+      if (!isUuid(id)) return reply(400, ERROR_TEXT);
+      return serveMedia({ sql, id, blobToken, readBlob });
+    }
     if (params.get('view') === 'calendar') {
       const daysText = params.get('days');
       calendar = { from: params.get('from'), days: daysText !== null && /^\d{1,2}$/.test(daysText) ? Number(daysText) : NaN };
@@ -325,7 +378,9 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     }
     if (action.action === 'attach') {
       // שלב 8.6-3: העלאה ואז שורה ב-media. failed = ההעלאה נכשלה ואין שורה (קריטריון 11). כשל מסד אחרי העלאה = 500 (ה-catch למטה).
-      const result = await attachImage({ sql, taskId: action.taskId, jpeg, upload: upload ?? blobUploader(blobToken), now: now() });
+      // בלוק 8: מערכת השעות לקישור התמונה לשיעור (lib/lesson-link.js). loadTimetable לא זורק: כשל = null = בלי קישור, התמונה נשמרת כרגיל.
+      const table = timetable === undefined ? await loadTimetable(sql) : timetable;
+      const result = await attachImage({ sql, taskId: action.taskId, jpeg, upload: upload ?? blobUploader(blobToken), now: now(), timetable: table });
       const openTasks = await loadOpenTasks(sql);
       const badge = await loadBadge(sql, now());
       if (result.status === 'attached') return json({ status: 'attached', media_id: result.mediaId, open_tasks: openTasks, badge });

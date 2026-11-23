@@ -108,6 +108,27 @@ describe('media-attach: attachImage', () => {
     assert.match(insert.text, /'stored'/);
     assert.match(insert.text, /'image\/jpeg'/);
   });
+  test('חוט מחבר: תמונה שהועלתה בתוך שיעור נשמרת עם lesson_date ו-lesson_period (שעון ישראל)', async () => {
+    const sql = attachDb({ task: { id: TASK_ID, subject: null } });
+    const timetable = { slots: [{ weekday: 3, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'היסטוריה' }] };
+    await attachImage({ sql, taskId: TASK_ID, jpeg: JPEG_CLEAN, upload: fakeUpload(), now: new Date('2026-11-24T08:20:00Z'), timetable });
+    const [insert] = mediaWrites(sql);
+    assert.match(insert.text, /lesson_date/);
+    assert.ok(insert.values.includes('2026-11-24'));
+    assert.ok(insert.values.includes(3));
+    assert.ok(insert.values.includes('היסטוריה'), 'מקצוע ריק במשימה: נגזר מהשיעור');
+  });
+  test('חוט מחבר: מקצוע של המשימה גובר על מקצוע השיעור; מחוץ לשיעור הקישור NULL', async () => {
+    const timetable = { slots: [{ weekday: 3, period: 3, startsAt: '10:05', endsAt: '10:50', subject: 'היסטוריה' }] };
+    const inLesson = attachDb();
+    await attachImage({ sql: inLesson, taskId: TASK_ID, jpeg: JPEG_CLEAN, upload: fakeUpload(), now: new Date('2026-11-24T08:20:00Z'), timetable });
+    assert.ok(mediaWrites(inLesson)[0].values.includes('מתמטיקה'));
+    assert.equal(mediaWrites(inLesson)[0].values.includes('היסטוריה'), false);
+    const outside = attachDb();
+    await attachImage({ sql: outside, taskId: TASK_ID, jpeg: JPEG_CLEAN, upload: fakeUpload(), now: new Date('2026-11-24T18:00:00Z'), timetable });
+    const values = mediaWrites(outside)[0].values;
+    assert.equal(values.filter((v) => v === null).length >= 2, true, 'lesson_date ו-lesson_period הם null');
+  });
   test('שני צירופים: שני שמות שונים', async () => {
     const upload = fakeUpload();
     await attachImage({ sql: attachDb(), taskId: TASK_ID, jpeg: JPEG_CLEAN, upload, now: REVIEW_NOW });
