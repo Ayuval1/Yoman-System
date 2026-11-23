@@ -3,6 +3,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { handle, scrub, config } from '../lib/ops/gate-probe.js';
+import { parsePool } from '../lib/brain/models.js';
 import { fakeSql, fakeFetch, captureConsole, req, jsonResponse, FAKE_CRON } from './helpers.js';
 
 const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
@@ -295,8 +296,8 @@ describe('gate-probe: כשלי Gemini', () => {
     assert.equal(fetchFn.calls.length, 1);
     assert.deepEqual(sleeps, []);
   });
-  test('401/403/404/400 - לא עוצר (ממשיך למשפט הבא)', async () => {
-    for (const status of [400, 401, 403, 404]) {
+  test('401/403/400 - לא עוצר (ממשיך למשפט הבא)', async () => {
+    for (const status of [400, 401, 403]) {
       const { deps, fetchFn } = setup({ sentences: mk(3), route: () => new Response('{}', { status }) });
       await handle(get('?count=3'), deps);
       assert.equal(fetchFn.calls.length, 3, String(status));
@@ -535,5 +536,167 @@ describe('gate-probe: model=rotate (רוטציה יומית לפי ListModels)',
     const { deps, fetchFn } = setup();
     assert.equal((await handle(get('?model=rotat'), deps)).status, 400);
     assert.equal(fetchFn.calls.length, 0);
+  });
+});
+
+describe('gate-probe: תיקוני שער Gemini (404, סינון מודלים, no_free_quota, המשך ריצה, סדר)', () => {
+  const NOW = 20413 * 86400000 + 5 * 3600000;
+  const at = (hoursAgo) => new Date(NOW - hoursAgo * 3600000).toISOString();
+  const entry = (name) => ({ name, supportedGenerationMethods: ['generateContent'] });
+  const isList = (url) => url.includes('/v1beta/models') && !url.includes(':generateContent');
+  const gens = (fetchFn) => fetchFn.calls.filter((c) => !isList(c.url));
+  const modelOf = (call) => call.url.match(/models\/(.+):generateContent/)[1];
+  const notFound = (m) => jsonResponse({ error: { status: 'NOT_FOUND', message: `This model models/${m} is no longer available to new users.` } }, 404);
+  const quota429 = () => jsonResponse({ error: { status: 'RESOURCE_EXHAUSTED', message: 'You exceeded your current quota' } }, 429);
+  // sql שמחזיר היסטוריה רק לשאילתת הבחירה (SELECT ... probe_log), ומתעד את שאר השאילתות
+  const withHistory = (rows) => fakeSql((text) => (text.startsWith('SELECT') && text.includes('probe_log') ? rows : []));
+  const setupH = (names, rows, route) => {
+    const sql = withHistory(rows);
+    const fetchFn = fakeFetch((url, options, i) => {
+      if (isList(url)) return jsonResponse({ models: names.map((n) => entry(`models/${n}`)) });
+      return route(url, options, i);
+    });
+    const deps = { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sleep: async () => {}, now: () => NOW };
+    return { sql, fetchFn, deps };
+  };
+  const rot = (deps, sentences = mk(20), q = '?model=rotate&from=0') => handle(get(q), { ...deps, sentences });
+  const detailOf = (sql) => sql.find('INSERT INTO probe_log')[0].values[1];
+
+  test('404: עוצר אחרי התשובה הראשונה, רושם model_unavailable ושאר המשפטים not-run', async () => {
+    const { deps, fetchFn, sql } = setupH(['gemini-a-flash'], [], () => notFound('gemini-a-flash'));
+    await rot(deps);
+    assert.equal(gens(fetchFn).length, 1);
+    const d = detailOf(sql);
+    assert.match(d, /; model_unavailable/);
+    assert.match(d, /not-run: s02,s03/);
+    assert.match(d, /aborted_at=s01/);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+  });
+  test('מודל עם model_unavailable בהיסטוריה (גם ישן מ-30 יום) לא נבחר שוב', async () => {
+    const rows = [{ ok: false, at: at(24 * 90), detail: 'range=s01-s20; 0/20 ran=1; failed: s01; not-run: s02; aborted_at=s01; model=gemini-b-flash; pool=3; slot=0/1; model_unavailable; elapsed=1s' }];
+    // 20413 % 3 = 1 -> b היה נבחר. אחרי סינון: a,c
+    const { deps, fetchFn } = setupH(['gemini-a-flash', 'gemini-b-flash', 'gemini-c-flash'], rows, () => good());
+    await rot(deps);
+    assert.ok(gens(fetchFn).every((c) => modelOf(c) !== 'gemini-b-flash'));
+    assert.ok(gens(fetchFn).length > 0);
+  });
+  test('כל המודלים חסומים: ok=false, בלי קריאת generateContent', async () => {
+    const rows = [{ ok: false, at: at(1), detail: 'range=s01-s20; 0/20 ran=1; failed: s01; model=gemini-a-flash; pool=1; slot=0/1; model_unavailable; elapsed=1s' }];
+    const { deps, fetchFn, sql } = setupH(['gemini-a-flash'], rows, () => good());
+    await rot(deps);
+    assert.equal(gens(fetchFn).length, 0);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+  });
+  test('סינון שמות: omni, nano-banana, imagen, veo, aqa ועוד לא נכנסים לרשימה', async () => {
+    const names = ['gemini-nano-banana-2.1', 'gemini-omni-1.1-flash', 'gemini-2.0-imagen', 'gemini-veo-3', 'gemini-aqa-x', 'gemini-ok-flash'];
+    const { deps, fetchFn } = setupH(names, [], () => good());
+    const text = await (await rot(deps)).text();
+    assert.match(text, /pool=1/);
+    assert.ok(gens(fetchFn).every((c) => modelOf(c) === 'gemini-ok-flash'));
+  });
+  test('429 במשפט הראשון בהודעת מכסה: no_free_quota נרשם', async () => {
+    const { deps, sql } = setupH(['gemini-a-flash'], [], quota429);
+    await rot(deps);
+    assert.match(detailOf(sql), /; no_free_quota/);
+  });
+  test('429 במשפט הראשון עם PerDay בגוף (מכסה יומית שנוצלה): לא no_free_quota', async () => {
+    const perDay = () => jsonResponse({ error: { status: 'RESOURCE_EXHAUSTED', message: 'You exceeded your current quota', details: [{ violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' }] }] } }, 429);
+    const { deps, sql } = setupH(['gemini-a-flash'], [], perDay);
+    await rot(deps);
+    assert.doesNotMatch(detailOf(sql), /no_free_quota/);
+  });
+  test('המשך שבו ran המאוחד שונה ממספר המשפטים (שורה קודמת חסרה): ok=false גם אם כולם נכונים', async () => {
+    const odd = 'range=s01-s20; 15/20 ran=15; failed: none; not-run: s18,s19,s20; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
+    const { deps, sql } = setupH(['gemini-b-flash'], [{ ok: false, at: at(5), detail: odd }], () => good());
+    await rot(deps);
+    assert.match(detailOf(sql), /; 18\/20 ran=18;/);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+  });
+  test('אינטגרציה: שורת המשך שעברה 18/20 נקראת על ידי parsePool כמודל שעבר', async () => {
+    const prior = 'range=s01-s20; 16/20 ran=17; failed: s15; not-run: s18,s19,s20; aborted_at=s18; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
+    // 2 מתוך 3 נכונים: 18/20
+    const { deps, sql } = setupH(['gemini-b-flash'], [{ ok: false, at: at(5), detail: prior }], (u, o, i) => (i <= 2 ? good() : answer('query_schedule', null)));
+    await rot(deps);
+    const [ok, detail] = sql.find('INSERT INTO probe_log')[0].values;
+    assert.equal(ok, true);
+    assert.match(detail, /; 18\/20 ran=20;/);
+    const pool = parsePool([{ ok, detail, at: new Date(NOW) }], new Date(NOW));
+    assert.deepEqual(pool, [{ model: 'gemini-b-flash', passed: 18, total: 20 }]);
+  });
+  test('429 באמצע ריצה (מכסה יומית): לא no_free_quota', async () => {
+    const { deps, sql } = setupH(['gemini-a-flash'], [], (u, o, i) => (i >= 3 ? quota429() : good()));
+    await rot(deps);
+    assert.doesNotMatch(detailOf(sql), /no_free_quota/);
+  });
+  test('מודל עם no_free_quota מדולג יומיים, ואחרי זה חוזר', async () => {
+    const row = (hoursAgo) => [{ ok: false, at: at(hoursAgo), detail: 'range=s01-s20; 0/20 ran=1; failed: s01; not-run: s02; aborted_at=s01; model=gemini-b-flash; pool=3; slot=0/1; no_free_quota; elapsed=1s' }];
+    const calls = async (rows) => { const { deps, fetchFn } = setupH(['gemini-b-flash'], rows, () => good()); await rot(deps); return gens(fetchFn).length; };
+    assert.equal(await calls(row(24 * 1)), 0); // עדיין מדולג (המודל היחיד)
+    assert.equal(await calls(row(24 * 3)), 20); // חזר
+  });
+  test('מודל שלא נבדק מועדף על מודל שנבדק (גם אם הרוטציה מצביעה על הנבדק)', async () => {
+    const rows = [{ ok: false, at: at(30), detail: 'range=s01-s20; 10/20 ran=20; failed: s01; model=gemini-b-flash; pool=3; slot=0/1; elapsed=200s' }];
+    const { deps, fetchFn } = setupH(['gemini-a-flash', 'gemini-b-flash', 'gemini-c-flash'], rows, () => good());
+    await rot(deps);
+    assert.equal(modelOf(gens(fetchFn)[0]), 'gemini-c-flash'); // הרוטציה על b; הפנוי הראשון אחריו שלא נבדק הוא c
+  });
+
+  const PARTIAL = 'range=s01-s20; 16/20 ran=17; failed: s15; not-run: s18,s19,s20; aborted_at=s18; model=gemini-b-flash; pool=3; slot=3/4; time_budget; elapsed=244s';
+  test('המשך: ריצה שנחתכה בתקציב זמן ממשיכה מהמשפט הראשון שלא רץ, ומאחדת לתוצאה אחת', async () => {
+    const rows = [{ ok: false, at: at(18), detail: PARTIAL }];
+    const { deps, fetchFn, sql } = setupH(['gemini-a-flash', 'gemini-b-flash', 'gemini-c-flash'], rows, () => good());
+    const res = await rot(deps);
+    const calls = gens(fetchFn);
+    assert.equal(calls.length, 3);
+    assert.ok(calls.every((c) => modelOf(c) === 'gemini-b-flash'));
+    assert.ok(calls[0].options.body.includes('משפט-פרטי-מספר-18'));
+    const d = detailOf(sql);
+    assert.match(d, /range=s01-s20; 19\/20 ran=20; failed: s15;/);
+    assert.match(d, /resumed_from=s18; prior=16\/17/);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], true);
+    assert.match(await res.text(), /^עבר/);
+  });
+  test('המשך: האיחוד גם יכול להיכשל (16/17 ועוד 1 מתוך 3 = 17/20 < 90%)', async () => {
+    const rows = [{ ok: false, at: at(18), detail: PARTIAL }];
+    const { deps, sql } = setupH(['gemini-b-flash'], rows, (u, o, i) => (i === 1 ? good() : answer('query_schedule', null)));
+    await rot(deps);
+    assert.match(detailOf(sql), /; 17\/20 ran=20; failed: s15,s19,s20;/);
+    assert.equal(sql.find('INSERT INTO probe_log')[0].values[0], false);
+  });
+  test('המשך: שורה שהאיחוד שלה כבר לא יכול לעבור את הסף - לא ממשיכים', async () => {
+    const dead = 'range=s01-s20; 10/20 ran=15; failed: s01,s02,s03,s04,s05; not-run: s16,s17,s18,s19,s20; model=gemini-b-flash; pool=1; slot=0/1; time_budget; elapsed=244s';
+    const { deps, fetchFn } = setupH(['gemini-b-flash'], [{ ok: false, at: at(2), detail: dead }], () => good());
+    await rot(deps);
+    assert.equal(gens(fetchFn).length, 20); // התחלה מחדש מאפס, לא המשך
+  });
+  test('המשך: ריצה ישנה מ-36 שעות - מתחילים מחדש', async () => {
+    const { deps, fetchFn } = setupH(['gemini-b-flash'], [{ ok: false, at: at(40), detail: PARTIAL }], () => good());
+    await rot(deps);
+    assert.equal(gens(fetchFn).length, 20);
+  });
+  test('המשך שנחתך שוב בתקציב: נרשם not-run חדש, וניתן להמשיך שוב', async () => {
+    const rows = [{ ok: false, at: at(18), detail: PARTIAL }];
+    let t = NOW;
+    const { deps, sql } = setupH(['gemini-b-flash'], rows, () => good());
+    await rot({ ...deps, now: () => (t += 150000) }); // כל קריאת now מקדמת 150 שניות: נחתך אחרי המשפט הראשון
+    const d = detailOf(sql);
+    assert.match(d, /resumed_from=s18/);
+    assert.match(d, /time_budget/);
+    assert.match(d, /not-run: s19,s20/);
+    assert.match(d, /; 17\/20 ran=18;/);
+  });
+  test('סדר: מודל להמשך (ציון חלקי) קודם למודל שלא נבדק, והטוב מבין כמה חלקיים ראשון', async () => {
+    const mkRow = (model, passed, ran) => ({ ok: false, at: at(5), detail: `range=s01-s20; ${passed}/20 ran=${ran}; failed: ${Array.from({ length: ran - passed }, (_, i) => `s${i + 1}`).join(',') || 'none'}; not-run: s${ran + 1}; model=${model}; pool=4; slot=0/4; time_budget; elapsed=250s` });
+    const rows = [mkRow('gemini-a-flash', 17, 19), mkRow('gemini-c-flash', 19, 19)];
+    const { deps, fetchFn } = setupH(['gemini-a-flash', 'gemini-b-flash', 'gemini-c-flash', 'gemini-d-flash'], rows, () => good());
+    await rot(deps);
+    assert.equal(modelOf(gens(fetchFn)[0]), 'gemini-c-flash');
+  });
+  test('כשל בקריאת ההיסטוריה לא עוצר: רוטציה רגילה', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql((text) => { if (text.startsWith('SELECT')) throw new Error('db down'); return []; });
+    const fetchFn = fakeFetch((url) => (isList(url) ? jsonResponse({ models: [entry('models/gemini-a-flash')] }) : good()));
+    await rot({ sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sleep: async () => {}, now: () => NOW });
+    assert.equal(gens(fetchFn).length, 20);
   });
 });
