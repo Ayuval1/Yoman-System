@@ -37,9 +37,11 @@ describe('time-suggest: חלונות פתוחים (טהור)', () => {
     const late = busy([{ title: 'בית ספר', start: '08:15', end: '15:45', domain: 'school' }], { timetable: true });
     assert.deepEqual(openWindows({ dateIso: MON, busy: late }), [[min('16:00'), min('21:30')]]);
   });
-  test('יום ריצה או אימון (תחום running): סגור, כללים 2 עד 4', () => {
+  test('יום אימון (תחום running): רק 16:00–17:00, לפני ההתארגנות (כלל 3); הערב סגור (כלל 4); אימון שמתחיל מוקדם יותר מקצר את החלון', () => {
     const training = busy([{ title: 'אימון ריצה', start: '18:00', end: '20:00', domain: 'running' }]);
-    assert.deepEqual(openWindows({ dateIso: MON, busy: training }), []);
+    assert.deepEqual(openWindows({ dateIso: MON, busy: training }), [[min('16:00'), min('17:00')]]);
+    const early = busy([{ title: 'אימון', start: '15:00', end: '16:30', domain: 'running' }]);
+    assert.deepEqual(openWindows({ dateIso: MON, busy: early }), []);
   });
   test('ראשון: הפיזיותרפיה 17:00 עד 17:45 סגורה; שלישי: נסגר ב-17:00 (כלל 6)', () => {
     assert.deepEqual(openWindows({ dateIso: SUN, busy: busy([], { timetable: true }) }), [[min('10:00'), min('17:00')], [min('17:45'), min('21:30')]]);
@@ -101,7 +103,7 @@ describe('time-suggest: נוסח', () => {
 // ---------------------------------------------------------------------------
 // יצירת ההצעה
 // ---------------------------------------------------------------------------
-const noGoogle = undefined;
+const noGoogle = async () => ({ ok: true, events: [] }); // Google נבדק ופנוי
 const task = (over = {}) => ({ id: TASK_ID, title: TITLE, dueAt: dueAtOf(WED), timed: false, ...over });
 const writeRows = (text) => (text.includes('time-suggest-create') ? [{ message_id: MSG_ID }] : []);
 
@@ -143,7 +145,7 @@ describe('time-suggest: suggestTimeForTask', () => {
     const days = sql.find('FROM events e').length;
     assert.ok(days >= 1 && days <= 7);
   });
-  test('יום ריצה (אירוע running): מדלגים עליו ומציעים יום אחר', async () => {
+  test('יום אימון (running 18:00): מציעים 16:00–17:00 באותו יום, לא את הערב (כללים 3 ו-4)', async () => {
     const sql = fakeSql((text, values) => {
       if (text.includes('FROM events e')) {
         const from = values[1];
@@ -154,7 +156,37 @@ describe('time-suggest: suggestTimeForTask', () => {
     await suggestTimeForTask({ sql, task: task(), now: NOW, timetable: null, googleDay: noGoogle });
     const [call] = sql.find('time-suggest-create');
     const facts = JSON.parse(call.values.find((v) => typeof v === 'string' && v.startsWith('[{"field"')));
-    assert.equal(facts.find((f) => f.field === 'date').value, TUE);
+    assert.equal(facts.find((f) => f.field === 'date').value, MON);
+    assert.equal(facts.find((f) => f.field === 'start').value, '16:00');
+    assert.equal(facts.find((f) => f.field === 'end').value, '17:00');
+  });
+  test('Google נכשל / לא הוגדר / חריגת זמן: אין כרטיס, והלוג מכיל קוד בלבד', async (t) => {
+    const log = captureConsole(t);
+    for (const googleDay of [async () => ({ ok: false, reason: 'x' }), undefined]) {
+      const sql = fakeSql(writeRows);
+      assert.deepEqual(await suggestTimeForTask({ sql, task: task(), now: NOW, timetable: null, googleDay }), { created: false });
+      assert.equal(sql.find('time-suggest-create').length, 0);
+    }
+    assert.ok(log.text().includes('google_failed') && log.text().includes('google_skipped'));
+    const slow = fakeSql(writeRows);
+    const hang = () => new Promise(() => {});
+    const out = await suggestTimeForTask({ sql: slow, task: task(), now: NOW, timetable: null, googleDay: hang, timeoutMs: 20 });
+    assert.deepEqual(out, { created: false });
+    assert.ok(log.text().includes('timeout'));
+    assert.ok(!log.text().includes(TITLE));
+  });
+  test('הימים נקראים במקביל: כל השאילתות יוצאות לפני שאחת מהן חוזרת', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const googleDay = async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight -= 1;
+      return { ok: true, events: [] };
+    };
+    await suggestTimeForTask({ sql: fakeSql(writeRows), task: task({ dueAt: dueAtOf('2026-12-31') }), now: NOW, timetable: null, googleDay });
+    assert.equal(peak, 7);
   });
   test('כשל מסד לא נזרק: created=false ושם השגיאה בלבד בלוג', async (t) => {
     const log = captureConsole(t);
@@ -240,6 +272,15 @@ describe('time-suggest: answerTimeSuggest', () => {
     assert.ok(values.some((v) => typeof v === 'string' && v.startsWith('נשארת')));
     assert.ok(!values.includes(new Date('2026-11-23T14:00:00.000Z').toISOString()), 'שעה לא נקבעת');
   });
+  test('"כן" כש-Google לא נבדק: לא נכתב אירוע ולא נקבעת שעה; בועת "לא הצלחתי לבדוק"', async () => {
+    const sql = answerSql();
+    const out = await answerTimeSuggest({ sql, messageId: MSG_ID, answer: 'כן', now: NOW, timetable: null, googleDay: async () => ({ ok: false }) });
+    assert.equal(out.status, 'answered');
+    assert.deepEqual(out.keys, []);
+    const values = writeValues(sql);
+    assert.ok(values.some((v) => typeof v === 'string' && v.startsWith('לא הצלחתי לבדוק את היומן עכשיו, נשאר בלי שעה')));
+    assert.ok(!values.includes(new Date('2026-11-23T14:00:00.000Z').toISOString()));
+  });
   test('משימה שכבר נסגרה (בוצעה): הכרטיס נסגר בלי אירוע', async () => {
     const sql = answerSql({ taskRows: [taskRow({ status: 'done' })] });
     const out = await answerTimeSuggest({ sql, messageId: MSG_ID, answer: 'כן', now: NOW, timetable: null, googleDay: noGoogle });
@@ -278,7 +319,7 @@ describe('time-suggest: בצ\'אט', () => {
 
   const H = { 'x-intake-secret': FAKE_SECRET };
   const call = (answer, extra) => chatHandle(jsonRequest({ action: 'answer', message_id: MSG_ID, answer }, { headers: H, url: 'https://x.test/api/chat' }), {
-    sql: answerSql(), secret: FAKE_SECRET, timetable: null, now: () => NOW, googleDay: undefined, ...extra,
+    sql: answerSql(), secret: FAKE_SECRET, timetable: null, now: () => NOW, googleDay: noGoogle, ...extra,
   });
   test('answer "כן": עובר ל-answerTimeSuggest, והאירוע נכתב ליומן לפי המפתח', async () => {
     const synced = [];
@@ -313,7 +354,7 @@ describe('time-suggest: חיבור', () => {
   });
   test('משימה עם תאריך ובלי שעה: ההצעה נוצרת מיד אחרי הרישום, עם כותרת המשימה', async () => {
     const sql = pipelineSql();
-    const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null });
+    const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null, googleDay: noGoogle });
     assert.equal(out.status, 'recorded');
     const [call] = sql.find('time-suggest-create');
     assert.ok(call, 'נוצר כרטיס');
@@ -321,10 +362,10 @@ describe('time-suggest: חיבור', () => {
   });
   test('משימה בלי תאריך: קודם "עד מתי?", בלי הצעה; משימה עם שעה ברורה: בלי הצעה', async () => {
     const noDate = pipelineSql();
-    await processSource({ sql: noDate, source: typed('להביא חוברת'), timetable: null });
+    await processSource({ sql: noDate, source: typed('להביא חוברת'), timetable: null, googleDay: noGoogle });
     assert.equal(noDate.find('time-suggest-create').length, 0);
     const timed = pipelineSql();
-    await processSource({ sql: timed, source: typed('לשלוח מייל עד יום שני ב-17:00'), timetable: null });
+    await processSource({ sql: timed, source: typed('לשלוח מייל עד יום שני ב-17:00'), timetable: null, googleDay: noGoogle });
     assert.equal(timed.find('time-suggest-create').length, 0);
   });
   test('כשל בהצעה לא משנה את תוצאת הרישום', async (t) => {
@@ -334,7 +375,7 @@ describe('time-suggest: חיבור', () => {
       if (text.includes('FROM events e')) throw Object.assign(new Error('x'), { name: 'NeonDbError' });
       return [];
     });
-    const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null });
+    const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null, googleDay: noGoogle });
     assert.equal(out.status, 'recorded');
   });
   test('api/chat.js: תשובה "מחר" ל"עד מתי?" (בלי שעה) מציעה חלון, והכותרת נטענת מהמסד', async () => {
@@ -346,7 +387,7 @@ describe('time-suggest: חיבור', () => {
       return [];
     });
     const res = await chatHandle(jsonRequest({ action: 'answer', message_id: MSG_ID, answer: 'מחר' }, { headers: { 'x-intake-secret': FAKE_SECRET } }), {
-      sql, secret: FAKE_SECRET, timetable: null, now: () => SATURDAY_NOON, eventSync: async () => ({}), googleDay: undefined,
+      sql, secret: FAKE_SECRET, timetable: null, now: () => SATURDAY_NOON, eventSync: async () => ({}), googleDay: noGoogle,
     });
     assert.equal((await res.json()).status, 'answered');
     const [call] = sql.find('time-suggest-create');
