@@ -34,7 +34,8 @@ describe('public/index.html: מסך היומן', () => {
 
   test('הנתונים: view=calendar עם from ו-days (42), באותה בקשה עם הסוד', () => {
     const load = bodyOf('calLoad');
-    assert.match(load, /authedFetch\(`\/api\/chat\?view=calendar&from=\$\{calGridStart\([^)]*\)\}&days=42`\)/);
+    assert.match(load, /`\/api\/chat\?view=calendar&from=\$\{calGridStart\([^)]*\)\}&days=42`/);
+    assert.match(load, /authedFetch\(path\)/);
   });
 
   test('מצבי טעינה וכשל: "טוען" ו"לא הצלחתי לטעון את היומן" עם ניסיון חוזר', () => {
