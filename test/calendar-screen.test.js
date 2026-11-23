@@ -121,3 +121,44 @@ describe('public/index.html: מסך היומן', () => {
     assert.doesNotMatch(html, /weekstrip|week-strip|calStrip/i);
   });
 });
+
+describe('public/index.html: נגישות מסך היומן', () => {
+  const labelFn = () => {
+    const src = /const calCount = [\s\S]*?\nfunction calDayLabel\([^)]*\) \{[\s\S]*?\n\}/.exec(block)?.[0];
+    assert.ok(src, 'calDayLabel קיימת');
+    const DAYS = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+    const MONTHS = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+    return new Function('DAYS', 'MONTHS', `${src}; return calDayLabel;`)(DAYS, MONTHS);
+  };
+
+  test('תא יום: התווית כוללת תאריך, "היום" וספירה מלאה', () => {
+    assert.match(bodyOf('calMonthCell'), /setAttribute\('aria-label', calDayLabel\(day, today\)\)/);
+    const label = labelFn();
+    const items = [{ kind: 'exam' }, { kind: 'exam' }, { kind: 'exam', quiz: true }, { kind: 'event', pending: true }];
+    assert.equal(label({ date: '2026-11-24', items }, '2026-11-24'), 'יום שלישי 24 בנובמבר, היום, 2 מבחנים, מבדק אחד, אירוע אחד ממתין לתשובה');
+    assert.equal(label({ date: '2026-11-25', items: [] }, '2026-11-24'), 'יום רביעי 25 בנובמבר');
+    assert.equal(label({ date: '2026-11-25', items: [{ kind: 'event' }, { kind: 'event' }, { kind: 'event' }] }, 'x'), 'יום רביעי 25 בנובמבר, 3 אירועים');
+  });
+
+  test('פוקוס: האפליקציה inert בזמן שהיומן פתוח, הפוקוס חוזר לפותח, Escape סוגר', () => {
+    assert.match(script, /const appEl = document\.querySelector\('\.app'\)/);
+    assert.match(bodyOf('openCalendar'), /appEl\.inert = true/);
+    assert.match(bodyOf('openCalendar'), /calOpener = document\.activeElement/);
+    assert.match(bodyOf('closeCalendar'), /appEl\.inert = false/);
+    assert.match(bodyOf('closeCalendar'), /calOpener/);
+    assert.match(block, /key === 'Escape' && calState\.open/);
+  });
+
+  test('"טוען…" נקרא בקורא מסך (aria-live)', () => {
+    assert.match(section, /<p class="cal-status" id="calStatus" role="status" aria-live="polite"><\/p>/);
+    assert.match(bodyOf('calRender'), /calStatusEl\.textContent = calState\.status === 'loading' \? 'טוען…' : ''/);
+    assert.doesNotMatch(block, /setAttribute\('aria-live'/);
+  });
+
+  test('פתיחה כפולה לא דורסת את הפותח; סגירת הסיכום מחזירה פוקוס לפס החדש', () => {
+    assert.match(bodyOf('openCalendar'), /if \(calState\.open\) return;/);
+    assert.match(script, /function openReview\(\) \{\s*if \(state\.rvOpen\) return;/);
+    assert.match(script.slice(script.indexOf('function closeReview'), script.indexOf('rvCloseBtn.addEventListener')), /pinEl\.querySelector\('\.mini \.ch'\)/);
+    assert.match(script.slice(script.indexOf('function closeReview'), script.indexOf('rvCloseBtn.addEventListener')), /rvOpener\.isConnected/);
+  });
+});
