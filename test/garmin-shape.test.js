@@ -76,8 +76,10 @@ describe('garmin-shape: צורה בלבד', () => {
     assert.ok(body.workout.shape.keys.includes('workoutSegments[].workoutSteps[].deep'));
     assert.ok(!body.workout.shape.keys.some((k) => k.includes('deeper')));
     assert.ok(!('workoutSegments[].workoutSteps[].deep.deeper.tooDeepDuration' in body.workout.shape.values));
-    // endConditionValue לא תואם את /dur|time|sec|distance|estimated/i, ולכן ערכו לא מוחזר (רק שמו). לפי המפרט.
-    assert.ok(!('workoutSegments[].workoutSteps[].endConditionValue' in body.workout.shape.values));
+    // endConditionValue תואם את ה-regex המורחב (endCondition|value), ולכן המספר שלו מוחזר.
+    assert.equal(body.workout.shape.values['workoutSegments[].workoutSteps[].endConditionValue'], 600);
+    // מחרוזת בנתיב תואם (conditionTypeKey תחת endCondition) עדיין לא מוחזרת.
+    assert.ok(!('workoutSegments[].workoutSteps[].endCondition.conditionTypeKey' in body.workout.shape.values));
   });
 
   test('נתיבי הקריאה: חודש 0-based של ישראל, תוכנית מהיום עד +15, ואימון לפי workoutId', async () => {
