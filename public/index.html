@@ -562,6 +562,17 @@
   .cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--label3); }
   .cal-dot.train { background: var(--cal-training); }
   .cal-list { display: flex; flex-direction: column; gap: 8px; }
+  /* מעבר יום בהחלקה: הדפדפן מטפל רק בגלילה אנכית ברשימה; תנועה אופקית שייכת להחלקה (calStepDay). */
+  .cal-list { touch-action: pan-y; }
+  .cal-bar h2 { min-width: 0; }
+  /* "היום" בכותרת היום: אותו סימון של היום ברשת החודש (.cal-day.today .cal-n) */
+  .cal-todaytag { display: inline-block; margin-inline-start: 6px; padding: 0 8px; border-radius: 10px; background: var(--deep); color: #fff; font-size: 13px; font-weight: var(--fw-med); line-height: 20px; vertical-align: middle; }
+  /* החלקה קצרה של היום החדש מהצד שממנו הגיע; בתנועה מופחתת בלי תנועה */
+  .cal-list.cal-in-next { animation: cal-in-next 180ms ease-out; }
+  .cal-list.cal-in-prev { animation: cal-in-prev 180ms ease-out; }
+  @keyframes cal-in-next { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+  @keyframes cal-in-prev { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .cal-list.cal-in-next, .cal-list.cal-in-prev { animation: none; } }
   .cal-item {
     position: relative; width: 100%; min-height: 44px; border: 0; text-align: start; font: inherit; color: var(--label);
     background: var(--card1); border-radius: var(--r-mini); box-shadow: var(--sh-card3); padding: 10px 16px;
@@ -2948,7 +2959,7 @@ const calEl = document.getElementById('cal');
 const calBodyEl = document.getElementById('calBody');
 const calBarEl = document.getElementById('calBar');
 const calStatusEl = document.getElementById('calStatus');
-const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0 };
+const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0, announce: false, slide: '', refocus: '', from: '' };
 
 const calPad = (n) => String(n).padStart(2, '0');
 const calIso = (y, m, d) => `${y}-${calPad(m + 1)}-${calPad(d)}`;
@@ -2988,6 +2999,7 @@ function calGridStart(y, m) {
 
 async function calLoad() {
   const req = ++calState.req;
+  calState.from = calGridStart(calState.y, calState.m); // תחילת הרשת שנטענת: "חודש" בודק מולה אם צריך טעינה
   calState.status = 'loading';
   calState.data = null;
   calRender();
@@ -3060,7 +3072,11 @@ function calMonthCell(day, today) {
     if (train) dots.append(el('span', 'cal-dot train'));
     cell.append(dots);
   }
-  cell.addEventListener('click', () => { calState.view = 'day'; calState.day = date; calState.openItem = null; calRender(); calBodyEl.scrollTop = 0; });
+  cell.addEventListener('click', () => {
+    calState.view = 'day'; calState.day = date; calState.openItem = null;
+    calState.announce = false; calState.slide = ''; calState.refocus = ''; // כניסה מהחודש: בלי שאריות ממעבר יום קודם
+    calRender(); calBodyEl.scrollTop = 0;
+  });
   return cell;
 }
 
@@ -3133,7 +3149,13 @@ function calRenderDay() {
   if (day?.noSchool) list.append(el('p', 'cal-off day', 'אין בית ספר'));
   if (!day || day.items.length === 0) list.append(el('p', 'rvempty', 'אין כלום ביום הזה'));
   else day.items.forEach((item, i) => list.append(calItemNode(item, i)));
+  if (calState.slide) { list.classList.add(calState.slide === 'next' ? 'cal-in-next' : 'cal-in-prev'); calState.slide = ''; }
   calBodyEl.replaceChildren(list);
+  // מעבר יום (החלקה או כפתור): מקריאים את היום החדש באזור החי הקבוע, אחרי ש-calRender ניקה אותו
+  if (calState.announce) {
+    calState.announce = false;
+    calStatusEl.textContent = calDayLabel(day ?? { date: calState.day, items: [] }, calToday());
+  }
 }
 
 function calRender() {
@@ -3141,10 +3163,25 @@ function calRender() {
   calBarEl.replaceChildren();
   if (calState.view === 'day' && calState.status === 'ok') {
     const back = calButton('cal-btn', 'חזרה לחודש', '<path d="M9 6l6 6-6 6"/>', 'חודש');
-    back.addEventListener('click', () => { calState.view = 'month'; calState.openItem = null; calRender(); });
+    back.addEventListener('click', () => {
+      calState.view = 'month'; calState.openItem = null;
+      // אחרי מעבר יום לחודש אחר בתוך הטווח שנטען, הרשת שבזיכרון שייכת לחודש הקודם: טוענים את החודש של היום
+      if (calState.from !== calGridStart(calState.y, calState.m)) calLoad(); else calRender();
+    });
     const [y, m, d] = calState.day.split('-').map(Number);
     const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-    calBarEl.append(back, el('h2', 'tnum', `יום ${DAYS[wd]}, ${d} ב${MONTHS[m - 1]}`));
+    // יום קודם / הבא: אותו מיקום וחצים כמו חודש קודם / הבא (הקודם בצד הימני, הבא בצד השמאלי)
+    const prevDay = calButton('cal-btn', 'היום הקודם', '<path d="M9 6l6 6-6 6"/>');
+    const nextDay = calButton('cal-btn', 'היום הבא', '<path d="M15 6l-6 6 6 6"/>');
+    prevDay.dataset.nav = 'prev';
+    nextDay.dataset.nav = 'next';
+    prevDay.addEventListener('click', () => calStepDay(-1, true));
+    nextDay.addEventListener('click', () => calStepDay(1, true));
+    const title = el('h2', 'tnum', `יום ${DAYS[wd]}, ${d} ב${MONTHS[m - 1]}`);
+    if (calState.day === calToday()) title.append(el('span', 'cal-todaytag', 'היום'));
+    calBarEl.append(back, prevDay, title, nextDay);
+    // אחרי מעבר בכפתור הכפתור נבנה מחדש: מחזירים אליו את הפוקוס (גם אחרי טעינה של חודש אחר)
+    if (calState.refocus) { calBarEl.querySelector(`[data-nav="${calState.refocus}"]`)?.focus(); calState.refocus = ''; }
   } else {
     const prev = calButton('cal-btn', 'החודש הקודם', '<path d="M9 6l6 6-6 6"/>');
     const next = calButton('cal-btn', 'החודש הבא', '<path d="M15 6l-6 6 6 6"/>');
@@ -3173,6 +3210,56 @@ function calShift(delta) {
   calState.view = 'month';
   calLoad();
 }
+
+// מעבר ליום הקודם (-1) או הבא (1) בתצוגת יום. יום שכבר בטווח שנטען (42 הימים של הרשת) מוצג מיד;
+// יום מחוץ לטווח (למשל 31.12 ← 1.1) טוען את החודש שלו דרך calLoad, עם אותם מצבי טעינה וכשל.
+function calStepDay(delta, fromButton) {
+  if (calState.view !== 'day' || calState.status !== 'ok' || !calState.day) return;
+  const [y, m, d] = calState.day.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d + delta));
+  const date = calIso(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate());
+  calState.day = date;
+  calState.openItem = null;
+  calState.announce = true;
+  calState.slide = delta > 0 ? 'next' : 'prev';
+  // כפתור: הפוקוס חוזר אליו. החלקה: אם הפוקוס כבר היה על כפתור יום קודם/הבא, הוא נשאר עליו.
+  const focusedNav = calBarEl.contains(document.activeElement) ? (document.activeElement.dataset.nav ?? '') : '';
+  calState.refocus = fromButton ? (delta > 0 ? 'next' : 'prev') : focusedNav;
+  calBodyEl.scrollTop = 0;
+  // "חודש" חוזר לחודש של היום המוצג, בשני המסלולים
+  calState.y = at.getUTCFullYear();
+  calState.m = at.getUTCMonth();
+  if (calState.data.days.some((x) => x.date === date)) { calRender(); return; }
+  calLoad();
+}
+
+// החלקה אופקית בתצוגת יום = מעבר יום. מאזינים פסיביים בלבד: בלי preventDefault, ולכן הגלילה האנכית לא מושפעת.
+// נחשב החלקה רק כשהתנועה אופקית בבירור: יותר מ-50px, ויותר מפי 1.5 מהתנועה האנכית. הקשה רגילה על שורה לא זזה, ולכן נשארת לחיצה.
+// הנחה, לא אומת: כיוון כמו דפדוף בספר עברי. אצבע משמאל לימין = היום הבא; מימין לשמאל = היום הקודם. להפוך: CAL_SWIPE_DIR = -1.
+const CAL_SWIPE_DIR = 1;
+const CAL_SWIPE_PX = 50;
+const CAL_SWIPE_RATIO = 1.5;
+const CAL_SWIPE_EDGE_PX = 24;
+let calTouch = null; // { x, y } של תחילת המגע
+calBodyEl.addEventListener('touchstart', (event) => {
+  calTouch = null;
+  if (calState.view !== 'day' || calState.status !== 'ok' || event.touches.length !== 1) return; // שתי אצבעות: לא החלקה
+  const t = event.touches[0];
+  // מגע שמתחיל צמוד לקצה המסך שייך למחוות הקצה של iOS (חזרה), לא למעבר יום
+  if (t.clientX < CAL_SWIPE_EDGE_PX || t.clientX > window.innerWidth - CAL_SWIPE_EDGE_PX) return;
+  calTouch = { x: t.clientX, y: t.clientY };
+}, { passive: true });
+calBodyEl.addEventListener('touchend', (event) => {
+  const start = calTouch;
+  calTouch = null;
+  if (!start || event.touches.length) return;
+  const t = event.changedTouches[0];
+  const dx = t.clientX - start.x;
+  const dy = t.clientY - start.y;
+  if (Math.abs(dx) <= CAL_SWIPE_PX || Math.abs(dx) <= CAL_SWIPE_RATIO * Math.abs(dy)) return;
+  calStepDay(dx * CAL_SWIPE_DIR > 0 ? 1 : -1, false);
+}, { passive: true });
+calBodyEl.addEventListener('touchcancel', () => { calTouch = null; }, { passive: true });
 
 let calOpener = null;
 function openCalendar() {
