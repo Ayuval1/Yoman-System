@@ -321,7 +321,11 @@ CREATE TABLE IF NOT EXISTS media (
   deleted_at   timestamptz,                          -- מתי הקובץ נמחק מ-Blob (06:40)
   -- task_id (שלב 8.6-1, docs/08-chapter8/60 "איך נשמר מה"): המשימה שהתמונה מצורפת אליה. ריק לתמונה שאינה של משימה. הנחה, לא אומת: שם העמודה, ו-06 שותק.
   -- במסד החי היא נוספת בפקודת ALTER נפרדת שיובל מריץ (ADD COLUMN IF NOT EXISTS), לא מהקובץ הזה, כמו messages.read_at.
-  task_id      uuid        REFERENCES tasks(id)
+  task_id      uuid        REFERENCES tasks(id),
+  -- חוט מחבר תמונה <- שיעור (בלוק 8, "תביא לי"; 06:257): באיזה שיעור צולמה התמונה, לפי שעת ההעלאה ומערכת השעות (lib/lesson-link.js). NULL = מחוץ לשיעור או לא ידוע.
+  -- במסד החי נוספו ב-23.11.2026 בפקודת ALTER נפרדת שיובל הריץ: ALTER TABLE media ADD COLUMN IF NOT EXISTS lesson_date date, ADD COLUMN IF NOT EXISTS lesson_period integer;
+  lesson_date   date,
+  lesson_period integer
 );
 
 
