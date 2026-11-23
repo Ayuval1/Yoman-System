@@ -514,6 +514,43 @@
     .jump { transform: none; transition: opacity 150ms ease-out; }
   }
 
+  /* ---------- תמונות בבועת מערכת ("תביא לי", בלוק 8). הנחה, לא אומת באייפון: אין הדמיה; טוקנים קיימים בלבד.
+     בועה עם תמונות ברוחב המרבי של בועת מערכת (80%), כדי שתמונה לא תהיה זעירה מתחת לטקסט קצר.
+     תמונה אחת: ברוחב מלא, נחתכת לגובה קבוע 200px (03-design-rules "הודעת תמונה": ≈190–210px). 2–4: רשת של שתי עמודות, ריבועים; בשלוש, האחרונה ברוחב מלא.
+     המקום שמור מראש (גובה / יחס קבוע) ברקע של כפתור ניטרלי, ולכן אין קפיצה כשהתמונה נטענת.
+     הרדיוס: הרדיוס של הבועה פחות הריפוד, כמו .quote-box. ---------- */
+  .sysb.has-media { width: 80%; }
+  .bmedia { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 8px; }
+  .bmedia.n1 { grid-template-columns: 1fr; }
+  .bimg {
+    position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0; overflow: hidden;
+    border-radius: calc(var(--r-card2) - 10px); background: var(--btn-neutral); touch-action: pan-y;
+  }
+  .bmedia.n1 .bimg { aspect-ratio: auto; height: 200px; }
+  .bmedia.n3 .bimg:last-child { grid-column: 1 / -1; aspect-ratio: 2; }
+  .bimg img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; -webkit-user-drag: none; }
+  .bimg.ready img { opacity: 1; }
+
+  /* מציג התמונה: מסך מלא כהה, התמונה כולה (contain), "סגור" 44px באותו מראה כמו כפתור היומן שבכותרת (.cal-open).
+     הרקע הכהה הוא שחור שקוף (כמו הגיבוי של .mm-back), לא צבע מותג חדש. בלי זום בצביטה: הדף חוסם זום (ח-3), ולא נבנה זום ידני. */
+  .pv {
+    position: fixed; inset: 0; z-index: 150; display: flex; align-items: center; justify-content: center;
+    padding: calc(env(safe-area-inset-top, 0px) + 56px) 0 calc(env(safe-area-inset-bottom, 0px) + 12px);
+    background: rgba(0, 0, 0, .94); touch-action: none; animation: fade-in 200ms ease-out;
+  }
+  .pv-img {
+    max-width: 100%; max-height: 100%; object-fit: contain;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none;
+  }
+  .pv-img:not([src]) { display: none; }
+  .pv-msg { color: #fff; font-size: 16px; line-height: 1.4; text-align: center; padding: 0 24px; }
+  .pv-x {
+    position: absolute; top: calc(env(safe-area-inset-top, 0px) + 6px); inset-inline-end: 14px;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; color: #fff; background: rgba(255, 255, 255, .16);
+  }
+  .pv-x svg { width: 22px; height: 22px; }
+
   /* ---------- מסך היומן (בלוק 7 חלק א'-2): לצפייה בלבד, מסך משני. הבית נשאר הצ'אט. ----------
      המפרט: docs/02-rules/03-design-rules.md שכבה 4 ("יומן מלא, מסך משני", "שיעורים והפסקות כבלוקים נפרדים", "צבעי המקצועות", "אירוע שגוגל והמערכת לא מסכימים עליו").
      הצבעים מהמפרט, לא חדשים: בית ספר #ABC0DB, אימונים #9DC7CB, ענבר מהטוקנים. צבעי מקצוע ב-CAL_SUBJECTS בסקריפט.
@@ -688,6 +725,12 @@
     <div class="mm-menu" id="tmMenu" role="menu"></div>
   </div>
   <p class="toast" id="toast" role="status" hidden></p>
+  <!-- מציג תמונה מבועת מערכת: מסך מלא כהה. לחיצה מחוץ לתמונה, "סגור" או Escape סוגרים. -->
+  <div class="pv" id="pv" role="dialog" aria-modal="true" aria-label="תמונה" hidden>
+    <img class="pv-img" id="pvImg" alt="תמונה מהשיעור" draggable="false">
+    <p class="pv-msg" id="pvMsg" role="status" hidden></p>
+    <button type="button" class="pv-x" id="pvClose" aria-label="סגור"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
   <!-- צילום או בחירת תמונה (8.6-3). בלי capture: האייפון מציע גם "צלם תמונה" וגם "ספריית תמונות". -->
   <input type="file" accept="image/*" class="photo-input" id="photoInput" tabindex="-1" aria-hidden="true">
 
@@ -1076,6 +1119,231 @@ function applyClamps() {
   }
 }
 
+// --- תמונות בבועת מערכת ("תביא לי", בלוק 8): item.media = [uuid, ...] עד 4. שרת בלי השדה: אין תמונות, הבועה כמו היום. ---
+// GET /api/chat?view=media&id=<uuid> עם הסוד -> הבייטים של התמונה. 400/404: התמונה לא קיימת (או נמחקה) ונעלמת בשקט, בלי בועת שגיאה.
+// 401, אין רשת או תשובה שאינה תמונה: המקום נשאר ריק, ומנסים שוב בציור הבא (רענון). מתוך תמונה לא שואלים את הסוד: הטעינה הראשית שואלת.
+// טעינה עצלה: רק כשהתמונה מתקרבת למסך (IntersectionObserver), כך שבועות ישנות לא מורידות כלום עד שגוללים אליהן.
+// renderFeed מצייר את כל הבועות מחדש בכל רענון, ולכן כתובת blob אחת לכל תמונה נשמרת ומשותפת לכל הציורים (בלי הורדה חוזרת),
+// ומשוחררת (revokeObjectURL) ב-pruneMedia ברגע שהתמונה כבר לא באף הודעה שבדף.
+const MEDIA_MAX = 4;
+const MEDIA_ALT = 'תמונה מהשיעור';
+const MEDIA_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const mediaUrls = new Map();    // id -> כתובת blob מוכנה
+const mediaLoading = new Map(); // id -> Promise<כתובת | null> שבדרך
+const mediaGone = new Set();    // 400/404: לא מבקשים שוב
+let mediaLive = new Set();      // התמונות שבהודעות שבדף (ובמציג), לפי הציור האחרון
+let mediaQueue = [];            // אריחים בלי תמונה מהציור האחרון, ממתינים להתקרב למסך
+const mediaRetry = new Set();   // אריחים שהטעינה שלהם נכשלה זמנית (401 / אין רשת): מנסים שוב כשהרשת חוזרת (online); חזרה לחזית מרעננת וממילא מציירת מחדש
+const MEDIA_FAIL_TEXT = 'לא הצלחתי לטעון את התמונה';
+
+// מזהי התמונות של הודעה: רק uuid תקין, בלי כפילויות ובלי מה שכבר ידוע שאיננו, עד 4.
+function mediaIds(item) {
+  if (!Array.isArray(item?.media)) return [];
+  const ids = [];
+  for (const id of item.media) {
+    if (typeof id !== 'string' || !MEDIA_ID_RE.test(id) || ids.includes(id) || mediaGone.has(id)) continue;
+    ids.push(id);
+    if (ids.length === MEDIA_MAX) break;
+  }
+  return ids;
+}
+
+// מחזיר כתובת blob, או null כשאין (כל כשל שקט). בקשה אחת לכל תמונה גם כשכמה אריחים מבקשים יחד.
+function loadMedia(id) {
+  if (mediaUrls.has(id)) return Promise.resolve(mediaUrls.get(id));
+  if (mediaGone.has(id)) return Promise.resolve(null);
+  if (mediaLoading.has(id)) return mediaLoading.get(id);
+  const job = (async () => {
+    const secret = readSecret();
+    if (!secret) return null;
+    try {
+      const res = await fetch('/api/chat?view=media&id=' + encodeURIComponent(id), { headers: { 'x-intake-secret': secret } });
+      if (res.status === 400 || res.status === 404) { mediaGone.add(id); return null; }
+      if (!res.ok || !/^image\//i.test(res.headers.get('content-type') ?? '')) return null;
+      const blob = await res.blob();
+      if (!mediaLive.has(id)) return null; // ההודעה ירדה מהדף בזמן ההורדה: לא יוצרים כתובת שאף אחד לא ישחרר
+      const url = URL.createObjectURL(blob);
+      mediaUrls.set(id, url);
+      return url;
+    } catch {
+      return null; // אין רשת
+    } finally {
+      mediaLoading.delete(id);
+    }
+  })();
+  mediaLoading.set(id, job);
+  return job;
+}
+
+// אריח שהתמונה שלו לא קיימת: יוצא מהרשת; רשת ריקה יוצאת מהבועה. הסידור (עמודה אחת / שתיים) מתעדכן לפי מה שנשאר.
+function dropTile(tile) {
+  const grid = tile.parentElement;
+  tile.remove();
+  if (!grid) return;
+  const left = grid.children.length;
+  if (left === 0) {
+    grid.parentElement?.classList.remove('has-media');
+    grid.remove();
+    return;
+  }
+  grid.className = 'bmedia n' + left;
+}
+
+function fillTile(tile) {
+  const id = tile.dataset.mediaId;
+  loadMedia(id).then((url) => {
+    if (!tile.isConnected) return; // צויר מחדש בינתיים: האריח החדש מקבל את הכתובת מהמטמון
+    if (url) tile.querySelector('img').src = url;
+    else if (mediaGone.has(id)) dropTile(tile);
+    else mediaRetry.add(tile); // כשל זמני: האריח לא נשאר אפור עד הציור הבא
+  });
+}
+
+// ניסיון חוזר לאריחים שנכשלו זמנית: דרך ה-IntersectionObserver, כך שרק מה שליד המסך נטען.
+function retryMedia() {
+  const tiles = [...mediaRetry];
+  mediaRetry.clear();
+  for (const tile of tiles) {
+    if (!tile.isConnected) continue;
+    if (mediaObserver) mediaObserver.observe(tile); else fillTile(tile);
+  }
+}
+// חזרה לחזית לא צריכה מאזין משלה: המאזין הקיים של visibilitychange מרענן, ו-renderFeed מכניס את כל האריחים לתור מחדש.
+window.addEventListener('online', retryMedia);
+
+const mediaObserver = 'IntersectionObserver' in window
+  ? new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      mediaObserver.unobserve(entry.target);
+      fillTile(entry.target);
+    }
+  }, { root: feedEl, rootMargin: '300px 0px' })
+  : null;
+
+// אחרי שהבועות בדף: עוקבים רק אחרי האריחים של הציור הזה (הישנים כבר לא בדף). בלי IntersectionObserver: טוענים מיד.
+function observeMedia() {
+  const tiles = mediaQueue;
+  mediaQueue = [];
+  mediaRetry.clear(); // הציור החדש החליף את כל האריחים; החדשים נכנסים לתור
+  if (!mediaObserver) { tiles.forEach(fillTile); return; }
+  mediaObserver.disconnect();
+  for (const tile of tiles) mediaObserver.observe(tile);
+}
+
+// משחרר כתובות blob של תמונות שכבר לא באף הודעה שבדף (התמונה שבמציג נשארת עד שהוא נסגר).
+function pruneMedia() {
+  mediaLive = new Set(state.items.flatMap((item) => (item.role === 'system' ? mediaIds(item) : [])));
+  if (pvId) mediaLive.add(pvId);
+  for (const [id, url] of mediaUrls) {
+    if (mediaLive.has(id)) continue;
+    URL.revokeObjectURL(url);
+    mediaUrls.delete(id);
+  }
+}
+
+// רשת התמונות שמתחת לטקסט. כל אריח הוא כפתור שפותח את המציג; הלחיצה הארוכה וההחלקה עובדות גם עליו (bubbleFromEvent).
+function mediaGrid(ids) {
+  const grid = el('div', 'bmedia n' + ids.length);
+  for (const id of ids) {
+    const tile = el('button', 'bimg');
+    tile.type = 'button';
+    tile.dataset.mediaId = id;
+    tile.setAttribute('aria-haspopup', 'dialog');
+    const img = el('img');
+    img.alt = MEDIA_ALT; // כללי, בלי תוכן: המערכת לא קוראת את התמונה
+    img.draggable = false;
+    img.decoding = 'async';
+    img.addEventListener('load', () => tile.classList.add('ready'));
+    img.addEventListener('error', () => {
+      if (!img.getAttribute('src')) return;
+      mediaGone.add(id); // הקובץ הגיע אבל אינו תמונה תקינה: כמו 404
+      dropTile(tile);
+    });
+    tile.append(img);
+    tile.addEventListener('click', () => openPhoto(id, tile));
+    const url = mediaUrls.get(id);
+    if (url) {
+      img.src = url;
+      tile.classList.add('ready'); // כבר הורדה: בלי הבהוב של המקום הריק בכל רענון
+    } else {
+      mediaQueue.push(tile);
+    }
+    grid.append(tile);
+  }
+  return grid;
+}
+
+// --- מציג התמונה: מסך מלא כהה. פוקוס ו-inert כמו ביומן (openCalendar): שאר האפליקציה לא נגישה, והפוקוס חוזר לאריח. ---
+const pvEl = document.getElementById('pv');
+const pvImg = document.getElementById('pvImg');
+const pvCloseBtn = document.getElementById('pvClose');
+const pvMsg = document.getElementById('pvMsg');
+let pvId = null;     // התמונה שבמציג, או null כשסגור
+let pvOpener = null; // האריח שפתח
+let pvReq = 0;       // טעינה ישנה לא מציבה תמונה במציג שכבר נסגר או עבר לתמונה אחרת
+
+function openPhoto(id, tile) {
+  if (pvId || mmCurrent) return; // אחרי לחיצה ארוכה התפריט פתוח: השחרור לא פותח גם את המציג
+  pvId = id;
+  pvOpener = tile;
+  const req = ++pvReq;
+  mediaLive.add(id);
+  pvImg.removeAttribute('src');
+  showPhotoFail(false);
+  appEl.inert = true;
+  pvEl.hidden = false;
+  pvCloseBtn.focus();
+  loadMedia(id).then((url) => {
+    if (req !== pvReq) return;
+    if (url) { pvImg.src = url; return; }
+    showPhotoFail(true); // המציג נשאר פתוח עם שורה קצרה, ויובל סוגר בעצמו
+    if (mediaGone.has(id)) dropTiles(id);
+  });
+}
+
+function showPhotoFail(on) {
+  pvMsg.textContent = on ? MEDIA_FAIL_TEXT : '';
+  pvMsg.hidden = !on;
+}
+
+// כל האריחים של תמונה שאיננה (אותה תמונה יכולה להופיע בכמה בועות)
+function dropTiles(id) {
+  for (const tile of feedEl.querySelectorAll(`.bimg[data-media-id="${id}"]`)) dropTile(tile);
+}
+
+// הקובץ הגיע למציג אבל אינו תמונה תקינה: כמו 404. הכתובת משוחררת, והשורה הקצרה במקום התמונה.
+pvImg.addEventListener('error', () => {
+  if (!pvId || !pvImg.getAttribute('src')) return;
+  const id = pvId;
+  mediaGone.add(id);
+  const url = mediaUrls.get(id);
+  if (url) { URL.revokeObjectURL(url); mediaUrls.delete(id); }
+  pvImg.removeAttribute('src');
+  showPhotoFail(true);
+  dropTiles(id);
+});
+
+function closePhoto() {
+  if (!pvId) return;
+  const id = pvId;
+  pvId = null;
+  pvReq++;
+  pvEl.hidden = true;
+  pvImg.removeAttribute('src');
+  showPhotoFail(false);
+  appEl.inert = false;
+  pruneMedia(); // התמונה כבר לא בצ'אט (ירדה בזמן שהמציג היה פתוח): הכתובת שלה משוחררת עכשיו
+  // הבועות אולי צוירו מחדש בזמן שהמציג היה פתוח: האריח של אותה תמונה בדף, אם יש
+  const back = pvOpener?.isConnected ? pvOpener : feedEl.querySelector(`.bimg[data-media-id="${id}"]`);
+  pvOpener = null;
+  back?.focus({ preventScroll: true });
+}
+pvCloseBtn.addEventListener('click', closePhoto);
+pvEl.addEventListener('click', (event) => { if (event.target !== pvImg) closePhoto(); }); // לחיצה מחוץ לתמונה
+pvEl.addEventListener('contextmenu', (event) => event.preventDefault());
+document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && pvId) closePhoto(); });
+
 // --- בועות ---
 const bubbleMeta = new WeakMap(); // בועה -> { id, role, text }, ללחיצה הארוכה (ח-4)
 function userBubble(item) {
@@ -1104,7 +1372,13 @@ function systemBubble(item) {
     bubble.append(el('span', 'sl', 'נרשם'));
     text = text.replace(/^נרשם(\s*·\s*)?/, '');
   }
-  bubble.append(textBlock(text, key), timeNode('bt', item.at));
+  bubble.append(textBlock(text, key));
+  const media = mediaIds(item); // "תביא לי": תמונות מתחת לטקסט, מעל השעה
+  if (media.length > 0) {
+    bubble.classList.add('has-media');
+    bubble.append(mediaGrid(media));
+  }
+  bubble.append(timeNode('bt', item.at));
   bubbleMeta.set(bubble, { id: item.id, role: 'system', text });
   return [bubble];
 }
@@ -1147,6 +1421,8 @@ function renderFeed() {
   const keepTop = feedEl.scrollTop;
   feedEl.replaceChildren(...nodes);
   applyClamps();
+  pruneMedia();   // קודם משחררים מה שירד מהדף, ואז מתחילים לעקוב אחרי האריחים החדשים
+  observeMedia();
   if (stayUp) {
     feedEl.scrollTop = keepTop;
     jumpUnread += fresh.length;
@@ -2655,9 +2931,10 @@ function closeMessageMenu() {
   setTimeout(done, 400); // גיבוי, אם אנימציה לא מסתיימת (למשל דף ברקע)
 }
 
-// בועות של יובל ושל המערכת בלבד; לא על כפתורים שבתוך הבועה
+// בועות של יובל ושל המערכת בלבד; לא על כפתורים שבתוך הבועה. חריג: אריח תמונה (.bimg), שהלחיצה הארוכה וההחלקה עובדות גם עליו;
+// הקשה רגילה עליו פותחת את המציג, ו-openPhoto לא נפתח כשהתפריט כבר פתוח.
 function bubbleFromEvent(event) {
-  if (event.target.closest('button, a, input')) return null;
+  if (event.target.closest('button:not(.bimg), a, input')) return null;
   return event.target.closest('.me, .sysb');
 }
 
