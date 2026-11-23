@@ -542,7 +542,8 @@
     max-width: 100%; max-height: 100%; object-fit: contain;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-user-drag: none;
   }
-  .pv-img:not([src]) { visibility: hidden; }
+  .pv-img:not([src]) { display: none; }
+  .pv-msg { color: #fff; font-size: 16px; line-height: 1.4; text-align: center; padding: 0 24px; }
   .pv-x {
     position: absolute; top: calc(env(safe-area-inset-top, 0px) + 6px); inset-inline-end: 14px;
     width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
@@ -727,6 +728,7 @@
   <!-- מציג תמונה מבועת מערכת: מסך מלא כהה. לחיצה מחוץ לתמונה, "סגור" או Escape סוגרים. -->
   <div class="pv" id="pv" role="dialog" aria-modal="true" aria-label="תמונה" hidden>
     <img class="pv-img" id="pvImg" alt="תמונה מהשיעור" draggable="false">
+    <p class="pv-msg" id="pvMsg" role="status" hidden></p>
     <button type="button" class="pv-x" id="pvClose" aria-label="סגור"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <!-- צילום או בחירת תמונה (8.6-3). בלי capture: האייפון מציע גם "צלם תמונה" וגם "ספריית תמונות". -->
@@ -1131,6 +1133,8 @@ const mediaLoading = new Map(); // id -> Promise<כתובת | null> שבדרך
 const mediaGone = new Set();    // 400/404: לא מבקשים שוב
 let mediaLive = new Set();      // התמונות שבהודעות שבדף (ובמציג), לפי הציור האחרון
 let mediaQueue = [];            // אריחים בלי תמונה מהציור האחרון, ממתינים להתקרב למסך
+const mediaRetry = new Set();   // אריחים שהטעינה שלהם נכשלה זמנית (401 / אין רשת): מנסים שוב כשהרשת חוזרת (online); חזרה לחזית מרעננת וממילא מציירת מחדש
+const MEDIA_FAIL_TEXT = 'לא הצלחתי לטעון את התמונה';
 
 // מזהי התמונות של הודעה: רק uuid תקין, בלי כפילויות ובלי מה שכבר ידוע שאיננו, עד 4.
 function mediaIds(item) {
@@ -1191,8 +1195,21 @@ function fillTile(tile) {
     if (!tile.isConnected) return; // צויר מחדש בינתיים: האריח החדש מקבל את הכתובת מהמטמון
     if (url) tile.querySelector('img').src = url;
     else if (mediaGone.has(id)) dropTile(tile);
+    else mediaRetry.add(tile); // כשל זמני: האריח לא נשאר אפור עד הציור הבא
   });
 }
+
+// ניסיון חוזר לאריחים שנכשלו זמנית: דרך ה-IntersectionObserver, כך שרק מה שליד המסך נטען.
+function retryMedia() {
+  const tiles = [...mediaRetry];
+  mediaRetry.clear();
+  for (const tile of tiles) {
+    if (!tile.isConnected) continue;
+    if (mediaObserver) mediaObserver.observe(tile); else fillTile(tile);
+  }
+}
+// חזרה לחזית לא צריכה מאזין משלה: המאזין הקיים של visibilitychange מרענן, ו-renderFeed מכניס את כל האריחים לתור מחדש.
+window.addEventListener('online', retryMedia);
 
 const mediaObserver = 'IntersectionObserver' in window
   ? new IntersectionObserver((entries) => {
@@ -1208,6 +1225,7 @@ const mediaObserver = 'IntersectionObserver' in window
 function observeMedia() {
   const tiles = mediaQueue;
   mediaQueue = [];
+  mediaRetry.clear(); // הציור החדש החליף את כל האריחים; החדשים נכנסים לתור
   if (!mediaObserver) { tiles.forEach(fillTile); return; }
   mediaObserver.disconnect();
   for (const tile of tiles) mediaObserver.observe(tile);
@@ -1260,6 +1278,7 @@ function mediaGrid(ids) {
 const pvEl = document.getElementById('pv');
 const pvImg = document.getElementById('pvImg');
 const pvCloseBtn = document.getElementById('pvClose');
+const pvMsg = document.getElementById('pvMsg');
 let pvId = null;     // התמונה שבמציג, או null כשסגור
 let pvOpener = null; // האריח שפתח
 let pvReq = 0;       // טעינה ישנה לא מציבה תמונה במציג שכבר נסגר או עבר לתמונה אחרת
@@ -1271,16 +1290,39 @@ function openPhoto(id, tile) {
   const req = ++pvReq;
   mediaLive.add(id);
   pvImg.removeAttribute('src');
+  showPhotoFail(false);
   appEl.inert = true;
   pvEl.hidden = false;
   pvCloseBtn.focus();
   loadMedia(id).then((url) => {
     if (req !== pvReq) return;
     if (url) { pvImg.src = url; return; }
-    closePhoto(); // אין תמונה: נסגר בשקט
-    if (mediaGone.has(id) && tile.isConnected) dropTile(tile);
+    showPhotoFail(true); // המציג נשאר פתוח עם שורה קצרה, ויובל סוגר בעצמו
+    if (mediaGone.has(id)) dropTiles(id);
   });
 }
+
+function showPhotoFail(on) {
+  pvMsg.textContent = on ? MEDIA_FAIL_TEXT : '';
+  pvMsg.hidden = !on;
+}
+
+// כל האריחים של תמונה שאיננה (אותה תמונה יכולה להופיע בכמה בועות)
+function dropTiles(id) {
+  for (const tile of feedEl.querySelectorAll(`.bimg[data-media-id="${id}"]`)) dropTile(tile);
+}
+
+// הקובץ הגיע למציג אבל אינו תמונה תקינה: כמו 404. הכתובת משוחררת, והשורה הקצרה במקום התמונה.
+pvImg.addEventListener('error', () => {
+  if (!pvId || !pvImg.getAttribute('src')) return;
+  const id = pvId;
+  mediaGone.add(id);
+  const url = mediaUrls.get(id);
+  if (url) { URL.revokeObjectURL(url); mediaUrls.delete(id); }
+  pvImg.removeAttribute('src');
+  showPhotoFail(true);
+  dropTiles(id);
+});
 
 function closePhoto() {
   if (!pvId) return;
@@ -1289,7 +1331,9 @@ function closePhoto() {
   pvReq++;
   pvEl.hidden = true;
   pvImg.removeAttribute('src');
+  showPhotoFail(false);
   appEl.inert = false;
+  pruneMedia(); // התמונה כבר לא בצ'אט (ירדה בזמן שהמציג היה פתוח): הכתובת שלה משוחררת עכשיו
   // הבועות אולי צוירו מחדש בזמן שהמציג היה פתוח: האריח של אותה תמונה בדף, אם יש
   const back = pvOpener?.isConnected ? pvOpener : feedEl.querySelector(`.bimg[data-media-id="${id}"]`);
   pvOpener = null;
