@@ -357,7 +357,7 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
 
   let outcome;
   try {
-    const body = (state) => closingPushText({ examLine, reviewDue: state.review, receivedCount: closing.received, notUnderstoodCount: closing.notUnderstood, pendingCount: closing.pending, openTasks: closing.tasks, partial: closing.partial });
+    const body = (state) => closingPushText({ examLine, reviewDue: state.review, receivedCount: closing.received, unsureCount: closing.unsure, pendingCount: closing.pending, openTasks: closing.tasks, partial: closing.partial });
     outcome = await sendClosingNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret, body, now: targetAt });
   } catch (error) {
     // כשל מסד בקריאת מצב הדחיפה: ההודעה כבר נשמרה והניסיון החוזר אידמפוטנטי, ולכן זורקים עד הניסיון האחרון (כמו בבוקר).

@@ -126,8 +126,8 @@ describe('C-3: composeClosing, בית ספר של מחר ובלוק הפירוט
     assert.equal(out.text.split('\n').filter((line) => line === D).length, 2);
   });
   test('ההתראה לטלפון (H6) לא תלויה ב"מחר" המלא: אותו קלט, אותו נוסח', () => {
-    const args = { examLine: 'מחר: מבחן במתמטיקה ב-10:05', reviewDue: 1, receivedCount: 2, notUnderstoodCount: 1, pendingCount: 2, openTasks: 3 };
-    assert.equal(closingPushText(args), 'מחר: מבחן במתמטיקה ב-10:05 · סיכום היום מחכה לסימון · נקלטו 2 · לא הובנו 1 · 2 שאלות ממתינות · 3 משימות פתוחות');
+    const args = { examLine: 'מחר: מבחן במתמטיקה ב-10:05', reviewDue: 1, receivedCount: 2, unsureCount: 1, pendingCount: 2, openTasks: 3 };
+    assert.equal(closingPushText(args), 'מחר: מבחן במתמטיקה ב-10:05 · סיכום היום מחכה לסימון · נקלטו 2 · לא הייתי בטוח 1 · 2 שאלות ממתינות · 3 משימות פתוחות');
   });
 });
 

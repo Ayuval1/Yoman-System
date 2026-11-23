@@ -385,7 +385,7 @@ describe('queue-deliver: משבצת close והודעת הסגירה (C-1)', () =
       '· דף תרגילים — בלי תאריך',
       'שאלות שממתינות: שיעורי בית בפיזיקה',
     ].join('\n')]);
-    assert.equal(push.seen[0].body.body, 'נקלטו 2 · לא הובנו 1 · שאלה אחת ממתינה · 2 משימות פתוחות');
+    assert.equal(push.seen[0].body.body, 'נקלטו 2 · לא הייתי בטוח 2 · שאלה אחת ממתינה · 2 משימות פתוחות');
     assert.equal(push.seen[0].body.app_badge, 3);
     assert.ok(!JSON.stringify(push.seen[0].body).includes('אנגלית'), 'בלי כותרת משימה בהתראה');
   });
