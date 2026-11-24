@@ -352,7 +352,9 @@ describe('time-suggest: חיבור', () => {
     if (text.includes('time-suggest-create')) return [{ message_id: MSG_ID }];
     return [];
   });
-  test('משימה עם תאריך ובלי שעה: ההצעה נוצרת מיד אחרי הרישום, עם כותרת המשימה', async () => {
+  test('משימה עם תאריך ובלי שעה: ההצעה נוצרת מיד אחרי הרישום, עם כותרת המשימה', async (t) => {
+    // processSource לא מקבל now, וההצעה מחושבת מול השעון האמיתי. בלי קיבוע: ביום שלישי "עד שלישי" כבר עבר והבדיקה נכשלת.
+    t.mock.timers.enable({ apis: ['Date'], now: SATURDAY_NOON });
     const sql = pipelineSql();
     const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null, googleDay: noGoogle });
     assert.equal(out.status, 'recorded');
@@ -370,13 +372,16 @@ describe('time-suggest: חיבור', () => {
   });
   test('כשל בהצעה לא משנה את תוצאת הרישום', async (t) => {
     captureConsole(t);
+    t.mock.timers.enable({ apis: ['Date'], now: SATURDAY_NOON }); // בלי קיבוע: ביום שלישי ההצעה לא מגיעה לשליפה שזורקת
+    let reached = false;
     const sql = fakeSql((text) => {
       if (text.startsWith('WITH claim AS') && text.includes('INSERT INTO tasks')) return [{ claimed: 1, task_id: TASK_ID }];
-      if (text.includes('FROM events e')) throw Object.assign(new Error('x'), { name: 'NeonDbError' });
+      if (text.includes('FROM events e')) { reached = true; throw Object.assign(new Error('x'), { name: 'NeonDbError' }); }
       return [];
     });
     const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null, googleDay: noGoogle });
     assert.equal(out.status, 'recorded');
+    assert.ok(reached, 'ההצעה הגיעה לשליפה שנכשלה');
   });
   test('api/chat.js: תשובה "מחר" ל"עד מתי?" (בלי שעה) מציעה חלון, והכותרת נטענת מהמסד', async () => {
     const sql = fakeSql((text) => {

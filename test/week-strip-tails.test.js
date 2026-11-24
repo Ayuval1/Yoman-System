@@ -8,11 +8,11 @@ const css = /<style>([\s\S]*?)<\/style>/.exec(html)?.[1] ?? '';
 const script = /<script type="module">([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
 
 function bodyOf(name) {
-  const match = new RegExp(`(?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}`).exec(script);
+  const match = new RegExp(`(?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\r?\\n\\}`).exec(script);
   assert.ok(match, `הפונקציה ${name} קיימת`);
   return match[0];
 }
-const SUBJECTS = /const CAL_SUBJECTS = \{[\s\S]*?\n\};\nconst calSubjectColors = [^\n]*/.exec(script)[0];
+const SUBJECTS = /const CAL_SUBJECTS = \{[\s\S]*?\r?\n\};\r?\nconst calSubjectColors = [^\r\n]*/.exec(script)[0];
 const pure = new Function(`${SUBJECTS}
 const CAL_TAILS_MAX = 3; const CAL_STRIP_MAX = 4;
 ${bodyOf('calTailsOf')}\n${bodyOf('calTailOpacity')}\n${bodyOf('calStripDots')}
