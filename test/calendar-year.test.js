@@ -31,3 +31,16 @@ describe('calendar-year', () => {
     for (const bad of [null, '2026-13', '2026-9', '2026-09-01']) assert.throws(() => validateYearFrom(bad), RangeError);
   });
 });
+
+describe('זנב ההכנה (03-design-rules.md:427)', async () => {
+  const { prepTails } = await import('../lib/calendar-view.js');
+  const EX = [{ date: '2026-11-26', type: 'מבחן', subject: 'מתמטיקה' }, { date: '2026-11-30', type: 'מבדק', subject: 'ערבית' }, { date: '2026-11-27', type: "מועד ב'", subject: null, makeup: true }];
+  test('מבחן: 10 ימים לפני, מתחזק עד היום שלפני; מבדק: 7; לא ביום המבחן עצמו', () => {
+    assert.equal(prepTails('2026-11-15', EX).length, 0);
+    const first = prepTails('2026-11-16', EX);
+    assert.deepEqual(first.map((t) => [t.subject, t.daysLeft, t.strength]), [['מתמטיקה', 10, 0.1]]);
+    const before = prepTails('2026-11-25', EX);
+    assert.deepEqual(before.map((t) => [t.subject, t.daysLeft, t.strength]), [['מתמטיקה', 1, 1], ['ערבית', 5, 0.43]]);
+    assert.ok(!prepTails('2026-11-26', EX).some((t) => t.subject === 'מתמטיקה'));
+  });
+});
