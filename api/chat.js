@@ -54,7 +54,7 @@ import { countReviewDue, loadReview, writeCheck } from '../lib/review-view.js';
 import { CHAT_ITEMS_LIMIT, ERROR_TEXT, itemsFromRows, badgeFrom, parseChatAction, attachMedia, isUuid } from '../lib/chat-view.js';
 import { loadPending } from '../lib/chat-pending.js';
 import { loadTimetable } from '../lib/timetable.js';
-import { loadCalendar, validateCalendarRange } from '../lib/calendar-view.js';
+import { loadCalendar, validateCalendarRange, loadYear, validateYearFrom } from '../lib/calendar-view.js';
 import { examLineAt, applyExamChanges } from '../lib/exam-line.js';
 import { briefCardData } from '../lib/brief-view.js';
 import { loadQuotaCard } from '../lib/brain/state.js';
@@ -307,6 +307,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       if (!isUuid(id)) return new Response(ERROR_TEXT, { status: 400, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
       return serveMedia({ sql, id, blobToken, readBlob });
     }
+    // בלוק 9: תצוגת שנה (מבחנים בלבד), GET ?view=calendar-year&from=YYYY-MM -> 12 חודשים. from לא תקין = 400.
+    if (params.get('view') === 'calendar-year') {
+      try {
+        validateYearFrom(params.get('from'));
+      } catch {
+        return reply(400, ERROR_TEXT);
+      }
+      calendar = { year: params.get('from') };
+    }
     if (params.get('view') === 'calendar') {
       const daysText = params.get('days');
       calendar = { from: params.get('from'), days: daysText !== null && /^\d{1,2}$/.test(daysText) ? Number(daysText) : NaN };
@@ -329,6 +338,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
   }
 
   try {
+    if (calendar?.year) return json(await loadYear({ sql, fromMonth: calendar.year }));
     if (calendar !== null) return json(await loadCalendar({ sql, timetable, from: calendar.from, days: calendar.days, now: now() }));
     if (action === null) {
       const items = await loadItems(sql);
