@@ -177,13 +177,34 @@ describe('study-plan: answerStudyPlan', () => {
     assert.equal(events[0].match_key, 'source:study:2026-11-26:מתמטיקה:2026-11-24T16:00');
     assert.match(sql.find('study-plan-write')[0].text, /INSERT INTO events/);
   });
-  test('"כן" כשבלוק נתפס: רק הפנוי נכתב, והבועה אומרת מה לא נכנס', async () => {
-    const busyRows = [{ title: 'רופא', starts_at: '2026-11-25T14:30:00.000Z', ends_at: '2026-11-25T15:30:00.000Z', domain: 'personal', external_id: null }];
+  test('"כן" כשבלוק נתפס ואין רזרבה פנויה: רק הפנוי נכתב, והבועה אומרת מה לא נכנס', async () => {
+    // רופא 16:30–18:00 ביום רביעי: תופס גם את הבלוק 16:00 וגם את הרזרבה 17:30.
+    const busyRows = [{ title: 'רופא', starts_at: '2026-11-25T14:30:00.000Z', ends_at: '2026-11-25T16:00:00.000Z', domain: 'personal', external_id: null }];
     const sql = answerSql({ busyRows });
     await answerStudyPlan({ sql, messageId: MSG_ID, answer: 'כן', now: LATER, timetable: null, googleDay: freeGoogle });
     const events = eventsOf(sql);
     assert.equal(events.length, 1);
     assert.ok(sql.find('study-plan-write')[0].values.some((v) => typeof v === 'string' && v.includes('נתפס בינתיים')));
+  });
+  test('"כן" כשבלוק נתפס: שעה פנויה מהרזרבה נכתבת במקומו, והבועה אומרת שהוחלף', async () => {
+    // רופא 16:30–17:30 ביום רביעי: תופס את הבלוק 16:00, הרזרבה 17:30–18:30 פנויה.
+    const busyRows = [{ title: 'רופא', starts_at: '2026-11-25T14:30:00.000Z', ends_at: '2026-11-25T15:30:00.000Z', domain: 'personal', external_id: null }];
+    const sql = answerSql({ busyRows });
+    await answerStudyPlan({ sql, messageId: MSG_ID, answer: 'כן', now: LATER, timetable: null, googleDay: freeGoogle });
+    const events = eventsOf(sql);
+    assert.deepEqual(events.map((e) => e.match_key), ['source:study:2026-11-26:מתמטיקה:2026-11-24T16:00', 'source:study:2026-11-26:מתמטיקה:2026-11-25T17:30']);
+    const bubble = sql.find('study-plan-write')[0].values.find((v) => typeof v === 'string' && v.startsWith('נכנס ליומן'));
+    assert.ok(bubble.includes('רביעי 25.11 17:30–18:30'));
+    assert.ok(bubble.includes('נתפס בינתיים, הוחלף בשעה אחרת: רביעי 16:00'));
+    assert.ok(!bubble.includes('לא נכנס'));
+  });
+  test('"כן": רזרבה שעברה או שנתפסה לא מחליפה', async () => {
+    const spare = [{ date: MON, start: '09:00', end: '10:00' }, { date: WED, start: '17:30', end: '18:30' }];
+    const busyRows = [{ title: 'רופא', starts_at: '2026-11-25T14:30:00.000Z', ends_at: '2026-11-25T16:00:00.000Z', domain: 'personal', external_id: null }];
+    const sql = answerSql({ ask: askRow({ facts: { ...askRow().facts, spare: JSON.stringify(spare) } }), busyRows });
+    await answerStudyPlan({ sql, messageId: MSG_ID, answer: 'כן', now: LATER, timetable: null, googleDay: freeGoogle });
+    assert.equal(eventsOf(sql).length, 1);
+    assert.ok(sql.find('study-plan-write')[0].values.some((v) => typeof v === 'string' && v.includes('נתפס בינתיים, לא נכנס: רביעי 16:00')));
   });
   test('"כן" כש-Google לא נבדק: לא נכתב אף אירוע, והכרטיס נשאל שוב', async () => {
     const sql = answerSql();
