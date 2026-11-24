@@ -38,7 +38,7 @@ describe('show-request', () => {
     const sql = fakeSql((text) => (text.includes('show-request') ? [{ claimed: 1 }] : []));
     const out = await answerShowRequest({ sql, source: { id: '44444444-4444-4444-8444-444444444444' }, kind: 'week', timetable: null, now: new Date('2026-11-23T07:00:00.000Z') });
     assert.equal(out.status, 'recorded');
-    assert.match(out.reply, /^השבוע:\n· היום:/);
+    assert.match(out.reply, /^השבוע:\n\(מערכת השעות לא נטענה[^\n]*\n· היום:/);
     assert.ok(!sql.calls.some((c) => /INSERT INTO events|UPDATE events/.test(c.text)));
   });
   test('הצינור: "תראה לי את המבחנים" מטופל בקוד, בלי מוח', async () => {
@@ -48,5 +48,22 @@ describe('show-request', () => {
     const out = await processSource({ sql, source, timetable: null, understand: async () => { called = true; return { ok: false, reason: 'no-pool' }; } });
     assert.equal(out.status, 'recorded');
     assert.equal(called, false);
+  });
+});
+
+describe('show-request: ממצאי הבודק', () => {
+  test('לוח המבחנים נגמר בתוך הטווח: "לא ידוע" ולא "אין"', () => {
+    const text = examsText([{ date: '2026-12-30', items: [] }], TODAY, { coverageEnd: '2026-12-24' });
+    assert.match(text, /^אין מבחנים עד 24\.12\.\nלוח המבחנים מכסה עד 24\.12\. אחרי זה לא ידוע\.$/);
+  });
+  test('בלי מערכת שעות: נאמר במפורש', () => {
+    assert.match(weekText([], TODAY, { timetable: false }), /מערכת השעות לא נטענה/);
+  });
+  test('בקשה חוזרת באותו יום לא נענית "כבר קיבלתי"', async () => {
+    const sql = fakeSql((text) => (text.includes('show-request') ? [{ claimed: 1 }] : text.includes('received_at') && text.includes('sources') ? [{ found: 1, id: 'x' }] : []));
+    const source = { id: '44444444-4444-4444-8444-444444444444', channel: 'app', raw_content: 'תראה לי את השבוע', received_at: '2026-11-23T07:00:00.000Z', content_hash: null };
+    const out = await processSource({ sql, source, timetable: null });
+    assert.equal(out.status, 'recorded');
+    assert.match(out.reply, /^השבוע:/);
   });
 });
