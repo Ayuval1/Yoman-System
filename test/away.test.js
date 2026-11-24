@@ -125,6 +125,15 @@ describe('away: תכנון ונוסח הכרטיס', () => {
 
 describe('away: יצירת הכרטיס', () => {
   const sqlFor = ({ events = [VACATION], inside = [], made = true } = {}) => fakeSql((text) => (text.includes('away-events') ? events : text.includes('away-inside') ? inside : text.includes('away-create') ? (made ? [{ message_id: 'm1' }] : []) : []));
+  test('קריאות מקבילות (קליטה + בריף): מזהה ההודעה נגזר מהאירוע ומספר הכרטיסים שלו, ו-ON CONFLICT (id) מונע כרטיס כפול', async () => {
+    const sql = sqlFor({ inside: [...STUDY, TRAINING] });
+    await offerAwayCards({ sql, now: NOW, exams: EXAMS, examsRaw: EXAMS });
+    const [call] = sql.find('away-create');
+    assert.match(call.text, /INSERT INTO messages \(id,/);
+    assert.match(call.text, /md5\(/);
+    assert.match(call.text, /ON CONFLICT \(id\) DO NOTHING/);
+    assert.ok(call.values.includes(`away-card:${EVENT_ID}:`));
+  });
   test('כרטיס אחד: question עם הנוסח, פג בסוף האירוע, והעובדות (אירוע, טווח, מבחנים)', async () => {
     const sql = sqlFor({ inside: [...STUDY, TRAINING] });
     const out = await offerAwayCards({ sql, now: NOW, exams: EXAMS, examsRaw: EXAMS });
