@@ -56,6 +56,16 @@ describe('show-request: ממצאי הבודק', () => {
     const text = examsText([{ date: '2026-12-30', items: [] }], TODAY, { coverageEnd: '2026-12-24' });
     assert.match(text, /^אין מבחנים עד 24\.12\.\nלוח המבחנים מכסה עד 24\.12\. אחרי זה לא ידוע\.$/);
   });
+  test('אירוע של כל היום (שלב 3, 24.11): בלי 00:00, ואירוע עם שעה ממשיך עם השעה', () => {
+    const days = [{ date: '2026-11-30', items: [
+      { kind: 'event', title: 'חופשה בווינה', start: '2026-11-29T22:00:00.000Z', allDay: true },
+      { kind: 'event', title: 'פגישה', start: '2026-11-30T14:00:00.000Z' },
+    ] }];
+    const text = weekText(days, TODAY);
+    assert.match(text, /חופשה בווינה/);
+    assert.doesNotMatch(text, /00:00 חופשה/);
+    assert.match(text, /16:00 פגישה/);
+  });
   test('בלי מערכת שעות: נאמר במפורש', () => {
     assert.match(weekText([], TODAY, { timetable: false }), /מערכת השעות לא נטענה/);
   });

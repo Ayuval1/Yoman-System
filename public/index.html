@@ -668,6 +668,7 @@
   .wk-it.exam.makeup { background: var(--btn-neutral); color: var(--label2); border: 0; }
   .wk-it.exam.noclr { background: var(--btn-neutral); color: var(--label); }
   .wk-it.train { background: var(--cal-training); color: var(--cal-ink); }
+  .wk-it.evt { border-inline-start: 4px solid var(--label3); }
   .wk-it.pending { background: var(--amberbg); color: var(--amber); border: 1.5px dashed var(--amber); }
   .wk-it.sel { outline: 2px solid var(--deep); outline-offset: 1px; }
   .wk-off { font-size: 10.5px; color: var(--label2); text-align: center; }
@@ -3384,6 +3385,16 @@ async function calLoad() {
 
 // [הנחה, לא אומת] נוסח של Claude: תווית לקורא מסך לתא יום: תאריך, "היום", וספירה מלאה של מה שבתא.
 const calCount = (n, one, many) => (n === 1 ? `${one} אחד` : `${n} ${many}`);
+// יום שלם: אירוע אישי של יום או כמה ימים (allDay מהשרת) או פריט בלי שעת התחלה (מבחן בלי שעה). לא מציירים אותו כגוש שעות מ-00:00.
+function calIsAllDay(item) {
+  return !!item && (item.start === null || item.allDay === true);
+}
+// תווית טווח לאירוע רב-יומי ("30.11–3.12"); יום אחד או בלי טווח = ריק.
+function calAllDayRange(item) {
+  if (!item || item.allDay !== true || typeof item.firstDate !== 'string' || typeof item.lastDate !== 'string' || item.firstDate >= item.lastDate) return '';
+  const short = (date) => { const [, m, d] = date.split('-').map(Number); return `${d}.${m}`; };
+  return `${short(item.firstDate)}–${short(item.lastDate)}`;
+}
 function calDayLabel(day, today) {
   const [y, m, d] = day.date.split('-').map(Number);
   const parts = [`יום ${DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ב${MONTHS[m - 1]}`];
@@ -3554,8 +3565,10 @@ function calItemNode(item, index) {
   const open = calState.openItem === index;
   b.setAttribute('aria-expanded', open ? 'true' : 'false');
   const row = el('div', 'cal-row');
-  const from = calHm(item.start);
-  const to = calHm(item.end);
+  const allDay = calIsAllDay(item);
+  const range = calAllDayRange(item);
+  const from = allDay ? '' : calHm(item.start);
+  const to = allDay ? '' : calHm(item.end);
   if (item.kind === 'break') {
     b.classList.add('brk');
     const brk = el('span', 'cal-title tnum');
@@ -3576,6 +3589,7 @@ function calItemNode(item, index) {
     if (!from) timeNode.classList.remove('ltr');
     row.append(timeNode, el('span', 'cal-title', item.title));
     if (item.pending) row.append(el('span', 'cal-tag', 'ממתין לתשובה'));
+    else if (range) { const tag = el('span', 'cal-tag ltr', range); row.append(tag); }
     else if (item.kind === 'exam' && !item.makeup) row.append(el('span', 'cal-tag', item.quiz ? 'מבדק' : 'מבחן'));
   }
   b.append(row);
@@ -3583,6 +3597,7 @@ function calItemNode(item, index) {
     const detail = [];
     // שורות: [תווית, ערך, ערך משמאל לימין?]
     if (from) detail.push(['שעה', to ? `${from}–${to}` : from, true]); else if (item.kind !== 'break') detail.push(['שעה', 'כל היום', false]);
+    if (range) detail.push(['תאריכים', range, true]);
     if (item.subject) detail.push(['מקצוע', item.subject, false]);
     if (item.room) detail.push(['חדר', item.room, false]);
     if (item.pending) detail.push(['סטטוס', 'ממתין לתשובה שלך בצ\'אט', false]);
@@ -3843,9 +3858,10 @@ function calFitWeekText() {
 function calWeekItem(item, index, date) {
   const b = el('button', 'wk-it');
   b.type = 'button';
-  const from = calHm(item.start);
-  const to = calHm(item.end);
-  b.setAttribute('aria-label', `${from ? (to ? `${from}–${to}` : from) : 'כל היום'}, ${item.kind === 'lesson' ? `${item.subject ?? item.title}${item.room ? `, חדר ${item.room}` : ''}` : (item.kind === 'exam' ? `${item.quiz ? 'מבדק' : 'מבחן'} ${item.subject || item.title}` : item.title)}${item.pending ? ', ממתין לתשובה' : ''}`);
+  const allDay = calIsAllDay(item);
+  const from = allDay ? '' : calHm(item.start);
+  const to = allDay ? '' : calHm(item.end);
+  b.setAttribute('aria-label', `${from ? (to ? `${from}–${to}` : from) : (calAllDayRange(item) ? `כל היום, ${calAllDayRange(item)}` : 'כל היום')}, ${item.kind === 'lesson' ? `${item.subject ?? item.title}${item.room ? `, חדר ${item.room}` : ''}` : (item.kind === 'exam' ? `${item.quiz ? 'מבדק' : 'מבחן'} ${item.subject || item.title}` : item.title)}${item.pending ? ', ממתין לתשובה' : ''}`);
   let top = item.title;
   let sub = '';
   if (item.kind === 'lesson') { b.classList.add('lesson'); calSetColors(b, item.subject); top = calShortSubject(item.subject || item.title); sub = item.room ? String(item.room) : ''; }
@@ -3856,6 +3872,7 @@ function calWeekItem(item, index, date) {
     top = calShortSubject(item.subject || item.title);
   } else if (item.pending) { b.classList.add('pending'); sub = 'ממתין'; }
   else if (item.kind === 'training') b.classList.add('train');
+  else if (item.allDay === true) b.classList.add('evt'); // אירוע יום שלם: פס בצד כמו ברשימת היום
   b.append(el('span', 't', top));
   if (sub) b.append(el('span', 'r', sub));
   if (calState.weekSel && calState.weekSel.date === date && calState.weekSel.index === index) b.classList.add('sel');
@@ -3892,7 +3909,7 @@ function calRenderWeek() {
   const wk = el('div', 'wk');
   const sections = [head];
   // שורת "כל היום": מבחן בלי שעה, חופש
-  const allDay = days.map((day) => ({ day, list: day.items.map((item, index) => ({ item, index })).filter((x) => x.item.start === null) }));
+  const allDay = days.map((day) => ({ day, list: day.items.map((item, index) => ({ item, index })).filter((x) => calIsAllDay(x.item)) }));
   if (allDay.some((x) => x.day.noSchool || x.list.length)) {
     const row = el('div', 'wk-row wk-ad');
     row.append(el('span', 'wk-gutl', 'כל היום'));
@@ -3918,7 +3935,7 @@ function calRenderWeek() {
     const col = el('div', 'wk-col' + (day.noSchool ? ' off' : ''));
     const entries = [];
     day.items.forEach((item, index) => {
-      if (item.start === null || item.kind === 'break') return;
+      if (calIsAllDay(item) || item.kind === 'break') return;
       const r = calWeekRange(item, day.date);
       if (r.e <= CAL_WK_START || r.s >= CAL_WK_END) return;
       entries.push({ item, index, ...r });
