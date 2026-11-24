@@ -67,6 +67,7 @@ import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/t
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
 import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
+import { answerStudyCleanup } from '../lib/study-cleanup.js';
 import { localDateIso } from '../lib/intake-dates.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
@@ -538,6 +539,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: away.status, items, pending, badge });
+      }
+      // שעות למידה של מבחן שזז או בוטל (lib/study-cleanup.js): כן / לא. פקודת כתיבה אחת (או כלום), ואז מחיקת האירועים שבוטלו מיומן "לימוד". כשל ביומן נתפס.
+      const cleanup = await answerStudyCleanup({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (cleanup.status !== 'closed') {
+        if (cleanup.keys.length > 0) await syncKeysQuietly({ sql, keys: cleanup.keys, keysSync, now: now() });
+        const items = cleanup.status === 'answered' ? await loadCreatedItems(sql, cleanup.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: cleanup.status, items, pending, badge });
       }
       // בלוק 9: הצעת האזנה ("שמעתי" / "אחר כך"). פקודה אחת (או כלום), בלי יומן.
       const listen = await answerListen({ sql, messageId: action.messageId, answer: action.answer, now: now() });
