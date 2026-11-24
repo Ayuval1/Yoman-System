@@ -129,7 +129,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   // שלב 2 של אירוע כללי (lib/away.js): רשת ביטחון לכרטיס "בזמן החופשה" אם לא נוצר ברגע הרישום. פעם אחת לכל אירוע וטווח. לא זורק.
   if (!exists) await offerAwayCards({ sql, now: deliveredAt, exams });
   // שעות למידה של מבחן שזז או בוטל (lib/study-cleanup.js): כרטיס "לבטל אותן?" פעם אחת לכל מבחן ישן. לא זורק.
-  if (!exists) await offerStudyCleanup({ sql, now: deliveredAt, exams });
+  if (!exists) await offerStudyCleanup({ sql, now: deliveredAt }); // בלי exams: טוען את הלוח בעצמו, וכשל בטעינה = בלי כרטיס (לא לוח חלקי)
   let partial = false;
   let tasks = [];
   let pending = [];

@@ -56,6 +56,16 @@ describe('study-cleanup: יצירה', () => {
     assert.deepEqual(await offerStudyCleanup({ sql, now: NOW }), { created: [] });
     assert.equal(sql.find('study-orphan-create').length, 0);
   });
+  test('כשל בטעינת שינויי המבחנים: אין כרטיס (ולא לוח בלי ההזזות)', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql((text) => {
+      if (text.includes('study-orphan-events')) return ROWS;
+      if (text.includes("m.value LIKE 'exam:%'")) throw Object.assign(new Error('x'), { name: 'NeonDbError' });
+      return text.includes('study-orphan-create') ? [{ message_id: 'm1' }] : [];
+    });
+    assert.deepEqual(await offerStudyCleanup({ sql, now: NOW }), { created: [] });
+    assert.equal(sql.find('study-orphan-create').length, 0);
+  });
   test('כשל מסד: לא זורק', async (t) => {
     captureConsole(t);
     assert.deepEqual(await offerStudyCleanup({ sql: fakeSql(() => { throw new Error('db'); }), now: NOW, exams: [] }), { created: [] });
