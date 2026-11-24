@@ -66,6 +66,8 @@ import { answerCorrectionRule } from '../lib/correction-rules.js';
 import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
+import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
+import { localDateIso } from '../lib/intake-dates.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -227,7 +229,8 @@ async function buildBrief({ sql, timetable, tasks, pending, now }) {
     const questions = pending === undefined ? await loadPending(sql, table, now) : pending;
     const answers = await loadExamAnswers(sql); // לא זורק: כשל = מפה ריקה
     const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // בלוק 4: מבחן שנדחה / בוטל. לא זורק: כשל = הלוח כמו שהוא
-    return briefCardData({ now, timetable: table, tasks, pending: questions, answers, exams });
+    const away = await awayOn(sql, localDateIso(now, 'Asia/Jerusalem')); // לא זורק: כשל = בלי השורה
+    return briefCardData({ now, timetable: table, tasks, pending: questions, answers, exams, away });
   } catch (error) {
     console.error('chat: בניית הבריף נכשלה:', error?.name);
     return null;
@@ -466,6 +469,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
             console.error('chat: כתיבה ליומן נכשלה:', error?.name);
           }
         }
+        if (matched.status === 'answered') await offerAwayCards({ sql, now: now() }); // אירוע של כמה ימים שהוזז: כרטיס "בזמן החופשה" (lib/away.js). לא זורק
         const items = matched.status === 'answered' ? await loadCreatedItems(sql, matched.created) : [];
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
@@ -526,6 +530,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const badge = await loadBadge(sql, now());
         return json({ status: study.status, items, pending, badge });
       }
+      // שלב 2 של אירוע כללי (lib/away.js): "בזמן החופשה" (כן / לא). פקודת כתיבה אחת (או כלום), ואז מחיקת אירועי הלמידה שבוטלו מיומן "לימוד". כשל ביומן נתפס.
+      const away = await answerAway({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (away.status !== 'closed') {
+        if (away.keys.length > 0) await syncKeysQuietly({ sql, keys: away.keys, keysSync, now: now() });
+        const items = away.status === 'answered' ? await loadCreatedItems(sql, away.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: away.status, items, pending, badge });
+      }
       // בלוק 9: הצעת האזנה ("שמעתי" / "אחר כך"). פקודה אחת (או כלום), בלי יומן.
       const listen = await answerListen({ sql, messageId: action.messageId, answer: action.answer, now: now() });
       if (listen.status !== 'closed') {
@@ -544,6 +557,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         console.error('chat: כתיבה ליומן נכשלה:', error?.name);
       }
     }
+    if (result.status === 'answered') await offerAwayCards({ sql, now: now() }); // אירוע של כמה ימים נרשם או תוקן: כרטיס "בזמן החופשה" (lib/away.js). לא זורק
     const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created ?? {}) : [];
     const pending = await loadPending(sql, timetable, now());
     const badge = await loadBadge(sql, now());

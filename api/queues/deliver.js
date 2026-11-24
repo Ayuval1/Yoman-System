@@ -29,6 +29,7 @@ import { createExamAsks, loadExamAnswers, loadExamChanges } from '../../lib/exam
 import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
 import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
+import { awayOn, offerAwayCards } from '../../lib/away.js';
 import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
 import { askBrain } from '../../lib/brain/ask.js';
 import { googleDayFromEnv } from '../../lib/free-check.js';
@@ -123,6 +124,8 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   if (!exists) await runGodMode({ sql, todayIso: dateIso, changes: examChanges, exams, ask, now: deliveredAt });
   // בלוק 7: תוכנית למידה לכל מבחן שנכנס היום לטווח ההכנה (lib/study-plan.js), לפני טעינת השאלות כדי שתיספר בבריף. לא זורק. רק כשההודעה עוד לא קיימת; ניסיון חוזר לפני שנוצרה קורא שוב ל-Google, אבל העובדה 'exam' מונעת כרטיס כפול.
   if (!exists) await offerStudyPlans({ sql, todayIso: dateIso, now: deliveredAt, exams, timetable: table, googleDay });
+  // שלב 2 של אירוע כללי (lib/away.js): רשת ביטחון לכרטיס "בזמן החופשה" אם לא נוצר ברגע הרישום. פעם אחת לכל אירוע וטווח. לא זורק.
+  if (!exists) await offerAwayCards({ sql, now: deliveredAt, exams });
   let partial = false;
   let tasks = [];
   let pending = [];
@@ -146,7 +149,8 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   }
   // בלוק 9: שורת "להאזנה היום" (lib/listening.js). לא זורק: כשל = בלי השורה.
   const listening = exists ? null : listenBriefLine(pickForDay(await loadListening(sql), dateIso));
-  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams, listening });
+  const away = exists ? null : await awayOn(sql, dateIso); // אירוע של כמה ימים היום (lib/away.js). לא זורק: כשל = בלי השורה
+  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams, listening, away });
   let created = false;
   if (!exists) {
     const rows = await sql`
