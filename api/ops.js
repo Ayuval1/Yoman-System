@@ -9,6 +9,7 @@ import gateProbe from '../lib/ops/gate-probe.js';
 import schoolSeries from '../lib/ops/school-series.js';
 import runSeries from '../lib/ops/run-series.js';
 import lessonBackfill from '../lib/ops/lesson-backfill.js';
+import brainStatus from '../lib/ops/brain-status.js';
 import { connectTask as garminConnect, statusTask as garminStatus, syncTask as garminSync } from '../lib/ops/garmin-sync.js';
 import { shapeTask as garminShape } from '../lib/ops/garmin-shape.js';
 
@@ -31,6 +32,8 @@ export const TASKS = {
   'run-series-cut': runSeries,
   // בלוק 8: קישור תמונות ישנות לשיעור (lib/ops/lesson-backfill.js). ידני בלבד; dry כברירת מחדל, apply=1 כותב.
   'lesson-backfill': lessonBackfill,
+  // המוח: איפה הוא עומד (קריאה בלבד; lib/ops/brain-status.js).
+  'brain-status': brainStatus,
 };
 
 export function pickTask(request) {
