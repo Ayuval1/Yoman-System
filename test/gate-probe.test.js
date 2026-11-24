@@ -830,4 +830,33 @@ describe('gate-probe: גם מודלי gemma נבדקים (24.11.2026)', () => {
     const text = await (await handle(get('?model=rotate&from=0'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {}, now: () => 20413 * 86400000 })).text();
     assert.match(text, /model=gemma-4-31b-it/);
   });
+  test('Gemma: בלי responseMimeType (HTTP 400 "JSON mode is not enabled"), ותשובה עטופה ב-```json נקראת', async () => {
+    const fenced = () => jsonResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"action":"create_reminder","when":"tomorrow"}\n```' }] } }] });
+    const entry = (name) => ({ name, supportedGenerationMethods: ['generateContent'] });
+    const sql = fakeSql(() => []);
+    const fetchFn = fakeFetch((url) => (url.includes(':generateContent') ? fenced() : jsonResponse({ models: [entry('models/gemma-4-31b-it')] })));
+    const text = await (await handle(get('?model=rotate&from=0'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {}, now: () => 20413 * 86400000 })).text();
+    assert.match(text, /^עבר: .*failed: none; model=gemma-4-31b-it/);
+    const body = JSON.parse(fetchFn.calls.find((c) => c.url.includes(':generateContent')).options.body);
+    assert.equal(body.generationConfig.responseMimeType, undefined);
+    assert.equal(body.generationConfig.temperature, 0);
+  });
+  test('parseModelText (gemma-): JSON נקי, עטוף, בתוך טקסט, האובייקט הראשון מבין שניים, סוגריים בתוך מחרוזת', async () => {
+    const { parseModelText } = await import('../lib/ops/gate-probe.js');
+    const g = (t) => parseModelText('gemma-4-31b-it', t);
+    assert.deepEqual(g('{"a":1}'), { a: 1 });
+    assert.deepEqual(g('```json\n{"a":1}\n```'), { a: 1 });
+    assert.deepEqual(g('הנה: {"a":1}. זהו'), { a: 1 });
+    assert.deepEqual(g('{"a":1} ו {"b":2}'), { a: 1 });
+    assert.deepEqual(g('x {y} {"a":"}{"}'), { a: '}{' });
+    assert.throws(() => g('אין כאן כלום'));
+    assert.throws(() => g(undefined));
+    assert.throws(() => parseModelText('gemini-3.1-flash-lite', 'הנה: {"a":1}'));
+  });
+  test('Gemini נשאר קפדני: תשובה עטופה ב-```json לא נספרת כנכונה', async () => {
+    const fenced = () => jsonResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"action":"create_reminder","when":"tomorrow"}\n```' }] } }] });
+    const { deps } = setup({ sentences: mk(1), route: fenced });
+    const text = await (await handle(get('?count=1&model=gemini-3.5-flash-lite'), deps)).text();
+    assert.doesNotMatch(text, /^עבר/);
+  });
 });

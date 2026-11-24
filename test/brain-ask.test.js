@@ -37,6 +37,24 @@ function run(options = {}) {
 const quotaInserts = (sql) => sql.find('INSERT INTO probe_log');
 const callLogs = (sql) => sql.find('INSERT INTO call_log');
 
+describe('brain/ask: Gemma (בלי מצב JSON)', () => {
+  test('מודל gemma-: הבקשה בלי responseMimeType, ותשובה עטופה ב-```json נקראת', async () => {
+    const sql = db({ pool: [passRow('gemma-4-31b-it', 19)] });
+    const { promise, fetchFn } = run({ sql, route: () => rawAnswer('```json\n{"action":"create_reminder"}\n```') });
+    assert.deepEqual(await promise, { ok: true, model: 'gemma-4-31b-it', data: { action: 'create_reminder' } });
+    const body = JSON.parse(fetchFn.calls[0].options.body);
+    assert.equal(body.generationConfig.responseMimeType, undefined);
+    assert.equal(body.generationConfig.temperature, 0);
+  });
+  test('מודל gemma-: טקסט בלי אובייקט JSON הוא כשל פורמט', async (t) => {
+    captureConsole(t);
+    const sql = db({ pool: [passRow('gemma-4-31b-it', 19)] });
+    const { promise } = run({ sql, env: { BRAIN_PILOT: 'off' }, route: () => rawAnswer('אין לי מושג') });
+    const out = await promise;
+    assert.equal(out.ok, false);
+  });
+});
+
 describe('brain/ask: מסלול תקין', () => {
   test('המודל הראשון עונה JSON: ok, מודל ונתונים; בקשה אחת, עם כותרת מפתח ו-JSON', async () => {
     const { promise, fetchFn, sql } = run({ route: () => answer({ action: 'create_reminder' }) });
