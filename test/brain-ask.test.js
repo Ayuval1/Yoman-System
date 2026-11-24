@@ -110,7 +110,7 @@ describe('brain/ask: אין מודל', () => {
   });
   test('כולם נגמרים בקריאה הזו: exhausted עם ההחזרה המוקדמת, והתראה אחת', async () => {
     const route = (url) => (modelOf(url) === 'gemini-b' ? quota429('PerMinute') : quota429('PerDay'));
-    const { promise, notified, fetchFn } = run({ route });
+    const { promise, notified, fetchFn } = run({ route, env: { BRAIN_PILOT: 'off' } }); // גיבוי הפיילוט כבוי: הבדיקה על הרשימה שעברה את השער
     const result = await promise;
     assert.deepEqual(result, { ok: false, reason: 'exhausted', until: '2026-11-21T12:01:00.000Z', kind: 'minute' });
     assert.equal(fetchFn.calls.length, 3);
@@ -118,7 +118,7 @@ describe('brain/ask: אין מודל', () => {
   });
   test('כולם כבר חסומים במסד: exhausted בלי קריאה ובלי התראה נוספת', async () => {
     const quota = ['gemini-a', 'gemini-b', 'gemini-c'].map((m) => ({ detail: `model=${m}; kind=daily; until=2026-11-22T08:00:00.000Z` }));
-    const { promise, fetchFn, notified } = run({ sql: db({ quota }), route: () => answer({}) });
+    const { promise, fetchFn, notified } = run({ sql: db({ quota }), route: () => answer({}), env: { BRAIN_PILOT: 'off' } });
     assert.deepEqual(await promise, { ok: false, reason: 'exhausted', until: '2026-11-22T08:00:00.000Z', kind: 'daily' });
     assert.equal(fetchFn.calls.length, 0);
     assert.equal(notified.length, 0);
@@ -147,7 +147,7 @@ describe('brain/ask: פרטיות ועמידות', () => {
   test('המפתח ותוכן ההודעה לא מגיעים ל-call_log, ל-probe_log או ללוג', async (t) => {
     const out = captureConsole(t);
     const route = (url) => ({ 'gemini-a': quota429('PerDay'), 'gemini-b': jsonResponse({ error: { status: 'INTERNAL', message: `echo ${PROMPT} ${API_KEY}` } }, 500), 'gemini-c': new Error(`boom ${API_KEY} ${PROMPT}`) })[modelOf(url)];
-    const { promise, sql } = run({ route });
+    const { promise, sql } = run({ route, env: { BRAIN_PILOT: 'off' } });
     await promise;
     const everything = JSON.stringify(sql.calls) + out.text();
     assert.ok(!everything.includes(API_KEY), 'מפתח דלף');
@@ -195,6 +195,39 @@ describe('brain/ask: פיילוט (חריג לשער, 23.11.2026)', () => {
     const result = await promise;
     assert.equal(result.pilot, undefined);
     assert.ok(!PILOT_POOL.some(({ model }) => fetchFn.calls.map((c) => modelOf(c.url)).includes(model)));
+    assert.equal(pilotRows(sql).length, 0);
+  });
+  test('גיבוי (24.11): כל מי שעבר את השער נכשל: מודלי הפיילוט אחריו, מסומנים pilot', async () => {
+    const route = (url) => (modelOf(url).startsWith('gemini-') && !PILOT_POOL.some(({ model }) => model === modelOf(url)) ? new Error('timeout') : answer({ kind: 'y' }));
+    const { promise, fetchFn, sql } = run({ route });
+    assert.deepEqual(await promise, { ok: true, model: PILOT_POOL[0].model, data: { kind: 'y' }, pilot: true });
+    assert.deepEqual(fetchFn.calls.map((c) => modelOf(c.url)), ['gemini-a', 'gemini-b', 'gemini-c', PILOT_POOL[0].model]);
+    assert.deepEqual(pilotRows(sql).map((c) => c.values[2]), [`model=${PILOT_POOL[0].model}; outcome=ok`]);
+  });
+  test('גיבוי: מודל שעבר את השער וגם ברשימת הפיילוט לא נקרא פעמיים, ולא מסומן pilot', async () => {
+    const passed = PILOT_POOL[1].model;
+    const route = (url) => (modelOf(url) === passed ? new Error('timeout') : answer({ kind: 'z' }));
+    const { promise, fetchFn } = run({ sql: db({ pool: [passRow(passed, 18)] }), route });
+    assert.deepEqual(await promise, { ok: true, model: PILOT_POOL[0].model, data: { kind: 'z' }, pilot: true });
+    assert.deepEqual(fetchFn.calls.map((c) => modelOf(c.url)), [passed, PILOT_POOL[0].model]);
+  });
+  test('גיבוי: מי שעבר את השער ב-429: נרשמת חסימה, והגיבוי עונה', async () => {
+    const route = (url) => (PILOT_POOL.some(({ model }) => model === modelOf(url)) ? answer({ kind: 'q' }) : quota429('PerDay'));
+    const { promise, sql, notified } = run({ route });
+    assert.deepEqual(await promise, { ok: true, model: PILOT_POOL[0].model, data: { kind: 'q' }, pilot: true });
+    assert.equal(quotaInserts(sql).filter((c) => /'brain-quota'/.test(c.text)).length, 3);
+    assert.equal(notified.length, 0);
+  });
+  test('גיבוי: הכול במכסה, כולל הגיבוי: exhausted והתראה אחת', async () => {
+    const { promise, notified, fetchFn } = run({ route: () => quota429('PerDay') });
+    assert.equal((await promise).reason, 'exhausted');
+    assert.equal(fetchFn.calls.length, 3 + PILOT_POOL.length);
+    assert.equal(notified.length, 1);
+  });
+  test('גיבוי: הפיילוט כבוי (BRAIN_PILOT=off): רק מי שעבר את השער, ואז failed', async () => {
+    const { promise, fetchFn, sql } = run({ route: () => jsonResponse({}, 503), env: { BRAIN_PILOT: 'off' } });
+    assert.deepEqual(await promise, { ok: false, reason: 'failed' });
+    assert.equal(fetchFn.calls.length, 3);
     assert.equal(pilotRows(sql).length, 0);
   });
   test('pilotOutcome ו-pilotOn', () => {
