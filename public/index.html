@@ -603,6 +603,24 @@
   .cal-modes { flex: none; display: flex; gap: 6px; padding: 0 12px 8px; }
   .cal-mode { flex: 1; min-width: 0; min-height: 44px; padding: 0 8px; border: 0; border-radius: var(--r-pill); background: var(--btn-neutral); color: var(--accent); font-size: 15px; font-weight: var(--fw-bold); touch-action: manipulation; }
   .cal-mode[aria-pressed="true"] { background: var(--deep); color: #fff; }
+  /* תצוגת שנה (לצפייה בלבד): 12 בלוקי חודש, 2 בעמודה. בכל יום עמודה בצבע המקצוע, גובהה = מספר המבחנים (עד 3). קווקו = אחרי סוף לוח המבחנים (לא ידוע). */
+  .yr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; }
+  .yr-m { min-width: 0; padding: 0 6px 8px; border-radius: 12px; background: var(--card1); box-shadow: var(--sh-card3); }
+  .yr-mh { display: block; width: 100%; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--label); font-size: 15px; font-weight: var(--fw-bold); text-align: start; touch-action: manipulation; }
+  .yr-wd, .yr-g { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+  .yr-wd { font-size: 10px; color: var(--label2); text-align: center; padding-bottom: 2px; }
+  .yr-d { position: relative; min-width: 0; height: 32px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--label2); font-size: 10px; line-height: 12px; display: flex; flex-direction: column; justify-content: space-between; align-items: stretch; touch-action: manipulation; text-align: center; }
+  .yr-d.unk { background-image: repeating-linear-gradient(135deg, var(--sep) 0, var(--sep) 2px, transparent 2px, transparent 5px); }
+  .yr-d.today .yr-n { background: var(--deep); color: #fff; border-radius: 6px; }
+  .yr-n { display: block; }
+  .yr-bars { display: flex; flex-direction: column-reverse; gap: 1px; }
+  .yr-b { display: block; height: 6px; border-radius: 2px; background: var(--sf); border: 1px solid var(--sf); box-sizing: border-box; }
+  .yr-b.quiz { background: transparent; border-color: var(--si); }
+  .yr-b.makeup { background: var(--btn-neutral); border-color: var(--btn-neutral); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .yr-b.quiz { border-color: var(--sf); }
+  }
+  :root[data-theme="dark"] .yr-b.quiz { border-color: var(--sf); }
   /* תצוגת שבוע (שבוע עם שעות): עמודת שעות + 7 ימים. ב-RTL העמודה הראשונה (ראשון) צמודה לשעות מימין. ציר השעות 07:00-22:00 (הנחה). */
   .wk { --wk-hour: 60px; --wk-gut: 30px; display: flex; flex-direction: column; gap: 0; min-width: 0; }
   .wk-row { display: grid; grid-template-columns: var(--wk-gut) repeat(7, minmax(0, 1fr)); gap: 2px; min-width: 0; }
@@ -3279,7 +3297,7 @@ const calBodyEl = document.getElementById('calBody');
 const calBarEl = document.getElementById('calBar');
 const calModesEl = document.getElementById('calModes');
 const calStatusEl = document.getElementById('calStatus');
-const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0, announce: false, slide: '', refocus: '', from: '', week: '', weekSel: null };
+const calState = { open: false, y: 0, m: 0, view: 'month', status: 'loading', data: null, day: null, openItem: null, req: 0, announce: false, slide: '', refocus: '', from: '', week: '', weekSel: null, yearStart: '' };
 
 const calPad = (n) => String(n).padStart(2, '0');
 const calIso = (y, m, d) => `${y}-${calPad(m + 1)}-${calPad(d)}`;
@@ -3321,17 +3339,19 @@ async function calLoad() {
   const req = ++calState.req;
   // שבוע: 7 ימים מראשון. חודש ויום: רשת של 42 ימים. calState.from = תחילת מה שנטען: מעברי תצוגה בודקים מולו אם צריך טעינה.
   const week = calState.view === 'week';
+  const year = calState.view === 'year';
   calState.from = week ? `week:${calState.week}` : calGridStart(calState.y, calState.m); // שבוע מסומן בקידומת: חודש לא ייחשב טעון מ-7 ימים בלבד (תיקון בודק)
+  if (year) calState.from = `year:${calYearStart()}`; // שנה: מסומנת בקידומת, כמו שבוע
   calState.status = 'loading';
   calState.data = null;
   calRender();
   try {
-    const path = week ? `/api/chat?view=calendar&from=${calState.week}&days=7` : `/api/chat?view=calendar&from=${calGridStart(calState.y, calState.m)}&days=42`;
+    const path = year ? `/api/chat?view=calendar-year&from=${calYearStart()}` : week ? `/api/chat?view=calendar&from=${calState.week}&days=7` : `/api/chat?view=calendar&from=${calGridStart(calState.y, calState.m)}&days=42`;
     const res = await authedFetch(path);
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     if (req !== calState.req) return;
-    if (!data || !Array.isArray(data.days)) throw new Error('shape');
+    if (!data || !Array.isArray(year ? data.exams : data.days)) throw new Error('shape');
     calState.data = data;
     calState.status = 'ok';
   } catch (err) {
@@ -3541,8 +3561,108 @@ function calWeekRange(item, date) {
   return { s: Math.max(s, CAL_WK_START), e: Math.min(Math.max(e, s + 30), CAL_WK_END) };
 }
 
+// ---------- תצוגת שנה (מבחנים בלבד), לצפייה בלבד ----------
+// הנחות, לא אומתו באייפון: שנת לימודים מתחילה בספטמבר; calState.y = שנת הספטמבר, calState.m = 8. עמודת היום נחתכת ל-3 מבחנים (גובה מלא).
+// תחילת שנת הלימודים (YYYY-09) של התאריך: מספטמבר ואילך השנה הנוכחית, אחרת הקודמת
+function calSchoolYearStart(date) {
+  const [y, m] = date.split('-').map(Number);
+  return `${m >= 9 ? y : y - 1}-09`;
+}
+// פריסת חודש: lead = כמה תאים ריקים לפני ה-1 (ראשון = 0), days = אורך החודש, weeks = מספר שורות. m0 = חודש מ-0.
+function calYearMonthLayout(y, m0) {
+  const lead = new Date(Date.UTC(y, m0, 1)).getUTCDay();
+  const days = new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+  return { lead, days, weeks: Math.ceil((lead + days) / 7) };
+}
+// גובה עמודת היום = מספר המבחנים, עד 3
+function calYearStack(count) {
+  return Math.min(3, Math.max(0, count));
+}
+// יום אחרי סוף לוח המבחנים (או שאין לוח) = לא ידוע
+function calYearUnknown(date, coverageEnd) {
+  return !coverageEnd || date > coverageEnd;
+}
+function calYearStart() {
+  return `${calState.y}-09`;
+}
+function calYearTitle() {
+  return `${calState.y}–${calState.y + 1}`;
+}
+function calStepYear(delta) {
+  if (calState.view !== 'year') return;
+  calState.y += delta; calState.m = 8;
+  calBodyEl.scrollTop = 0;
+  calLoad();
+}
+// ממקם את היומן על חודש/יום ועובר לתצוגה (נטען מחדש: מטען השנה אינו רשת חודש)
+function calYearGo(view, date) {
+  const [y, m] = date.split('-').map(Number);
+  calState.y = y; calState.m = m - 1; calState.view = view;
+  if (view === 'day') calState.day = date;
+  calState.openItem = null; calState.weekSel = null; calState.announce = false; calState.slide = ''; calState.refocus = '';
+  calBodyEl.scrollTop = 0;
+  calLoad();
+}
+function calYearDayLabel(date, list) {
+  const [y, m, d] = date.split('-').map(Number);
+  const names = list.map((e) => (e.makeup ? "מועד ב'" : `${e.quiz ? 'מבדק' : 'מבחן'} ${e.subject ?? ''}`.trim()));
+  return `יום ${DAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${d} ב${MONTHS[m - 1]}: ${names.join(', ')}`;
+}
+function calRenderYear() {
+  const today = calToday();
+  const { exams, coverageEnd } = calState.data;
+  const byDate = new Map();
+  for (const e of exams) { if (!byDate.has(e.date)) byDate.set(e.date, []); byDate.get(e.date).push(e); }
+  const root = el('div', 'yr');
+  for (let i = 0; i < 12; i += 1) {
+    const y = calState.y + (i >= 4 ? 1 : 0);
+    const m0 = (8 + i) % 12;
+    const { lead, days, weeks } = calYearMonthLayout(y, m0);
+    const block = el('div', 'yr-m');
+    const head = el('button', 'yr-mh', `${MONTHS[m0]} ${y}`);
+    head.type = 'button';
+    head.setAttribute('aria-label', `פתח את ${MONTHS[m0]} ${y}`);
+    const open = () => calYearGo('month', calIso(y, m0, 1));
+    head.addEventListener('click', open);
+    const wd = el('div', 'yr-wd');
+    CAL_WEEKDAYS.forEach((d) => wd.append(el('span', '', d)));
+    const grid = el('div', 'yr-g');
+    grid.addEventListener('click', open); // לחיצה על שטח החודש (לא על יום עם מבחן) פותחת את החודש
+    for (let c = 0; c < weeks * 7; c += 1) {
+      const dayNum = c - lead + 1;
+      if (dayNum < 1 || dayNum > days) { grid.append(el('span')); continue; }
+      const date = calIso(y, m0, dayNum);
+      const list = byDate.get(date) ?? [];
+      const cell = el(list.length ? 'button' : 'span', 'yr-d' + (calYearUnknown(date, coverageEnd) ? ' unk' : '') + (date === today ? ' today' : ''));
+      cell.append(el('span', 'yr-n tnum', dayNum));
+      if (list.length) {
+        cell.type = 'button';
+        cell.setAttribute('aria-label', calYearDayLabel(date, list));
+        const bars = el('span', 'yr-bars');
+        list.slice(0, calYearStack(list.length)).forEach((e) => {
+          const bar = el('span', 'yr-b' + (e.quiz ? ' quiz' : '') + (e.makeup ? ' makeup' : ''));
+          if (!e.makeup && !calSetColors(bar, e.subject)) { bar.style.setProperty('--sf', 'var(--btn-neutral)'); bar.style.setProperty('--si', 'var(--label2)'); }
+          bars.append(bar);
+        });
+        cell.append(bars);
+        cell.addEventListener('click', (event) => { event.stopPropagation(); calYearGo('day', date); });
+      }
+      grid.append(cell);
+    }
+    block.append(head, wd, grid);
+    root.append(block);
+  }
+  const nodes = [];
+  if (coverageEnd) {
+    const [cy, cm, cd] = coverageEnd.split('-');
+    nodes.push(el('p', 'cal-note', `לוח המבחנים מכסה עד ${Number(cd)}.${Number(cm)}.${cy}. אחרי זה (קווקו): לא ידוע`));
+  } else nodes.push(el('p', 'cal-note', 'אין לוח מבחנים: הכול לא ידוע'));
+  nodes.push(root);
+  calBodyEl.replaceChildren(...nodes);
+}
+
 function calRenderModes() {
-  const modes = [['month', 'חודש'], ['week', 'שבוע'], ['day', 'יום']];
+  const modes = [['month', 'חודש'], ['week', 'שבוע'], ['day', 'יום'], ['year', 'שנה']];
   calModesEl.replaceChildren(...modes.map(([id, text]) => {
     const b = el('button', 'cal-mode', text);
     b.type = 'button';
@@ -3552,7 +3672,7 @@ function calRenderModes() {
   }));
 }
 function calHasWeek(start) {
-  for (let i = 0; i < 7; i += 1) if (!calState.data?.days.some((x) => x.date === calAddDays(start, i))) return false;
+  for (let i = 0; i < 7; i += 1) if (!calState.data?.days?.some((x) => x.date === calAddDays(start, i))) return false;
   return true;
 }
 // מעבר בין חודש / שבוע / יום. התאריך שנשמר: היום שנצפה; בשבוע היום עצמו אם הוא בשבוע; בחודש היום אם הוא בחודש, אחרת ה-1.
@@ -3562,18 +3682,22 @@ function calSwitchView(mode) {
   let ref;
   if (calState.view === 'day' && calState.day) ref = calState.day;
   else if (calState.view === 'week') ref = calWeekStartOf(today) === calState.week ? today : calState.week;
+  else if (calState.view === 'year') ref = calSchoolYearStart(today) === calYearStart() ? today : calIso(calState.y, 8, 1);
   else ref = today.slice(0, 7) === calIso(calState.y, calState.m, 1).slice(0, 7) ? today : calIso(calState.y, calState.m, 1);
   const [ry, rm] = ref.split('-').map(Number);
   calState.openItem = null; calState.weekSel = null; calState.announce = false; calState.slide = ''; calState.refocus = '';
   calState.y = ry; calState.m = rm - 1;
   calState.view = mode;
   calBodyEl.scrollTop = 0;
-  if (mode === 'week') {
+  if (mode === 'year') {
+    calState.y = Number(calSchoolYearStart(ref).slice(0, 4)); calState.m = 8;
+    if (calState.status === 'ok' && calState.from === `year:${calYearStart()}`) { calRender(); return; }
+  } else if (mode === 'week') {
     calState.week = calWeekStartOf(ref);
     if (calState.status === 'ok' && calHasWeek(calState.week)) { calRender(); return; }
   } else if (mode === 'day') {
     calState.day = ref;
-    if (calState.status === 'ok' && calState.data?.days.some((x) => x.date === ref)) { calRender(); return; }
+    if (calState.status === 'ok' && calState.data?.days?.some((x) => x.date === ref)) { calRender(); return; }
   } else if (calState.status === 'ok' && calState.from === calGridStart(calState.y, calState.m)) { calRender(); return; }
   calLoad();
 }
@@ -3726,6 +3850,12 @@ function calRender() {
     calBarEl.append(back, prevDay, title, nextDay);
     // אחרי מעבר בכפתור הכפתור נבנה מחדש: מחזירים אליו את הפוקוס (גם אחרי טעינה של חודש אחר)
     if (calState.refocus) { calBarEl.querySelector(`[data-nav="${calState.refocus}"]`)?.focus(); calState.refocus = ''; }
+  } else if (calState.view === 'year') {
+    const prev = calButton('cal-btn', 'שנת הלימודים הקודמת', '<path d="M9 6l6 6-6 6"/>');
+    const next = calButton('cal-btn', 'שנת הלימודים הבאה', '<path d="M15 6l-6 6 6 6"/>');
+    prev.addEventListener('click', () => calStepYear(-1));
+    next.addEventListener('click', () => calStepYear(1));
+    calBarEl.append(prev, el('h2', 'tnum ltr', calYearTitle()), next);
   } else if (calState.view === 'week') {
     const prev = calButton('cal-btn', 'השבוע הקודם', '<path d="M9 6l6 6-6 6"/>');
     const next = calButton('cal-btn', 'השבוע הבא', '<path d="M15 6l-6 6 6 6"/>');
@@ -3751,7 +3881,7 @@ function calRender() {
     calBodyEl.replaceChildren(box);
     return;
   }
-  if (calState.view === 'day') calRenderDay(); else if (calState.view === 'week') calRenderWeek(); else calRenderMonth();
+  if (calState.view === 'day') calRenderDay(); else if (calState.view === 'week') calRenderWeek(); else if (calState.view === 'year') calRenderYear(); else calRenderMonth();
 }
 
 function calShift(delta) {
