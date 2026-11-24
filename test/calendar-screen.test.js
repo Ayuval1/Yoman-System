@@ -28,8 +28,8 @@ describe('public/index.html: מסך היומן', () => {
   test('הכניסה: אייקון יומן בכותרת הירוקה פותח את תצוגת החודש', () => {
     const hero = /<header class="hero">[\s\S]*?<\/header>/.exec(html)?.[0] ?? '';
     assert.match(hero, /id="calOpen"/);
-    assert.match(bodyOf('openCalendar'), /calState\.view = 'month'/);
-    assert.match(script, /getElementById\('calOpen'\)\.addEventListener\('click', openCalendar\)/);
+    assert.match(bodyOf('openCalendar'), /target \? 'day' : 'month'/); // בלי תאריך = חודש (רצועת השבוע מעבירה תאריך)
+    assert.match(script, /getElementById\('calOpen'\)\.addEventListener\('click', \(\) => openCalendar\(\)\)/);
   });
 
   test('הנתונים: view=calendar עם from ו-days (42), באותה בקשה עם הסוד', () => {
@@ -118,8 +118,8 @@ describe('public/index.html: מסך היומן', () => {
     assert.match(css, /:root\[data-theme="dark"\] \.cal-chip\.quiz/);
   });
 
-  test('רצועת השבוע בכותרת לא נבנתה עדיין', () => {
-    assert.doesNotMatch(html, /weekstrip|week-strip|calStrip/i);
+  test('רצועת השבוע בכותרת נבנתה (אושר 24.11); הבדיקות שלה ב-week-strip-tails.test.js', () => {
+    assert.match(/<header class="hero">[\s\S]*?<\/header>/.exec(html)?.[0] ?? '', /id="wkStrip"/);
   });
 });
 

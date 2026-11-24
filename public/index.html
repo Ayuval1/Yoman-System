@@ -599,6 +599,24 @@
   .cal-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--label3); }
   .cal-dot.train { background: var(--cal-training); }
   .cal-list { display: flex; flex-direction: column; gap: 8px; }
+  /* זנב הכנה בלוח החודש (design-rules שכבה 4, "זנב ההכנה"): פסים דקים בצבע המקצוע בתחתית התא, עד 3, עוצמה לפי strength (1 = היום שלפני המבחן). */
+  .cal-day.has-tails { padding-bottom: 13px; }
+  .cal-tails { position: absolute; inset-inline: 0; bottom: 0; display: flex; flex-direction: column; gap: 1px; pointer-events: none; }
+  .cal-tail { display: block; height: 3px; background: var(--tc, var(--label3)); }
+  /* רצועת שבוע בכותרת הירוקה (design-rules שכבה 4): 7 ימים, ראשון מימין, היום לבן. לחיצה פותחת את היומן על אותו יום. */
+  .wkstrip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; margin: 10px -8px 0; }
+  .wk-d {
+    min-width: 0; min-height: 44px; padding: 4px 0 5px; border: 0; border-radius: 14px; background: transparent; color: #fff;
+    display: flex; flex-direction: column; align-items: center; gap: 1px; touch-action: manipulation;
+  }
+  .wk-d .wk-l { font-size: 12px; line-height: 1.2; opacity: .72; }
+  .wk-d .wk-n { font-size: 16px; line-height: 1.25; font-weight: var(--fw-bold); }
+  .wk-d.today { background: #fff; color: var(--deep); }
+  .wk-d.today .wk-l { opacity: .8; }
+  .wk-dots { display: flex; justify-content: center; align-items: center; gap: 3px; height: 6px; }
+  .wk-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c, #fff); }
+  .wk-dot.plain { background: rgba(255, 255, 255, .75); }
+  .wk-d.today .wk-dot.plain { background: var(--label3); }
   /* בורר תצוגה: חודש / שבוע / יום. אותו מראה כמו .cal-btn (רקע ניטרלי, טקסט accent, 44px); הנבחר = ירוק עמוק כמו "היום" ברשת. */
   .cal-modes { flex: none; display: flex; gap: 6px; padding: 0 12px 8px; }
   .cal-mode { flex: 1; min-width: 0; min-height: 44px; padding: 0 8px; border: 0; border-radius: var(--r-pill); background: var(--btn-neutral); color: var(--accent); font-size: 15px; font-weight: var(--fw-bold); touch-action: manipulation; }
@@ -714,6 +732,7 @@
       <button type="button" class="cal-open" id="calOpen" aria-label="פתח את היומן"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></button>
       <h1 id="today">—</h1>
       <p id="todayDate"></p>
+      <nav class="wkstrip" id="wkStrip" aria-label="השבוע הנוכחי"></nav>
       <button type="button" id="enablePush" class="push-btn">הפעל התראות</button>
       <button type="button" id="connectGoogle" class="push-btn">חבר Google</button>
     </header>
@@ -2371,6 +2390,7 @@ function render() {
 let refreshing = null;
 let refreshAgain = false;
 function refresh() {
+  wkLoad(); // רצועת השבוע בכותרת: טעינה שקטה, לא חוסמת ולא משנה את החזרה
   if (refreshing) { refreshAgain = true; return refreshing; }
   refreshing = (async () => {
     try {
@@ -3385,6 +3405,75 @@ function calDayLabel(day, today) {
   return parts.join(', ');
 }
 
+// זנבות הכנה ליום: עד 3, החזקים קודם. strength בין 0 ל-1; ערך לא תקין = זנב לא מוצג.
+const CAL_TAILS_MAX = 3;
+function calTailsOf(day) {
+  const list = Array.isArray(day?.tails) ? day.tails.filter((t) => t && typeof t.strength === 'number' && t.strength >= 0 && t.strength <= 1) : [];
+  return list.slice().sort((a, b) => b.strength - a.strength).slice(0, CAL_TAILS_MAX);
+}
+// שקיפות הפס: מ-0.3 (רחוק) עד 1 (היום שלפני המבחן), כדי שגם הפס החלש ביותר ייראה.
+function calTailOpacity(strength) {
+  return Math.round((0.3 + 0.7 * Math.min(1, Math.max(0, strength))) * 100) / 100;
+}
+
+// רצועת שבוע בכותרת: נקודות בצבעי היומן לכל יום (בית ספר, מבחן בצבע המקצוע, אימון, אישי). ייחודיות לפי צבע, עד 4.
+const CAL_STRIP_MAX = 4;
+function calStripDots(day) {
+  const out = [];
+  const seen = new Set();
+  const add = (key, color) => { if (!seen.has(key) && out.length < CAL_STRIP_MAX) { seen.add(key); out.push(color); } };
+  const items = Array.isArray(day?.items) ? day.items : [];
+  if (items.some((i) => i.kind === 'lesson')) add('school', 'var(--cal-school)');
+  items.filter((i) => i.kind === 'exam' && !i.makeup && calSubjectColors(i.subject)).forEach((i) => add('exam:' + i.subject, calSubjectColors(i.subject)[0]));
+  if (items.some((i) => i.kind === 'exam' && (i.makeup || !calSubjectColors(i.subject)))) add('exam-plain', '');
+  if (items.some((i) => i.kind === 'training')) add('train', 'var(--cal-training)');
+  if (items.some((i) => i.kind === 'event')) add('event', '');
+  return out; // '' = נקודה ניטרלית
+}
+const wkStripEl = document.getElementById('wkStrip');
+const wkState = { days: null, req: 0 };
+function wkRender() {
+  const today = calToday();
+  const start = calWeekStartOf(today);
+  const nodes = [];
+  for (let i = 0; i < 7; i += 1) {
+    const date = calAddDays(start, i);
+    const [y, m, d] = date.split('-').map(Number);
+    const day = wkState.days?.find((x) => x.date === date);
+    const b = el('button', 'wk-d' + (date === today ? ' today' : ''));
+    b.type = 'button';
+    b.setAttribute('aria-label', day ? calDayLabel(day, today) : `יום ${DAYS[i]} ${d} ב${MONTHS[m - 1]}${date === today ? ', היום' : ''}`);
+    if (date === today) b.setAttribute('aria-current', 'date');
+    const dots = el('span', 'wk-dots');
+    dots.setAttribute('aria-hidden', 'true');
+    calStripDots(day).forEach((color) => {
+      const dot = el('span', 'wk-dot' + (color ? '' : ' plain'));
+      if (color) dot.style.setProperty('--c', color);
+      dots.append(dot);
+    });
+    const l = el('span', 'wk-l', CAL_WEEKDAYS[i]); l.setAttribute('aria-hidden', 'true');
+    b.append(l, el('span', 'wk-n tnum', d), dots);
+    b.addEventListener('click', () => openCalendar(date));
+    nodes.push(b);
+  }
+  wkStripEl.replaceChildren(...nodes);
+}
+// טעינה שקטה: כשל = רצועה בלי נקודות. נקרא מ-refresh() (פתיחה וחזרה לאפליקציה).
+async function wkLoad() {
+  const req = ++wkState.req;
+  wkRender(); // קודם בלי נקודות, כדי שהימים יופיעו מיד
+  try {
+    const res = await authedFetch(`/api/chat?view=calendar&from=${calWeekStartOf(calToday())}&days=7`);
+    if (!res.ok) throw new Error('status ' + res.status);
+    const data = await res.json();
+    if (req !== wkState.req || !Array.isArray(data?.days)) return;
+    wkState.days = data.days;
+    wkRender();
+  } catch (err) {
+    console.warn('[app] רצועת השבוע: טעינה נכשלה', err?.name);
+  }
+}
+
 function calMonthCell(day, today) {
   const date = day.date;
   const inMonth = Number(date.slice(5, 7)) - 1 === calState.m;
@@ -3392,6 +3481,20 @@ function calMonthCell(day, today) {
   cell.type = 'button';
   cell.setAttribute('aria-label', calDayLabel(day, today));
   cell.append(el('span', 'cal-n tnum', Number(date.slice(8))));
+  const tails = calTailsOf(day);
+  if (tails.length) {
+    cell.classList.add('has-tails');
+    cell.setAttribute('aria-label', `${calDayLabel(day, today)}, הכנה למבחן: ${tails.map((t) => t.subject).join(', ')}`);
+    const box = el('span', 'cal-tails');
+    box.setAttribute('aria-hidden', 'true');
+    tails.forEach((t) => {
+      const bar = el('span', 'cal-tail');
+      bar.style.setProperty('--tc', calSubjectColors(t.subject)?.[0] ?? 'var(--label3)');
+      bar.style.opacity = String(calTailOpacity(t.strength));
+      box.append(bar);
+    });
+    cell.append(box);
+  }
   if (day.noSchool) cell.append(el('span', 'cal-off', 'חופש')); // תווית שקטה, לא צ'יפ: לא נספרת במגבלת 2 הצ'יפים
   const chips = [];
   let train = false;
@@ -3943,11 +4046,14 @@ calBodyEl.addEventListener('touchend', (event) => {
 calBodyEl.addEventListener('touchcancel', () => { calTouch = null; }, { passive: true });
 
 let calOpener = null;
-function openCalendar() {
+function openCalendar(date) {
   if (calState.open) return; // כבר פתוח: לא דורסים את calOpener
-  const [y, m] = calToday().split('-').map(Number);
+  // date (מחרוזת YYYY-MM-DD) מרצועת השבוע: נפתח בתצוגת יום. מהאייקון (אירוע לחיצה): חודש.
+  const target = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+  const [y, m] = (target ?? calToday()).split('-').map(Number);
   calState.open = true;
-  calState.y = y; calState.m = m - 1; calState.view = 'month'; calState.openItem = null; calState.weekSel = null;
+  calState.y = y; calState.m = m - 1; calState.view = target ? 'day' : 'month'; calState.day = target; calState.openItem = null; calState.weekSel = null;
+  calState.announce = false; calState.slide = ''; calState.refocus = '';
   calOpener = document.activeElement;
   appEl.inert = true; // מלכודת פוקוס: שאר האפליקציה לא נגישה בזמן שהיומן פתוח
   calEl.hidden = false;
@@ -3963,7 +4069,7 @@ function closeCalendar() {
   appEl.inert = false;
   (calOpener && calOpener.isConnected ? calOpener : document.getElementById('calOpen')).focus(); // הפוקוס חוזר לפותח (האייקון)
 }
-document.getElementById('calOpen').addEventListener('click', openCalendar);
+document.getElementById('calOpen').addEventListener('click', () => openCalendar());
 document.getElementById('calClose').addEventListener('click', closeCalendar);
 document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && calState.open) closeCalendar(); });
 
