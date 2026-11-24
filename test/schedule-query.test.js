@@ -41,6 +41,12 @@ describe('schedule-query: מה לטעון (טהור)', () => {
     assert.deepEqual(scheduleQueryPlan({ understanding: q({}), text: 'מה יש לי השבוע?', receivedAt: MONDAY }), { mode: 'days', from: '2026-11-23', days: 7 });
     assert.deepEqual(scheduleQueryPlan({ understanding: q({}), text: 'מה יש לי שבוע הבא?', receivedAt: MONDAY }), { mode: 'days', from: '2026-11-29', days: 7 });
   });
+  test('תאריך שלא נקרא ("אתמול"): 7 ימים, ומסומן שלא נקרא', () => {
+    assert.deepEqual(scheduleQueryPlan({ understanding: q({ date_text: 'אתמול' }), text: 'מה היה לי אתמול?', receivedAt: MONDAY }), { mode: 'days', from: '2026-11-23', days: 7, unread: 'אתמול' });
+  });
+  test('הפרומפט: end_date_text מותר גם ב-schedule_query', () => {
+    assert.match(buildPrompt({ text: 'x' }), /end_date_text: [^\n]*schedule_query/);
+  });
   test('מקצוע בלי תאריך: מבחנים במקצוע', () => {
     assert.deepEqual(scheduleQueryPlan({ understanding: q({ subject: 'היסטוריה' }), text: 'מתי המבחן בהיסטוריה?', receivedAt: MONDAY }), { mode: 'exams', subject: 'היסטוריה', from: '2026-11-23', days: 42 });
   });
@@ -60,6 +66,10 @@ describe('schedule-query: התשובה', () => {
   test('מקצוע בלי מבחן קרוב: נאמר במפורש', async () => {
     const out = await answerScheduleQuery({ sql: answerSql(), source: src('מתי המבחן בערבית?'), understanding: q({ subject: 'ערבית' }), timetable: null, exams: EXAMS, now: MONDAY });
     assert.match(out.reply, /לא מצאתי מבחן בערבית ב-42 הימים הקרובים/);
+  });
+  test('תאריך שלא נקרא: הבועה אומרת את זה במפורש', async () => {
+    const out = await answerScheduleQuery({ sql: answerSql(), source: src('מה היה לי אתמול?'), understanding: q({ date_text: 'אתמול' }), timetable: null, exams: EXAMS, now: MONDAY });
+    assert.match(out.reply, /^את "אתמול" לא הצלחתי לקרוא כתאריך/);
   });
   test('"מה יש לי מחר?": כותרת "מחר" ושורת יום', async () => {
     const out = await answerScheduleQuery({ sql: answerSql(), source: src('מה יש לי מחר?'), understanding: q({ date_text: 'מחר' }), timetable: null, exams: EXAMS, now: MONDAY });
