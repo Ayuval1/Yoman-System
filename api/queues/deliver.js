@@ -31,6 +31,7 @@ import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
 import { awayOn, offerAwayCards } from '../../lib/away.js';
 import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
+import { fitnessReminderLine } from '../../lib/fitness-reminder.js';
 import { askBrain } from '../../lib/brain/ask.js';
 import { googleDayFromEnv } from '../../lib/free-check.js';
 
@@ -150,7 +151,8 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   // בלוק 9: שורת "להאזנה היום" (lib/listening.js). לא זורק: כשל = בלי השורה.
   const listening = exists ? null : listenBriefLine(pickForDay(await loadListening(sql), dateIso));
   const away = exists ? null : await awayOn(sql, dateIso); // אירוע של כמה ימים היום (lib/away.js). לא זורק: כשל = בלי השורה
-  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams, listening, away });
+  const fitness = exists ? null : await fitnessReminderLine(sql, dateIso); // לוז 4fitness לא הגיע (lib/fitness-reminder.js). לא זורק: כשל = בלי השורה
+  const brief = composeBrief({ dateIso, timetable: table, tasks, pending, partial, answers, exams, listening, away, fitness });
   let created = false;
   if (!exists) {
     const rows = await sql`

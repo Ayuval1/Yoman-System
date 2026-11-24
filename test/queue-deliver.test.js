@@ -664,6 +664,7 @@ describe('queue-deliver: משבצת brief והודעת הבוקר (B-1)', () => 
     const state = { messages: [...messages], probe: [] };
     const run1 = (text, values, index) => {
       onQuery?.(text, index, state);
+      if (text.includes('fitness-reminder')) return [{ found: 1 }]; // לוז 4fitness כבר נקלט: בלי שורת התזכורת (נבדקת ב-test/fitness-reminder.test.js)
       if (text.includes('INSERT INTO probe_log')) {
         if (!state.probe.some((p) => p.slot === values[2])) state.probe.push({ slot: values[2] });
         return [];
