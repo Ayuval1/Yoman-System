@@ -435,7 +435,7 @@ describe('gate-probe: model=rotate (רוטציה יומית לפי ListModels)',
     entry('models/gemini-a-preview'),
     entry('models/gemini-a-exp'),
     entry('models/gemini-no-generate', ['countTokens']),
-    entry('models/gemma-3-27b'),
+    entry('models/gemma-3-embed'), // gemma נכלל מ-24.11, אבל embed לא
   ];
   const isList = (url) => url.includes('/v1beta/models') && !url.includes(':generateContent');
   const routeWith = (list, answerFn = good) => (url) => (isList(url) ? jsonResponse({ models: list }) : answerFn());
@@ -816,5 +816,18 @@ describe('gate-probe: קירור למודל תקוע גם בקצב של ריצה
     const text = await (await handle(get('?model=gemini-3.1-flash-lite&resume=1'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {} })).text();
     assert.match(text, /^כבר עבר/);
     assert.equal(fetchFn.calls.length, 0);
+  });
+});
+
+describe('gate-probe: גם מודלי gemma נבדקים (24.11.2026)', () => {
+  test('ListModels: gemma-* עם generateContent נכנס לרוטציה; התבנית מקבלת gemma-', async () => {
+    const { MODEL_NAME_PATTERN } = await import('../lib/ops/gate-probe.js');
+    assert.ok(MODEL_NAME_PATTERN.test('gemma-4-31b-it'));
+    assert.ok(!MODEL_NAME_PATTERN.test('gemmax-1'));
+    const entry = (name) => ({ name, supportedGenerationMethods: ['generateContent'] });
+    const sql = fakeSql(() => []);
+    const fetchFn = fakeFetch((url) => (url.includes(':generateContent') ? good() : jsonResponse({ models: [entry('models/gemma-4-31b-it')] })));
+    const text = await (await handle(get('?model=rotate&from=0'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {}, now: () => 20413 * 86400000 })).text();
+    assert.match(text, /model=gemma-4-31b-it/);
   });
 });
