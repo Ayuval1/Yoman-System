@@ -21,7 +21,7 @@ describe('brain-status', () => {
     assert.deepEqual(out.pilot_24h, { 'gemini-3.5-flash-lite': { ok: 2, format: 1 } });
     assert.equal(out.models[0].state, 'בבדיקה');
     assert.equal(out.models[0].score, '16/20');
-    assert.deepEqual(out.brain_24h, { understood: 2, agreed_with_code: 1 });
+    assert.deepEqual(out.brain_24h, { understood: 2, agreed_with_code: 1, disagreements: {} });
   });
   test('מודל שעבר: מצב passed, והוא ראשון ברשימה', () => {
     const out = summarize({
@@ -43,4 +43,14 @@ describe('brain-status', () => {
     assert.equal(sql.calls.length, 4);
     assert.ok(sql.calls.every((c) => c.text.startsWith('SELECT')));
   });
+});
+
+test('brain-status: זוגות אי-הסכמה, והבעיה הראשונה של מודל שנכשל', () => {
+  const out = summarize({
+    gateRows: [{ ok: false, at: new Date(NOW - 3600000).toISOString(), detail: 'range=s01-s20; 0/20 ran=20; failed: s01,s02; model=gemini-2.5-flash; elapsed=200s | s01 [200] wrong answer: action=undefined when=undefined ; s02 [200] x' }],
+    quotaRows: [], pilotRows: [], nowMs: NOW, env: {},
+    intakeRows: [{ ok: false, detail: 'ai=event; code=other; channel=app; model=m' }, { ok: false, detail: 'ai=event; code=other; channel=app; model=m' }, { ok: true, detail: 'ai=task; code=task' }],
+  });
+  assert.deepEqual(out.brain_24h.disagreements, { 'event→other': 2 });
+  assert.equal(out.models[0].first_problem, 's01 [200] wrong answer: action=undefined when=undefined');
 });
