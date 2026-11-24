@@ -30,6 +30,7 @@ import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation
 import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
 import { awayOn, offerAwayCards } from '../../lib/away.js';
+import { offerStudyCleanup } from '../../lib/study-cleanup.js';
 import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
 import { fitnessReminderLine } from '../../lib/fitness-reminder.js';
 import { askBrain } from '../../lib/brain/ask.js';
@@ -127,6 +128,8 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   if (!exists) await offerStudyPlans({ sql, todayIso: dateIso, now: deliveredAt, exams, timetable: table, googleDay });
   // שלב 2 של אירוע כללי (lib/away.js): רשת ביטחון לכרטיס "בזמן החופשה" אם לא נוצר ברגע הרישום. פעם אחת לכל אירוע וטווח. לא זורק.
   if (!exists) await offerAwayCards({ sql, now: deliveredAt, exams });
+  // שעות למידה של מבחן שזז או בוטל (lib/study-cleanup.js): כרטיס "לבטל אותן?" פעם אחת לכל מבחן ישן. לא זורק.
+  if (!exists) await offerStudyCleanup({ sql, now: deliveredAt, exams });
   let partial = false;
   let tasks = [];
   let pending = [];
