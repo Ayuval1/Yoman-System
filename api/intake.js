@@ -15,6 +15,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
 import { processSource } from '../lib/intake-process.js';
+import { offerAwayCards } from '../lib/away.js';
 import { RECEIVED_REPLY } from '../lib/intake-questions.js';
 import { planNotify, SLOT_TOPIC } from '../lib/message-slots.js';
 import { syncEventForSource, syncEventsByMatchKeys } from '../lib/event-sync.js';
@@ -249,6 +250,8 @@ export async function handle(request, {
       console.error('intake: כתיבה ליומן נכשלה:', error?.name);
     }
   }
+  // שלב 2 של אירוע כללי (lib/away.js): אירוע של כמה ימים שנרשם עכשיו = כרטיס "בזמן החופשה" אחד, אם יש בטווח מבחן או למידה. לא זורק ולא משנה את התשובה.
+  if (result?.status === 'recorded' && result.away === true) await offerAwayCards({ sql, now: now() });
   return reply(200, typeof result?.reply === 'string' && result.reply !== '' ? result.reply : RECEIVED_REPLY);
 }
 
