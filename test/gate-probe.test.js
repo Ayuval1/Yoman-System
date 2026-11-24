@@ -841,6 +841,18 @@ describe('gate-probe: גם מודלי gemma נבדקים (24.11.2026)', () => {
     assert.equal(body.generationConfig.responseMimeType, undefined);
     assert.equal(body.generationConfig.temperature, 0);
   });
+  test('parseModelText (gemma-): JSON נקי, עטוף, בתוך טקסט, האובייקט הראשון מבין שניים, סוגריים בתוך מחרוזת', async () => {
+    const { parseModelText } = await import('../lib/ops/gate-probe.js');
+    const g = (t) => parseModelText('gemma-4-31b-it', t);
+    assert.deepEqual(g('{"a":1}'), { a: 1 });
+    assert.deepEqual(g('```json\n{"a":1}\n```'), { a: 1 });
+    assert.deepEqual(g('הנה: {"a":1}. זהו'), { a: 1 });
+    assert.deepEqual(g('{"a":1} ו {"b":2}'), { a: 1 });
+    assert.deepEqual(g('x {y} {"a":"}{"}'), { a: '}{' });
+    assert.throws(() => g('אין כאן כלום'));
+    assert.throws(() => g(undefined));
+    assert.throws(() => parseModelText('gemini-3.1-flash-lite', 'הנה: {"a":1}'));
+  });
   test('Gemini נשאר קפדני: תשובה עטופה ב-```json לא נספרת כנכונה', async () => {
     const fenced = () => jsonResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"action":"create_reminder","when":"tomorrow"}\n```' }] } }] });
     const { deps } = setup({ sentences: mk(1), route: fenced });
