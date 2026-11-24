@@ -352,7 +352,9 @@ describe('time-suggest: חיבור', () => {
     if (text.includes('time-suggest-create')) return [{ message_id: MSG_ID }];
     return [];
   });
-  test('משימה עם תאריך ובלי שעה: ההצעה נוצרת מיד אחרי הרישום, עם כותרת המשימה', async () => {
+  test('משימה עם תאריך ובלי שעה: ההצעה נוצרת מיד אחרי הרישום, עם כותרת המשימה', async (t) => {
+    // processSource לא מקבל now, וההצעה מחושבת מול השעון האמיתי. בלי קיבוע: ביום שלישי "עד שלישי" כבר עבר והבדיקה נכשלת.
+    t.mock.timers.enable({ apis: ['Date'], now: SATURDAY_NOON });
     const sql = pipelineSql();
     const out = await processSource({ sql, source: typed('להכין מצגת בהיסטוריה עד שלישי'), timetable: null, googleDay: noGoogle });
     assert.equal(out.status, 'recorded');
