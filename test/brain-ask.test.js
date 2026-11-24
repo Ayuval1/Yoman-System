@@ -224,6 +224,41 @@ describe('brain/ask: פיילוט (חריג לשער, 23.11.2026)', () => {
     assert.equal(fetchFn.calls.length, 3 + PILOT_POOL.length);
     assert.equal(notified.length, 1);
   });
+  test('סדר לפי בריאות (24.11): מודל שנכשל ב-30 הדקות האחרונות עובר לסוף התור', async () => {
+    const passedModel = PILOT_POOL[1].model;
+    const sql = fakeSql((text) => {
+      if (text.includes('FROM probe_log') && text.includes('ok, detail, at')) return [passRow(passedModel, 18)];
+      if (text.includes('brain-recent-failures')) return [{ error: `model=${passedModel}: HTTP 503 UNAVAILABLE` }];
+      return [];
+    });
+    const { promise, fetchFn } = run({ sql, route: () => answer({ kind: 'f' }) });
+    assert.deepEqual(await promise, { ok: true, model: PILOT_POOL[0].model, data: { kind: 'f' }, pilot: true });
+    assert.deepEqual(fetchFn.calls.map((c) => modelOf(c.url)), [PILOT_POOL[0].model]);
+    const query = sql.find('brain-recent-failures')[0];
+    assert.ok(query.values.includes('2026-11-21T11:30:00.000Z'), 'חלון של 30 דקות לפי now');
+  });
+  test('סדר לפי בריאות: הנכשל לא נעלם, הוא רק אחרון', async () => {
+    const passedModel = PILOT_POOL[1].model;
+    const sql = fakeSql((text) => {
+      if (text.includes('FROM probe_log') && text.includes('ok, detail, at')) return [passRow(passedModel, 18)];
+      if (text.includes('brain-recent-failures')) return [{ error: `model=${passedModel}: timeout` }];
+      return [];
+    });
+    const route = (url) => (modelOf(url) === passedModel ? answer({ kind: 'g' }) : new Error('down'));
+    const { promise, fetchFn } = run({ sql, route });
+    assert.equal((await promise).model, passedModel);
+    assert.deepEqual(fetchFn.calls.map((c) => modelOf(c.url)), [PILOT_POOL[0].model, passedModel]);
+  });
+  test('סדר לפי בריאות: כשל בקריאת הכשלים לא שובר; הסדר הרגיל', async (t) => {
+    captureConsole(t);
+    const sql = fakeSql((text) => {
+      if (text.includes('brain-recent-failures')) throw Object.assign(new Error('db'), { name: 'NeonDbError' });
+      if (text.includes('FROM probe_log') && text.includes('ok, detail, at')) return POOL_ROWS;
+      return [];
+    });
+    const { promise } = run({ sql, route: () => answer({}) });
+    assert.equal((await promise).model, 'gemini-a');
+  });
   test('גיבוי: הפיילוט כבוי (BRAIN_PILOT=off): רק מי שעבר את השער, ואז failed', async () => {
     const { promise, fetchFn, sql } = run({ route: () => jsonResponse({}, 503), env: { BRAIN_PILOT: 'off' } });
     assert.deepEqual(await promise, { ok: false, reason: 'failed' });
