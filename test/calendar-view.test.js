@@ -153,6 +153,42 @@ describe('calendar-view: פערים (חודש חלקי, אירוע רב-יומי
     const out = await run({ timetable: null, days: 2 }, { events: [ev({ id: 'a', ends_at: null }), ev({ id: 'b', ends_at: '2026-11-22T10:00:00Z' })] });
     assert.deepEqual(out.days.map((d) => d.items.length), [2, 0]);
   });
+  // חופשה רב-יומית של יום שלם (30.11–3.12.2026): בדיוק 00:00 ישראל בשני הגבולות, הסיום בלעדי (4.12 ב-00:00 = 3.12 + יום).
+  const vacation = (over) => ev({ id: 'v1', title: 'חופשה בווינה', starts_at: '2026-11-29T22:00:00Z', ends_at: '2026-12-03T22:00:00Z', ...over });
+  test('יום שלם רב-יומי: מופיע בכל ארבעת הימים, לא ביום שלפני ולא ביום שאחרי', async () => {
+    const out = await run({ from: '2026-11-28', days: 8, timetable: null }, { events: [vacation({})] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [0, 0, 1, 1, 1, 1, 0, 0]);
+    assert.deepEqual(out.days.slice(2, 6).map((d) => d.date), ['2026-11-30', '2026-12-01', '2026-12-02', '2026-12-03']);
+  });
+  test('יום שלם רב-יומי: allDay עם firstDate ו-lastDate (האחרון כולל) בכל יום', async () => {
+    const out = await run({ from: '2026-11-30', days: 4, timetable: null }, { events: [vacation({})] });
+    for (const day of out.days) {
+      const item = day.items[0];
+      assert.equal(item.allDay, true);
+      assert.equal(item.firstDate, '2026-11-30');
+      assert.equal(item.lastDate, '2026-12-03');
+    }
+  });
+  test('אירוע בשעות רגילות לא מסומן allDay, וגם לא אירוע שאינו אישי', async () => {
+    const out = await run({ from: '2026-11-22', days: 3, timetable: null }, { events: [ev({ id: 'a', starts_at: '2026-11-22T10:00:00Z', ends_at: '2026-11-22T11:00:00Z' }), vacation({ id: 'b', domain: 'school' })] });
+    assert.ok(out.days.flatMap((d) => d.items).every((i) => i.allDay === undefined));
+  });
+  test('חופשה שהתחילה לפני הטווח מופיעה בימי הטווח שהיא מכסה', async () => {
+    const out = await run({ from: '2026-12-02', days: 3, timetable: null }, { events: [vacation({})] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [1, 1, 0]);
+    assert.equal(out.days[0].items[0].firstDate, '2026-11-30');
+  });
+  test('חצייה של מעבר השעון (25.10.2026): 23.10–26.10 מכסה בדיוק ארבעה ימים', async () => {
+    const trip = vacation({ id: 'v2', title: 'טיול', starts_at: '2026-10-22T21:00:00Z', ends_at: '2026-10-26T22:00:00Z' });
+    const out = await run({ from: '2026-10-22', days: 7, timetable: null }, { events: [trip] });
+    assert.deepEqual(out.days.map((d) => d.items.length), [0, 1, 1, 1, 1, 0, 0]);
+    assert.deepEqual([out.days[1].items[0].firstDate, out.days[4].items[0].lastDate], ['2026-10-23', '2026-10-26']);
+  });
+  test('יום שלם ממוין לפני אירועים עם שעה', async () => {
+    const timed = ev({ id: 't', starts_at: '2026-11-30T05:00:00Z', ends_at: '2026-11-30T06:00:00Z' });
+    const out = await run({ from: '2026-11-30', days: 1, timetable: null }, { events: [timed, vacation({})] });
+    assert.deepEqual(out.days[0].items.map((i) => i.title), ['חופשה בווינה', 'טיול']);
+  });
   test('מועד ב\' מוצג עם makeup: true, ולא משפיע על coverageEnd', async () => {
     const exams = [{ date: '2026-11-22', type: 'מבחן', subject: 'מתמטיקה', makeup: false }, { date: '2026-11-22', type: 'מועד ב\'', subject: null, makeup: true }];
     const out = await run({ exams });
