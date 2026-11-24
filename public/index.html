@@ -660,7 +660,7 @@
     display: flex; flex-direction: column; gap: 1px; box-shadow: none;
   }
   .wk-adc .wk-it { position: relative; min-height: 22px; }
-  .wk-it .t { overflow: hidden; text-overflow: ellipsis; overflow-wrap: anywhere; min-width: 0; }
+  .wk-it .t { overflow: hidden; min-width: 0; word-break: keep-all; overflow-wrap: normal; hyphens: none; } /* לא שוברים באמצע מילה (יובל 24.11.2026); שם מקצוע ארוך מקוצר ב-calShortSubject */
   .wk-it .r { opacity: .72; font-weight: 400; }
   .wk-it.lesson { background: var(--cal-school); color: var(--cal-ink); border-inline-start: 4px solid var(--sf, transparent); }
   .wk-it.exam { background: var(--sf); color: var(--cal-ink); }
@@ -3823,6 +3823,23 @@ function calStepWeek(delta) {
   calLoad();
 }
 
+// קיצור שם מקצוע לתא הצר של יומן השבוע (הכרעת יובל 24.11.2026: "קיצור (מתמ׳)"). שם של עד 5 אותיות נשאר מלא; השם המלא נשאר בתווית הנגישה ובפירוט.
+function calShortSubject(name) {
+  const SHORT = { 'מתמטיקה': 'מתמ׳', 'אנגלית': 'אנג׳', 'היסטוריה': 'היסט׳', 'אזרחות': 'אזרח׳', 'פיזיקה': 'פיז׳' };
+  const key = String(name ?? '').trim();
+  return SHORT[key] ?? key;
+}
+
+// מילה שעדיין לא נכנסת בתא אחרי הקיצור (כותרת שאינה מקצוע, למשל "התארגנות"): הגופן יורד עד 9px, במקום חיתוך או שבירה באמצע מילה.
+// רץ אחרי הציור, כשיש מידות. תא בלי רוחב (המסך מוסתר) לא נוגעים בו.
+function calFitWeekText() {
+  for (const t of calBodyEl.querySelectorAll('.wk-it .t')) {
+    if (!t.clientWidth) continue;
+    let size = 11;
+    while (size > 9 && t.scrollWidth > t.clientWidth + 0.5) { size -= 0.5; t.style.fontSize = `${size}px`; }
+  }
+}
+
 function calWeekItem(item, index, date) {
   const b = el('button', 'wk-it');
   b.type = 'button';
@@ -3831,12 +3848,12 @@ function calWeekItem(item, index, date) {
   b.setAttribute('aria-label', `${from ? (to ? `${from}–${to}` : from) : 'כל היום'}, ${item.kind === 'lesson' ? `${item.subject ?? item.title}${item.room ? `, חדר ${item.room}` : ''}` : (item.kind === 'exam' ? `${item.quiz ? 'מבדק' : 'מבחן'} ${item.subject || item.title}` : item.title)}${item.pending ? ', ממתין לתשובה' : ''}`);
   let top = item.title;
   let sub = '';
-  if (item.kind === 'lesson') { b.classList.add('lesson'); calSetColors(b, item.subject); top = item.subject || item.title; sub = item.room ? String(item.room) : ''; }
+  if (item.kind === 'lesson') { b.classList.add('lesson'); calSetColors(b, item.subject); top = calShortSubject(item.subject || item.title); sub = item.room ? String(item.room) : ''; }
   else if (item.kind === 'exam') {
     b.classList.add('exam'); // תמיד בצבע המקצוע ועם שם המקצוע (design-rules:382)
     if (item.quiz) b.classList.add('quiz');
     if (item.makeup) b.classList.add('makeup'); else if (!calSetColors(b, item.subject)) b.classList.add('noclr');
-    top = item.subject || item.title;
+    top = calShortSubject(item.subject || item.title);
   } else if (item.pending) { b.classList.add('pending'); sub = 'ממתין'; }
   else if (item.kind === 'training') b.classList.add('train');
   b.append(el('span', 't', top));
@@ -3992,7 +4009,7 @@ function calRender() {
     calBodyEl.replaceChildren(box);
     return;
   }
-  if (calState.view === 'day') calRenderDay(); else if (calState.view === 'week') calRenderWeek(); else if (calState.view === 'year') calRenderYear(); else calRenderMonth();
+  if (calState.view === 'day') calRenderDay(); else if (calState.view === 'week') { calRenderWeek(); calFitWeekText(); } else if (calState.view === 'year') calRenderYear(); else calRenderMonth();
 }
 
 function calShift(delta) {

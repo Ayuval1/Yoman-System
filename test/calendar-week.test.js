@@ -37,6 +37,37 @@ describe('תצוגת שבוע: פונקציות טהורות', () => {
   });
 });
 
+describe('תצוגת שבוע: קיצור שם מקצוע (הכרעת יובל 24.11.2026: "קיצור (מתמ׳)")', () => {
+  const { calShortSubject } = new Function(`${bodyOf('calShortSubject')}\nreturn { calShortSubject };`)();
+  test('שם ארוך מקוצר; קצר נשאר מלא; לא מוכר נשאר כמו שהוא', () => {
+    assert.equal(calShortSubject('מתמטיקה'), 'מתמ׳');
+    assert.equal(calShortSubject('אנגלית'), 'אנג׳');
+    assert.equal(calShortSubject('היסטוריה'), 'היסט׳');
+    assert.equal(calShortSubject('אזרחות'), 'אזרח׳');
+    assert.equal(calShortSubject('פיזיקה'), 'פיז׳');
+    for (const s of ['ספרות', 'ערבית', 'מדעים', 'תנ"ך', 'לשון']) assert.equal(calShortSubject(s), s);
+    assert.equal(calShortSubject(' מתמטיקה '), 'מתמ׳');
+    assert.equal(calShortSubject(''), '');
+  });
+  test('שיעור ומבחן בשבוע מציגים את הקיצור; התווית הנגישה עם השם המלא', () => {
+    const item = bodyOf('calWeekItem');
+    assert.match(item, /top = calShortSubject\(item\.subject \|\| item\.title\)/);
+    const aria = item.split('\n').find((line) => line.includes("'aria-label'")) ?? '';
+    assert.ok(aria.includes('${item.subject ?? item.title}') && !aria.includes('calShortSubject'), 'התווית הנגישה עם השם המלא');
+  });
+  test('מילה שעדיין לא נכנסת: הגופן יורד עד 9px אחרי ציור השבוע, ותא בלי רוחב לא נוגעים', () => {
+    const fit = bodyOf('calFitWeekText');
+    assert.match(fit, /size > 9/);
+    assert.match(fit, /if \(!t\.clientWidth\) continue/);
+    assert.match(block, /calRenderWeek\(\); calFitWeekText\(\);/);
+  });
+  test('אין שבירה באמצע מילה בשם בתא השבוע', () => {
+    const rule = /\.wk-it \.t \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    assert.doesNotMatch(rule, /overflow-wrap: anywhere|word-break: break-all/);
+    assert.match(rule, /word-break: keep-all/);
+  });
+});
+
 describe('public/index.html: תצוגת שבוע', () => {
   test('בורר חודש / שבוע / יום, 44px, מסומן ב-aria-pressed', () => {
     assert.match(html, /id="calModes"/);
