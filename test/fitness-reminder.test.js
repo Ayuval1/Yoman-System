@@ -18,6 +18,7 @@ describe('fitness-reminder', () => {
     const [call] = none.find('fitness-reminder');
     assert.ok(call.values.includes('2026-11-25T22:00:00.000Z'));
     assert.ok(call.values.includes('fitness_schedule'));
+    assert.match(call.text, /raw_content ~/); // לוז שעבר למוח (בלי עובדת type) נספר גם הוא
     assert.equal(await fitnessReminderLine(fakeSql(() => [{ found: 1 }]), '2026-11-29'), null);
   });
   test('לא ראשון/שני: בלי שאילתה', async () => {
