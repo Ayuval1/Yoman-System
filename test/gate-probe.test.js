@@ -830,4 +830,21 @@ describe('gate-probe: גם מודלי gemma נבדקים (24.11.2026)', () => {
     const text = await (await handle(get('?model=rotate&from=0'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {}, now: () => 20413 * 86400000 })).text();
     assert.match(text, /model=gemma-4-31b-it/);
   });
+  test('Gemma: בלי responseMimeType (HTTP 400 "JSON mode is not enabled"), ותשובה עטופה ב-```json נקראת', async () => {
+    const fenced = () => jsonResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"action":"create_reminder","when":"tomorrow"}\n```' }] } }] });
+    const entry = (name) => ({ name, supportedGenerationMethods: ['generateContent'] });
+    const sql = fakeSql(() => []);
+    const fetchFn = fakeFetch((url) => (url.includes(':generateContent') ? fenced() : jsonResponse({ models: [entry('models/gemma-4-31b-it')] })));
+    const text = await (await handle(get('?model=rotate&from=0'), { sql, secret: FAKE_CRON, apiKey: API_KEY, fetchFn, sentences: mk(20), sleep: async () => {}, now: () => 20413 * 86400000 })).text();
+    assert.match(text, /^עבר: .*failed: none; model=gemma-4-31b-it/);
+    const body = JSON.parse(fetchFn.calls.find((c) => c.url.includes(':generateContent')).options.body);
+    assert.equal(body.generationConfig.responseMimeType, undefined);
+    assert.equal(body.generationConfig.temperature, 0);
+  });
+  test('Gemini נשאר קפדני: תשובה עטופה ב-```json לא נספרת כנכונה', async () => {
+    const fenced = () => jsonResponse({ candidates: [{ content: { parts: [{ text: '```json\n{"action":"create_reminder","when":"tomorrow"}\n```' }] } }] });
+    const { deps } = setup({ sentences: mk(1), route: fenced });
+    const text = await (await handle(get('?count=1&model=gemini-3.5-flash-lite'), deps)).text();
+    assert.doesNotMatch(text, /^עבר/);
+  });
 });
