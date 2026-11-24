@@ -118,3 +118,43 @@ describe('listening: הצעה ב-17:00', () => {
     assert.equal((await createListenSuggestion({ sql: empty, dateIso: '2026-11-23' })).reason, 'empty');
   });
 });
+
+describe('listening: כפתור "שמעתי" (יובל, 24.11.2026)', () => {
+  const MSG = '22222222-2222-4222-8222-222222222222';
+  const TASK = '33333333-3333-4333-8333-333333333333';
+  const NOW = new Date('2026-11-23T15:30:00.000Z');
+  const sqlFor = (ask = { id: MSG, awaiting_reply: true, task_id: TASK }, written = { closed: 1, answer_source_id: 'a1', bubble_id: 'b1' }) =>
+    fakeSql((text) => (text.includes('listen-ask') ? (ask ? [ask] : []) : text.includes('listen-answer') ? [written] : []));
+  test('ההצעה של 17:00 היא כרטיס עם "שמעתי" / "אחר כך", שפג בסוף היום, והפריט שמור בעובדה', async () => {
+    const sql = fakeSql((text) => (text.includes('listen-training') ? [{ found: 1 }] : text.includes('listen-load') ? [{ id: TASK, title: 'פודקאסט' }] : text.includes('listen-suggest') ? [{ id: 'm1' }] : []));
+    await createListenSuggestion({ sql, dateIso: '2026-11-23' });
+    const [call] = sql.find('listen-suggest');
+    assert.match(call.text, /'question', now\(\), true/);
+    assert.ok(call.values.includes(TASK));
+    assert.ok(call.values.includes(new Date('2026-11-23T21:59:00.000Z').toISOString()));
+    const { pendingFromRows } = await import('../lib/chat-view.js');
+    const [item] = pendingFromRows({ questions: [{ id: MSG, entity_type: LISTEN_SUGGEST_ENTITY, body: 'יוצא לאימון?', sent_at: NOW.toISOString() }], facts: [], timetable: null, today: '2026-11-23' });
+    assert.equal(item.kind, 'listen');
+    assert.deepEqual(item.buttons, ['שמעתי', 'אחר כך']);
+  });
+  test('"שמעתי": הפריט יוצא מהרשימה (status heard, לא done) ובועה', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    const sql = sqlFor();
+    const out = await answerListen({ sql, messageId: MSG, answer: 'שמעתי', now: NOW });
+    assert.equal(out.status, 'answered');
+    const [call] = sql.find('listen-answer');
+    assert.match(call.text, /UPDATE tasks SET status = \?::text/);
+    assert.ok(call.values.includes('heard'));
+    assert.ok(call.values.includes(true));
+    assert.ok(!call.values.includes('done'));
+  });
+  test('"אחר כך": נסגר בלי שינוי ברשימה; תשובה אחרת: unclear; כרטיס סגור: closed', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    const sql = sqlFor();
+    await answerListen({ sql, messageId: MSG, answer: 'אחר כך', now: NOW });
+    assert.ok(sql.find('listen-answer')[0].values.includes(false));
+    assert.equal((await answerListen({ sql: sqlFor(), messageId: MSG, answer: 'אולי', now: NOW })).status, 'unclear');
+    assert.equal((await answerListen({ sql: sqlFor(null), messageId: MSG, answer: 'שמעתי', now: NOW })).status, 'closed');
+    assert.equal((await answerListen({ sql: sqlFor(undefined, { closed: 0 }), messageId: MSG, answer: 'שמעתי', now: NOW })).status, 'closed');
+  });
+});

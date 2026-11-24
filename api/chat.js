@@ -65,6 +65,7 @@ import { answerWeeklyRun } from '../lib/weekly-runs.js';
 import { answerCorrectionRule } from '../lib/correction-rules.js';
 import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
 import { answerStudyPlan } from '../lib/study-plan.js';
+import { answerListen } from '../lib/listening.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
 // נטען בעצלות, כמו ב-api/intake.js: בדיקות לא יוצרות חיבור לתור.
@@ -524,6 +525,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: study.status, items, pending, badge });
+      }
+      // בלוק 9: הצעת האזנה ("שמעתי" / "אחר כך"). פקודה אחת (או כלום), בלי יומן.
+      const listen = await answerListen({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (listen.status !== 'closed') {
+        const items = listen.status === 'answered' ? await loadCreatedItems(sql, listen.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: listen.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
