@@ -88,3 +88,11 @@ describe('public/index.html: רצועת שבוע וזנבות', () => {
     assert.deepEqual([...new Set(colors)], ['#fff']);
   });
 });
+
+test('רצועת השבוע: בלי סוד שמור לא נטענת (לא פותחת חלון סוד שני), ולכל היותר פעם ב-5 דקות', async () => {
+  const { readFileSync } = await import('node:fs');
+  const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const body = html.slice(html.indexOf('async function wkLoad()'), html.indexOf('async function wkLoad()') + 900);
+  assert.match(body, /if \(!readSecret\(\)\) return;/);
+  assert.match(body, /Date\.now\(\) - wkState\.at < WK_REFRESH_MS/);
+});

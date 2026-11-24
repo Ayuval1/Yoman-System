@@ -3431,7 +3431,8 @@ function calStripDots(day) {
   return out; // '' = נקודה ניטרלית
 }
 const wkStripEl = document.getElementById('wkStrip');
-const wkState = { days: null, req: 0 };
+const wkState = { days: null, req: 0, at: 0, week: '' };
+const WK_REFRESH_MS = 5 * 60 * 1000; // הנחה, לא אומת: לכל היותר טעינה ב-5 דקות (refresh נקרא אחרי כל פעולה)
 function wkRender() {
   const today = calToday();
   const start = calWeekStartOf(today);
@@ -3460,16 +3461,23 @@ function wkRender() {
 }
 // טעינה שקטה: כשל = רצועה בלי נקודות. נקרא מ-refresh() (פתיחה וחזרה לאפליקציה).
 async function wkLoad() {
+  wkRender(); // קודם הימים (עם הנקודות האחרונות שנטענו, אם יש), כדי שיופיעו מיד
+  // בלי סוד שמור לא שואלים: חלון הסוד שייך לבקשת הצ'אט (ממצא בודק). ושבוע שכבר נטען לפני פחות מ-5 דקות לא נטען שוב.
+  if (!readSecret()) return;
+  const week = calWeekStartOf(calToday());
+  if (wkState.week === week && Date.now() - wkState.at < WK_REFRESH_MS) return;
+  wkState.at = Date.now();
+  wkState.week = week;
   const req = ++wkState.req;
-  wkRender(); // קודם בלי נקודות, כדי שהימים יופיעו מיד
   try {
     const res = await authedFetch(`/api/chat?view=calendar&from=${calWeekStartOf(calToday())}&days=7`);
-    if (!res.ok) throw new Error('status ' + res.status);
+    if (!res.ok) { wkState.at = 0; throw new Error('status ' + res.status); }
     const data = await res.json();
     if (req !== wkState.req || !Array.isArray(data?.days)) return;
     wkState.days = data.days;
     wkRender();
   } catch (err) {
+    wkState.at = 0; // כשל: לנסות שוב ברענון הבא
     console.warn('[app] רצועת השבוע: טעינה נכשלה', err?.name);
   }
 }
