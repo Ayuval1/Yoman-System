@@ -221,7 +221,7 @@ const brain = (over = {}) => ({ kind: 'personal_event', subject: null, topic: nu
 describe('המוח: end_date_text', () => {
   test('הפרומפט מתאר אירוע אישי כללי ואת end_date_text', () => {
     const prompt = buildPrompt({ text: SENTENCE });
-    assert.match(prompt, /personal_event: כל אירוע אישי/);
+    assert.match(prompt, /personal_event: כל אירוע של יובל/); // 25.11.2026: גם אירוע בבית הספר (test/lesson-event.test.js)
     assert.match(prompt, /חופשה/);
     assert.match(prompt, /end_date_text/);
     assert.ok(UNCERTAIN_FIELDS.includes('end_date'));
