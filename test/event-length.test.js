@@ -25,6 +25,9 @@ describe('findDuration: אורך בתוך משפט', () => {
     assert.equal(findDuration('פגישה מחר ב-4'), null);
     assert.equal(findDuration('יש לי שעה פנויה מחר?'), null);
     assert.equal(findDuration('השיעור בשעה השלישית'), null);
+    assert.equal(findDuration('נפגשים עוד חצי שעה'), null); // זמן יחסי (ממצא הבודק)
+    assert.equal(findDuration('יש לי רק שעה פנויה'), null);
+    assert.equal(findDuration('תוך רבע שעה אני שם'), null);
   });
 });
 
