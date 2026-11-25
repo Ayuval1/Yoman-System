@@ -262,7 +262,7 @@ describe('queue-deliver: ענף homework עם ביטול ויציאה מוקדמ
     assert.equal(rows.length, 1);
     assert.equal(sql.calls.length, 1);
     assert.doesNotMatch(sql.calls[0].text, /\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);
-    assert.match(sql.calls[0].text, /t\.value IN \('cancel', 'early_leave'\)/);
+    assert.match(sql.calls[0].text, /t\.value IN \('cancel', 'early_leave', 'personal_event'\)/);
     assert.deepEqual(sql.calls[0].values, [MONDAY]);
   });
 });
