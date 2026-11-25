@@ -196,6 +196,7 @@ describe('8.3-4: תיקון בצ\'אט (קריטריון 4)', () => {
     const [lookup] = sql.find('FROM messages m WHERE m.id');
     assert.deepEqual(lookup.values, ['fix_time', 'fix_date', MSG_ID]);
     assert.match(lookup.text, /f\.value <> 'unknown'/);
+    assert.match(lookup.text, /'fix_end_time'/); // "כמה זמן" (25.11.2026): גם שינוי סוף מעדכן את Google
   });
   test('תיקון כשאין עדיין external_id: יצירה במקום עדכון', async () => {
     const f = gFetch();

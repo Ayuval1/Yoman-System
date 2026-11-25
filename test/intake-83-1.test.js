@@ -721,9 +721,11 @@ describe('8.3-1: pendingQuestion ו-answerQuestion', () => {
   // שלב 8.3-3: אחרי "לא נכון" השאלה הבאה היא "מה לא נכון?" (test/intake-83-3.test.js); "נכון" נשאר בלי שאלה.
   test('pendingQuestion: אחרי confirm=yes אין שאלה; אחרי confirm=no: "מה לא נכון?" (8.3-3)', () => {
     const fix = { field: 'fix', text: 'מה לא נכון?', buttons: ['השעה', 'התאריך', 'לא קורה'], allowFreeText: false };
-    for (const [value, expected] of [['yes', null], ['no', fix]]) {
-      assert.deepEqual(pendingQuestion({ source: typedSource(MSG1), facts: [...SAVED_EARLY, fact('confirm', value)], timetable: TIMETABLE }), expected, value);
-      assert.deepEqual(pendingQuestion({ source: typedSource(MSG2), facts: [...SAVED_EVENT, fact('confirm', value)], timetable: TIMETABLE }), expected, value);
+    // אירוע אישי ביום אחד: גם "כמה זמן" (25.11.2026, test/fix-length.test.js)
+    const fixEvent = { ...fix, buttons: ['השעה', 'כמה זמן', 'התאריך', 'לא קורה'] };
+    for (const [value, early, event] of [['yes', null, null], ['no', fix, fixEvent]]) {
+      assert.deepEqual(pendingQuestion({ source: typedSource(MSG1), facts: [...SAVED_EARLY, fact('confirm', value)], timetable: TIMETABLE }), early, value);
+      assert.deepEqual(pendingQuestion({ source: typedSource(MSG2), facts: [...SAVED_EVENT, fact('confirm', value)], timetable: TIMETABLE }), event, value);
     }
   });
   test('pendingQuestion: שעה חסרה נשאלת לפני האישור; שעה unknown: אין כרטיס אישור', () => {

@@ -198,7 +198,8 @@ describe('8.3-3: "נכון" / "לא נכון" וסבב התיקון', () => {
       assert.equal(params.nextText, 'מה לא נכון?');
       assert.deepEqual([params.update, params.cancel, params.fixBubble], [[], [], [null, null, null]]);
       const question = pendingQuestion({ source: typedSource(text), facts: [...saved, fact('confirm', 'no')], timetable: TIMETABLE });
-      assert.deepEqual(question, { field: 'fix', text: 'מה לא נכון?', buttons: ['השעה', 'התאריך', 'לא קורה'], allowFreeText: false });
+      const buttons = text === MSG1 ? ['השעה', 'התאריך', 'לא קורה'] : ['השעה', 'כמה זמן', 'התאריך', 'לא קורה']; // אירוע אישי: גם "כמה זמן" (25.11.2026)
+      assert.deepEqual(question, { field: 'fix', text: 'מה לא נכון?', buttons, allowFreeText: false });
     }
   });
 
