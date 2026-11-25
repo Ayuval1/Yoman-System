@@ -462,7 +462,13 @@ describe('סוף לא ידוע ("לא יודע" על "עד איזה תאריך?"
     const { call } = await answerWith([...UNKNOWN_END, fx('confirm', 'no'), fx('fix', 'date')], '5.12');
     assert.deepEqual(eventParams(call).update, [{ ...ALL_DAY_ROW, start_date: '2026-12-05', end_date: '2026-12-06' }]);
   });
-  test('תיקון שעה תקינה אחרי "לא נכון": אירוע עם שעות, כמו קודם', async () => {
+  test('"לא נכון" ביום שלם אחד: כפתורי התיקון בלי "השעה"', () => {
+    const next = pendingQuestion({ source: typedSource(TRIP), facts: [...UNKNOWN_END, fx('confirm', 'no')], timetable: null });
+    assert.equal(next.field, 'fix');
+    assert.equal(next.buttons.some((b) => (b.label ?? b) === 'השעה'), false);
+    assert.equal(next.buttons.some((b) => (b.label ?? b) === 'התאריך'), true);
+  });
+  test('תיקון שעה תקינה אחרי "לא נכון" (נתיב ישן, אם נשמר fix=time): אירוע עם שעות', async () => {
     const { call } = await answerWith([...UNKNOWN_END, fx('confirm', 'no'), fx('fix', 'time')], '16:00');
     assert.deepEqual(eventParams(call).update, [{ ...ALL_DAY_ROW, start_time: '16:00', end_date: '2026-12-02', end_time: '17:00' }]);
   });
