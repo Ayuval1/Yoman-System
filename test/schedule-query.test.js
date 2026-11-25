@@ -102,3 +102,9 @@ describe('schedule-query: בצינור', () => {
     assert.notEqual(out.status, 'recorded');
   });
 });
+
+test('טווח עם סוף שנפתר לפני ההתחלה: הסוף בשבוע שאחרי (ממצא הבודק 25.11)', () => {
+  const FRIDAY = new Date('2026-11-27T08:00:00Z');
+  const p = scheduleQueryPlan({ understanding: q({ date_text: 'חמישי', end_date_text: 'ראשון' }), text: 'מה יש לי מחמישי עד ראשון', receivedAt: FRIDAY });
+  assert.ok(p.days > 1);
+});
