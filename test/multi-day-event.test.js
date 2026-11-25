@@ -417,3 +417,79 @@ describe('event-match: הזזת אירוע של כמה ימים מעל מעבר 
     assert.ok(call.values.includes('17:00'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// סוף "לא יודע" (25.11.2026): בלי שעה = יום שלם אחד בתאריך ההתחלה, בלי שאלת שעה
+// ---------------------------------------------------------------------------
+describe('סוף לא ידוע ("לא יודע" על "עד איזה תאריך?")', () => {
+  const TRIP = 'טיול שנתי 2.12-1.12'; // סוף לפני ההתחלה: end_date נשאל
+  const OPEN = [fx(TYPE_FIELD, 'personal_event'), fx('date', '2026-12-02'), fx('topic', 'טיול שנתי')];
+  const UNKNOWN_END = [...OPEN, fx('end_date', 'unknown')];
+  const ALL_DAY_ROW = { title: 'טיול שנתי', domain: 'personal', start_date: '2026-12-02', start_time: '00:00', end_date: '2026-12-03', end_time: '00:00', movable: null, match_key: `source:${SRC_ID}` };
+  async function answerWith(saved, reply) {
+    const messageRow = { id: MSG_ID, kind: 'question', awaiting_reply: true, entity_type: 'source', entity_id: SRC_ID, attempt: 1 };
+    const sql = fakeSql((text) => {
+      if (text.includes('FROM messages WHERE id')) return [messageRow];
+      if (text.includes('FROM sources WHERE id')) return [typedSource(TRIP)];
+      if (text.includes('FROM facts WHERE source_id')) return saved;
+      if (text.includes('INTO facts')) return [{ closed: 1 }];
+      return [];
+    });
+    const result = await answerQuestion({ sql, messageId: MSG_ID, answer: reply, now: NOW, timetable: null });
+    return { result, call: writesOf(sql)[0] };
+  }
+
+  test('השאלה הבאה אחרי "לא יודע" היא כרטיס האישור "כל היום", לא שאלת שעה', () => {
+    assert.equal(pendingQuestion({ source: typedSource(TRIP), facts: OPEN, timetable: null }).field, 'end_date');
+    const next = pendingQuestion({ source: typedSource(TRIP), facts: UNKNOWN_END, timetable: null });
+    assert.equal(next.field, 'confirm');
+    assert.match(next.text, /כל היום/);
+    assert.equal(next.text, 'טיול שנתי, רביעי 2.12, כל היום. נכון?');
+  });
+  test('מענה "לא יודע" נשמר ומחזיר את כרטיס האישור', async () => {
+    const { result, call } = await answerWith(OPEN, 'לא יודע');
+    assert.equal(result.status, 'answered');
+    assert.deepEqual(factsJsonOf(call), [{ field: 'end_date', value: 'unknown', origin: 'read' }]);
+    assert.match(result.reply, /כל היום/);
+    assert.doesNotMatch(result.reply, /באיזו שעה/);
+  });
+  test('אישור "נכון": שורת יום שלם 00:00 עד 00:00 של מחר, בלי away', async () => {
+    const { result, call } = await answerWith([...UNKNOWN_END, fx('confirm', 'pending')].filter((f) => f.field !== 'confirm'), 'נכון');
+    assert.deepEqual(eventParams(call).insert, [ALL_DAY_ROW]);
+    assert.equal(result.away, undefined);
+  });
+  test('תיקון תאריך אחרי "לא נכון": היום השלם זז לתאריך החדש', async () => {
+    const { call } = await answerWith([...UNKNOWN_END, fx('confirm', 'no'), fx('fix', 'date')], '5.12');
+    assert.deepEqual(eventParams(call).update, [{ ...ALL_DAY_ROW, start_date: '2026-12-05', end_date: '2026-12-06' }]);
+  });
+  test('תיקון שעה תקינה אחרי "לא נכון": אירוע עם שעות, כמו קודם', async () => {
+    const { call } = await answerWith([...UNKNOWN_END, fx('confirm', 'no'), fx('fix', 'time')], '16:00');
+    assert.deepEqual(eventParams(call).update, [{ ...ALL_DAY_ROW, start_time: '16:00', end_date: '2026-12-02', end_time: '17:00' }]);
+  });
+  test('שעה ידועה יחד עם סוף לא ידוע: כרטיס עם שעה ולא כל היום (בלי שינוי)', () => {
+    const next = pendingQuestion({ source: typedSource(TRIP), facts: [...UNKNOWN_END, fx('time', '16:00')], timetable: null });
+    assert.equal(next.field, 'confirm');
+    assert.doesNotMatch(next.text, /כל היום/);
+    assert.match(next.text, /16:00/);
+  });
+  test('buildQuestion confirm: סוף לא ידוע בלי שעה = כל היום; עם שעה = לא', () => {
+    const q = buildQuestion({ field: 'confirm', type: 'personal_event', facts: UNKNOWN_END });
+    assert.match(q.text, /^טיול שנתי, .*, כל היום\. נכון\?$/);
+    assert.doesNotMatch(buildQuestion({ field: 'confirm', type: 'personal_event', facts: [...UNKNOWN_END, fx('time', '16:00')] }).text, /כל היום/);
+  });
+  test('assessFacts ו-isUnderstood: סוף לא ידוע בלי שעה = שעה לא חיונית ומובן; עם unknown בשעה: אותו דבר', () => {
+    const facts = [fx('date', '2026-12-02'), fx('end_date', 'unknown'), fx('topic', 'טיול שנתי')];
+    assert.equal(assessFacts({ type: 'personal_event', facts }).missing.includes('time'), false);
+    assert.equal(isUnderstood('personal_event', facts), true);
+    assert.equal(isUnderstood('personal_event', [...facts, fx('time', 'unknown')]), true);
+    // עם שעה תקינה: כמו קודם (שעה נדרשת וקיימת)
+    assert.equal(isUnderstood('personal_event', [...facts, fx('time', '16:00')]), true);
+    // בלי תאריך: לא מובן
+    assert.equal(isUnderstood('personal_event', [fx('end_date', 'unknown')]), false);
+  });
+  test('formatReply: סוף לא ידוע נראה כתשובה של יום אחד', () => {
+    const reply = formatReply({ type: 'personal_event', title: 'טיול שנתי', date: '2026-12-02', endDate: 'unknown' });
+    assert.equal(reply, 'נרשם · אירוע אישי · טיול שנתי · רביעי 2.12');
+  });
+});
+import { assessFacts } from '../lib/intake-facts.js';
