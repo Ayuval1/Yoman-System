@@ -27,10 +27,12 @@ describe('מספר שיעור במילים', () => {
     assert.equal(lessonOf('בוטל השיעור השלישי היום'), '3');
     assert.equal(lessonOf('השיעור השני מחר בוטל'), '2');
     assert.equal(lessonOf('ביטול שיעור 3 מחר'), '3'); // מה שעבד ממשיך לעבוד
+    assert.equal(lessonOf('בטל את שיעור ראשון מחר'), '1'); // דרך tokenize: "ראשון" הופך ל"ראשונ" (ממצא הבודק)
   });
   test('תשובה חופשית לשאלת "באיזה שיעור?": גם במילים', () => {
     assert.deepEqual(readLessonNumbers('השני'), []); // לבד: אולי "האפשרות השנייה" (test/intake-questions.test.js)
     assert.deepEqual(readLessonNumbers('בשעה השנייה'), [2]);
     assert.deepEqual(readLessonNumbers('שיעורים 3-4'), [3, 4]);
+    assert.deepEqual(readLessonNumbers('שיעור ראשון'), [1]);
   });
 });
