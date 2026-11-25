@@ -194,7 +194,9 @@ function sourcesModel(rows) {
   return (text, values) => {
     if (!text.includes('FROM sources s JOIN sources p')) return undefined;
     const me = rows.find((row) => row.id === values[0]);
-    const earlier = rows.some((p) => p.id !== me.id && p.hash === me.hash && (p.processed !== false || p.messages === true) && israelDay(p.at) === israelDay(me.at)
+    // הודעה מוקלדת (25.11.2026): נחסמת רק כשעל הקודמת פתוחה שאלה (p.open)
+    const counts = text.includes('awaiting_reply = true') ? (p) => p.open === true : (p) => p.processed !== false || p.messages === true;
+    const earlier = rows.some((p) => p.id !== me.id && p.hash === me.hash && counts(p) && israelDay(p.at) === israelDay(me.at)
       && (p.at < me.at || (p.at.getTime() === me.at.getTime() && p.id < me.id)));
     return earlier ? [{ found: 1 }] : [];
   };
@@ -1138,7 +1140,7 @@ describe('8.2א-1: ערוץ app בקליטה (הכרעה ה1)', () => {
     assert.equal(out.sql.find('INTO facts').length, 0);
   });
 
-  test('קריטריון 15: כפילות בין ערוצים (D8): מוקלדת שזהה להודעה שהועברה קודם באותו יום היא כפילות', async () => {
+  test('25.11.2026: מוקלדת שזהה להודעה שהועברה קודם באותו יום ושטופלה: מעובדת מחדש (לא "כבר קיבלתי")', async () => {
     const text = 'מחר יש מבחן בהיסטוריה';
     const rows = [
       { id: SRC_ID, hash: sha(text), at: new Date('2026-10-11T08:00:00Z') }, // הועברה בבוקר וטופלה
@@ -1146,7 +1148,7 @@ describe('8.2א-1: ערוץ app בקליטה (הכרעה ה1)', () => {
     ];
     const sql = dbSql({ extra: sourcesModel(rows) });
     const result = await processSource({ sql, source: typedSource(text, { id: OTHER_ID }), timetable: TIMETABLE });
-    assert.equal(result.status, 'duplicate');
+    assert.notEqual(result.status, 'duplicate');
   });
 
   test('קריטריון 15: טקסט שזהה לתשובה אינו כפילות: שורת תשובה נשמרת עם content_hash ריק, והתנאי במסד הוא שוויון hash', async () => {
@@ -1455,29 +1457,28 @@ describe('8.2א-1: סכמה: העמודות החדשות שהצינור כותב
 
 describe('8.2א-1: כפילות מול קודמת מוקלדת שלא סומנה processed_at (קריטריון 15, תיקון ביקורת)', () => {
   // הקודמת (SRC_ID) הוקלדה ב-18:00 בישראל וקיבלה בועה או שאלה, אבל processed_at שלה ריק. ההעתק (OTHER_ID) מגיע אחריה באותו יום.
-  const rowsFor = (text, { messages = true } = {}) => [
-    { id: SRC_ID, hash: sha(text), at: SUNDAY_EVENING, processed: false, messages },
+  const rowsFor = (text, { messages = true, open = false } = {}) => [
+    { id: SRC_ID, hash: sha(text), at: SUNDAY_EVENING, processed: false, messages, open },
     { id: OTHER_ID, hash: sha(text), at: new Date('2026-10-11T16:00:00Z') },
   ];
-  const second = async (text, { channel = 'app', messages = true } = {}) => {
-    const sql = dbSql({ extra: sourcesModel(rowsFor(text, { messages })) });
+  const second = async (text, { channel = 'app', messages = true, open = false } = {}) => {
+    const sql = dbSql({ extra: sourcesModel(rowsFor(text, { messages, open })) });
     const result = await processSource({ sql, source: source(text, { id: OTHER_ID, channel, received_at: new Date('2026-10-11T16:00:00Z') }), timetable: TIMETABLE });
     return { sql, result, ...writtenBy(sql) };
   };
 
-  test('קריטריון 15: משימה מוקלדת פעמיים: "כבר קיבלתי" ולא "התקבל" שני', async () => {
+  // 25.11.2026 (יובל: "תעשה שאני יכול לכתוב עוד פעם משהו שכבר כתבתי"): מוקלדת שחוזרת מעובדת מחדש, חוץ מכשעל הקודמת פתוחה שאלה.
+  test('25.11.2026: משימה מוקלדת פעמיים (הראשונה קיבלה "התקבל"): מעובדת מחדש', async () => {
     const out = await second('להביא חוברת');
-    assert.deepEqual(out.result, { status: 'duplicate', reply: DUPLICATE_REPLY });
-    assert.deepEqual(out.bubbles, [DUPLICATE_REPLY]);
-    assert.deepEqual(out.questions, []);
+    assert.notEqual(out.result.status, 'duplicate');
+    assert.ok(!out.bubbles.includes(DUPLICATE_REPLY));
   });
-  test('קריטריון 15: שאלה מוקלדת פעמיים: "כבר קיבלתי"', async () => {
+  test('25.11.2026: שאלה מוקלדת פעמיים: מעובדת מחדש', async () => {
     const out = await second('מה יש לי מחר');
-    assert.equal(out.result.status, 'duplicate');
-    assert.deepEqual(out.bubbles, [DUPLICATE_REPLY]);
+    assert.notEqual(out.result.status, 'duplicate');
   });
   test('קריטריון 15: טקסט לא מובן פעמיים כשהשאלה הראשונה עוד פתוחה: "כבר קיבלתי" ולא כרטיס "מה זה?" שני', async () => {
-    const out = await second('מחר אין שיעור אנגלית');
+    const out = await second('מחר אין שיעור אנגלית', { open: true });
     assert.equal(out.result.status, 'duplicate');
     assert.deepEqual(out.questions, [], 'בלי שאלה שנייה');
     assert.deepEqual(out.bubbles, [DUPLICATE_REPLY]);
@@ -1496,9 +1497,16 @@ describe('8.2א-1: כפילות מול קודמת מוקלדת שלא סומנה
     const forwarded = await second('מחר יש מבחן במתמטיקה', { channel: 'shortcut', messages: false });
     assert.equal(forwarded.result.status, 'recorded');
   });
-  test('קריטריון 15: השאילתה: "טופלה" = processed_at מלא או שורה ב-messages על המקור; בלי read_at', async () => {
+  test('25.11.2026: מוקלדת: השאילתה בודקת רק שאלה פתוחה על הקודמת (awaiting_reply)', async () => {
     const sql = dbSql();
     await processSource({ sql, source: typedSource('שלום'), timetable: TIMETABLE });
+    const [query] = sql.find('FROM sources s JOIN sources p');
+    assert.match(query.text, /x\.kind = 'question' AND x\.awaiting_reply = true/);
+    assert.ok(!query.text.includes('p.processed_at IS NOT NULL'));
+  });
+  test('קריטריון 15: השאילתה: "טופלה" = processed_at מלא או שורה ב-messages על המקור; בלי read_at (הקיצור)', async () => {
+    const sql = dbSql();
+    await processSource({ sql, source: source('שלום', { channel: 'shortcut' }), timetable: TIMETABLE });
     const [query] = sql.find('FROM sources s JOIN sources p');
     assert.ok(query.text.includes("AND (p.processed_at IS NOT NULL OR EXISTS (SELECT 1 FROM messages x WHERE x.entity_type = 'source' AND x.entity_id = p.id)) AND"));
     assert.ok(!query.text.includes('read_at'));
