@@ -233,6 +233,7 @@ describe('הצינור: עדכון, כפילות, שאלה, ובלי התאמה'
     assert.equal(keepsEnd(leave, { cancel: false, date: TODAY, time: '12:00' }), true);
     assert.equal(keepsEnd(leave, { cancel: false, date: '2026-11-23', time: '12:00' }), false, 'יום אחר: ההמשך נשמר');
     assert.equal(keepsEnd(BARBER, { cancel: false, date: TODAY, time: '18:00' }), false, 'אירוע אישי: ההמשך נשמר');
+    assert.equal(keepsEnd({ ...leave, title: 'הרצאה בנושא שוויון' }, { cancel: false, date: TODAY, time: '12:00' }), false, 'הרצאה ב-school (25.11): ההמשך נשמר, לא אורך אפס');
   });
   test('שתי פגישות: שאלת זיהוי (event_match), המקור לא נתפס, בלי אירוע ובלי בועה', async () => {
     const sql = db([TEACHER_TODAY, TEACHER_TOMORROW]);
