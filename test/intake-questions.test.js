@@ -371,3 +371,8 @@ describe('buildQuestion: כפתורי "היום" ו"מחר" בשאלת "לאיז
     }
   });
 });
+
+test('findDuration: "בעוד 3 שעות" הוא זמן יחסי ולא אורך (ממצא הבודק 25.11)', async () => {
+  const { findDuration } = await import('../lib/intake-questions.js');
+  assert.equal(findDuration('בעוד 3 שעות יש לי מבחן'), null);
+});
