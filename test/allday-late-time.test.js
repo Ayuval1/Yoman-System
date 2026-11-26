@@ -100,6 +100,33 @@ describe('targetFor: אירוע של יום שלם שמקבל שעה', () => {
   });
 });
 
+describe('הזזה בימים או יחידת זמן אינה שעה (26.11.2026, ממצא הבודק)', () => {
+  const SHIFTS = ['הטיול נדחה ב-3 ימים', 'הטיול זז ב-2 ימים', 'הטיול הוקדם ב-2 ימים', 'הטיול נדחה ב-5 ימים', 'הטיול זז ב-4', 'הטיול הוזז ב-3 שבועות', 'הטיול נדחה ב-3 שעות', 'הטיול נדחה ב-10 דקות', 'הטיול נדחה ב 3 ימים'];
+  for (const text of SHIFTS) {
+    test(`readChange (time_text null): "${text}" בלי שעה`, () => {
+      const change = changeOf('move', text, [fx('new_date', '2026-12-06')], { kind: 'move', time_text: null, new_date_text: 'ב-3 ימים' });
+      assert.deepEqual(change.times, []);
+    });
+  }
+  test('יום שלם שנדחה ב-3 ימים: הזזה של יום שלם בלבד, לא toTimed ולא 03:00', () => {
+    const change = changeOf('move', 'הטיול נדחה ב-3 ימים', [fx('new_date', '2026-12-06')], { kind: 'move', time_text: null });
+    const target = targetFor(ONE_DAY, change);
+    assert.deepEqual(target, { cancel: false, date: '2026-12-06', time: '00:00', same: false });
+    assert.equal(targetFor(MULTI, change).toTimed, undefined);
+  });
+  test('אירוע עם שעות שנדחה ב-3 ימים: השעה נשארת (לא 03:00)', () => {
+    const barber = { id: EV, title: 'תור', date: '2026-12-03', time: '17:00', domain: 'personal', sourceId: SRC };
+    const change = changeOf('move', 'התור נדחה ב-3 ימים', [fx('new_date', '2026-12-06')], { kind: 'move', time_text: null });
+    assert.deepEqual(targetFor(barber, change), { cancel: false, date: '2026-12-06', time: '17:00', same: false });
+  });
+  test('שעה אמיתית לא נפגעת: "נדחה ל-18:00", "זז ב-4:00", "מתחיל ב-8", "ב-3 הטיול מתחיל ב-8:00"', () => {
+    assert.deepEqual(changeOf('move', 'התור נדחה ל-18:00').times, ['18:00']);
+    assert.deepEqual(changeOf('move', 'התור זז ב-4:00').times, ['04:00']);
+    assert.deepEqual(changeOf('move', 'מתחיל ב-8').times, ['08:00']);
+    assert.deepEqual(changeOf('move', 'הטיול ב-3 לחודש מתחיל ב-8:00').times, ['08:00']);
+  });
+});
+
 describe('decideMatch והבועה', () => {
   test('"הגב" על האירוע של יום שלם עם שעה: עדכון, והבועה מציגה את השעה', () => {
     const change = changeOf('move', 'מתחיל ב-8');
@@ -209,7 +236,7 @@ describe('event-sync: patchBody אחרי הפיכה לאירוע עם שעות',
       start: { dateTime: '2026-12-03T06:00:00.000Z', timeZone: 'Asia/Jerusalem', date: null },
       end: { dateTime: '2026-12-03T07:00:00.000Z', timeZone: 'Asia/Jerusalem', date: null },
       colorId: null,
-      reminders: { useDefault: true },
+      reminders: { useDefault: true, overrides: [] },
     });
   });
   test('toTimed על שורה שעדיין יום שלם: לא מנקה (אין מה לנקות), נשאר date', () => {
@@ -243,7 +270,7 @@ describe('event-sync: patchBody אחרי הפיכה לאירוע עם שעות',
     assert.equal(body.start.date, null);
     assert.equal(body.end.date, null);
     assert.equal(body.colorId, null);
-    assert.deepEqual(body.reminders, { useDefault: true });
+    assert.deepEqual(body.reminders, { useDefault: true, overrides: [] });
     assert.equal(body.start.dateTime, '2026-12-03T06:00:00.000Z');
   });
   test('syncEventForSource בלי toTimed: ה-PATCH כמו קודם', async () => {
