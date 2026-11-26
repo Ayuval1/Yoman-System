@@ -135,7 +135,7 @@ describe('listening: כפתור "שמעתי" (יובל, 24.11.2026)', () => {
     const { pendingFromRows } = await import('../lib/chat-view.js');
     const [item] = pendingFromRows({ questions: [{ id: MSG, entity_type: LISTEN_SUGGEST_ENTITY, body: 'יוצא לאימון?', sent_at: NOW.toISOString() }], facts: [], timetable: null, today: '2026-11-23' });
     assert.equal(item.kind, 'listen');
-    assert.deepEqual(item.buttons, ['שמעתי', 'אחר כך']);
+    assert.deepEqual(item.buttons, ['שמעתי', 'אחר כך', 'לא מתאים, תציע אחר']);
   });
   test('"שמעתי": הפריט יוצא מהרשימה (status heard, לא done) ובועה', async () => {
     const { answerListen } = await import('../lib/listening.js');
@@ -156,5 +156,42 @@ describe('listening: כפתור "שמעתי" (יובל, 24.11.2026)', () => {
     assert.equal((await answerListen({ sql: sqlFor(), messageId: MSG, answer: 'אולי', now: NOW })).status, 'unclear');
     assert.equal((await answerListen({ sql: sqlFor(null), messageId: MSG, answer: 'שמעתי', now: NOW })).status, 'closed');
     assert.equal((await answerListen({ sql: sqlFor(undefined, { closed: 0 }), messageId: MSG, answer: 'שמעתי', now: NOW })).status, 'closed');
+  });
+
+  const T2 = '44444444-4444-4444-8444-444444444444';
+  const T3 = '55555555-5555-4555-8555-555555555555';
+  const other = (list, ask = { id: MSG, awaiting_reply: true, task_id: TASK }, written = { found: 1, answer_source_id: 'a1', bubble_id: 'b1' }) =>
+    fakeSql((text) => (text.includes('listen-ask') ? (ask ? [ask] : []) : text.includes('listen-load') ? list : text.includes('listen-other') ? [written] : []));
+  test('"לא מתאים, תציע אחר": הפריט הבא ברשימה, הכרטיס נשאר פתוח, שום פריט לא יוצא מהרשימה', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    const sql = other([{ id: TASK, title: 'א' }, { id: T2, title: 'ב' }, { id: T3, title: 'ג' }]);
+    const out = await answerListen({ sql, messageId: MSG, answer: 'לא מתאים, תציע אחר', now: NOW });
+    assert.equal(out.status, 'answered');
+    const [call] = sql.find('listen-other');
+    assert.ok(call.values.includes(T2));
+    assert.ok(call.values.includes('יוצא לאימון? להאזנה בדרך: ב'));
+    assert.ok(!sql.find('listen-answer').length);
+    assert.doesNotMatch(call.text, /UPDATE tasks/);
+    assert.doesNotMatch(call.text, /awaiting_reply = false/);
+  });
+  test('"לא מתאים, תציע אחר" על האחרון: חוזר לראשון (סבב)', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    const sql = other([{ id: T2, title: 'ב' }, { id: TASK, title: 'א' }]);
+    await answerListen({ sql, messageId: MSG, answer: 'לא מתאים, תציע אחר', now: NOW });
+    assert.ok(sql.find('listen-other')[0].values.includes(T2));
+  });
+  test('"לא מתאים, תציע אחר" בלי פריט אחר: שורה קצרה והכרטיס לא משתנה', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    const sql = other([{ id: TASK, title: 'א' }]);
+    const out = await answerListen({ sql, messageId: MSG, answer: 'לא מתאים, תציע אחר', now: NOW });
+    assert.equal(out.status, 'answered');
+    const [call] = sql.find('listen-other');
+    assert.ok(call.values.includes('אין עוד פריט ברשימת ההאזנה'));
+    assert.ok(call.values.includes(false));
+  });
+  test('"לא מתאים, תציע אחר" על כרטיס סגור: closed', async () => {
+    const { answerListen } = await import('../lib/listening.js');
+    assert.equal((await answerListen({ sql: other([], null), messageId: MSG, answer: 'לא מתאים, תציע אחר', now: NOW })).status, 'closed');
+    assert.equal((await answerListen({ sql: other([{ id: T2, title: 'ב' }], undefined, { found: 0 }), messageId: MSG, answer: 'לא מתאים, תציע אחר', now: NOW })).status, 'closed');
   });
 });
