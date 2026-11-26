@@ -3,7 +3,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeSql } from './helpers.js';
-import { findDuration } from '../lib/intake-questions.js';
+import { findDuration, durationMinutes } from '../lib/intake-questions.js';
 import { readChange, targetFor, decideMatch, updateReply, writeMatched } from '../lib/event-match.js';
 import { buildPrompt, isValidUnderstanding } from '../lib/intake-brain.js';
 
@@ -107,5 +107,44 @@ describe('normalize של duration_text (דרך understandSource)', () => {
     const base = { kind: 'personal_event', subject: null, topic: null, date_text: null, new_date_text: null, time_text: null, new_room: null, uncertain: [], match: 'e1', match_sure: true };
     assert.equal((await run({ ...base, duration_text: ' חצי שעה ' })).understanding.duration_text, 'חצי שעה');
     assert.equal((await run(base)).understanding.duration_text, null);
+  });
+});
+
+describe('אורך במילים (26.11.2026)', () => {
+  const cases = [
+    ['חמש עשרה דקות', 15], ['חמישה עשר דקות', 15], ['עשרים וחמש דקות', 25], ['ארבעים וחמש דקות', 45],
+    ['עשר דקות', 10], ['שתי דקות', 2], ['שתיים דקות', 2], ['דקה', 1], ['שלושים דקות', 30], ['תשעים ותשע דקות', 99],
+    ['שעה', 60], ['שעתיים', 120], ['שלוש שעות', 180], ['חצי שעה', 30], ['שעה וחצי', 90], ['רבע שעה', 15],
+    ['שלושת רבעי שעה', 45], ['שעתיים וחצי', 150], ['שלוש שעות וחצי', 210],
+    ['שעה ו-20 דקות', 80], ['שעה ועשרים דקות', 80], ['שעה ו-45 דקות', 105], ['2 שעות ו-15 דקות', 135],
+    ['שתי שעות ועשר דקות', 130], ['שעתיים ו-5 דקות', 125], ['שעה ורבע', 75],
+  ];
+  for (const [text, want] of cases) {
+    test(`durationMinutes: ${text}`, () => assert.equal(durationMinutes(text), want));
+    test(`findDuration (בתוך משפט): ${text}`, () => assert.equal(findDuration(`התור לוקח ${text}.`), want));
+  }
+  test('זמן יחסי במילים לא נקרא כאורך', () => {
+    for (const t of ['נפגשים בעוד עשרים דקות', 'עוד חמש דקות', 'אחרי עשר דקות', 'עוד דקה', 'בעוד שלושת רבעי שעה', 'תוך חמש עשרה דקות']) {
+      assert.equal(findDuration(t), null, t);
+    }
+  });
+  test('ספרות כמו קודם', () => {
+    assert.equal(findDuration('בעוד 20 דקות'), null);
+    assert.equal(durationMinutes('45 דקות'), 45);
+    assert.equal(durationMinutes('1.5 שעות'), 90);
+  });
+  test('זמן יחסי עם זנב דקות, ומאה', () => {
+    for (const t of ['בעוד שעה ועשרים דקות', 'בעוד שעה ו-20 דקות', 'עוד שעתיים ועשרים דקות']) {
+      assert.equal(findDuration(t), null, t);
+      assert.equal(durationMinutes(t), null, t);
+    }
+    assert.equal(durationMinutes('בעוד שעה'), null);
+    assert.equal(durationMinutes('עוד 20 דקות'), null);
+    assert.equal(durationMinutes('מאה ועשרים דקות'), 120);
+    assert.equal(durationMinutes('מאה ו-20 דקות'), 120);
+    assert.equal(durationMinutes('מאה דקות'), 100);
+    assert.equal(durationMinutes('מאה ועשר דקות'), 110);
+    assert.equal(durationMinutes('מאה וחמש עשרה דקות'), 115);
+    assert.equal(findDuration('זה לוקח מאה ועשרים דקות'), 120);
   });
 });
