@@ -33,6 +33,10 @@ describe('findDuration: אורך בתוך משפט', () => {
 
 describe('אורך באירוע קיים: ההכרעה', () => {
   const change = readChange({ type: 'personal_event', facts: [fx('date', '2026-11-27')], text: 'השיננית בשישי זה חצי שעה', receivedAt: NOW, understanding: { date_text: 'בשישי', duration_text: 'חצי שעה' } });
+  test('targetFor: התחלה + אורך אחרי חצות = לא ברור (null), לא "אותו דבר"', () => {
+    const late = { ...TOOTH, time: '23:00', endTime: '23:30' };
+    assert.equal(targetFor(late, { ...change, minutes: 120 }), null);
+  });
   test('readChange: minutes = 30', () => {
     assert.equal(change.minutes, 30);
   });
