@@ -133,4 +133,18 @@ describe('אורך במילים (26.11.2026)', () => {
     assert.equal(durationMinutes('45 דקות'), 45);
     assert.equal(durationMinutes('1.5 שעות'), 90);
   });
+  test('זמן יחסי עם זנב דקות, ומאה', () => {
+    for (const t of ['בעוד שעה ועשרים דקות', 'בעוד שעה ו-20 דקות', 'עוד שעתיים ועשרים דקות']) {
+      assert.equal(findDuration(t), null, t);
+      assert.equal(durationMinutes(t), null, t);
+    }
+    assert.equal(durationMinutes('בעוד שעה'), null);
+    assert.equal(durationMinutes('עוד 20 דקות'), null);
+    assert.equal(durationMinutes('מאה ועשרים דקות'), 120);
+    assert.equal(durationMinutes('מאה ו-20 דקות'), 120);
+    assert.equal(durationMinutes('מאה דקות'), 100);
+    assert.equal(durationMinutes('מאה ועשר דקות'), 110);
+    assert.equal(durationMinutes('מאה וחמש עשרה דקות'), 115);
+    assert.equal(findDuration('זה לוקח מאה ועשרים דקות'), 120);
+  });
 });
