@@ -66,6 +66,7 @@ import { answerCorrectionRule } from '../lib/correction-rules.js';
 import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
+import { answerExamFeel } from '../lib/exam-feel.js';
 import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
 import { answerStudyCleanup } from '../lib/study-cleanup.js';
 import { localDateIso } from '../lib/intake-dates.js';
@@ -556,6 +557,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: listen.status, items, pending, badge });
+      }
+      // "איך היה?" אחרי מבחן (lib/exam-feel.js): שלושה כפתורים. פקודה אחת (או כלום), בלי יומן.
+      const feel = await answerExamFeel({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (feel.status !== 'closed') {
+        const items = feel.status === 'answered' ? await loadCreatedItems(sql, feel.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: feel.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
