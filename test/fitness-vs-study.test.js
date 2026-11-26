@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { processSource } from '../lib/intake-process.js';
-import { fakeSql } from './helpers.js';
+import { fakeSql, captureConsole } from './helpers.js';
 
 const SRC_ID = '11111111-1111-4111-8111-111111111111';
 const STUDY_ID = 'dddddddd-eeee-4fff-8aaa-bbbbbbbbbbbb';
@@ -117,6 +117,25 @@ describe('לוז 4fitness אחרי "כן": שעת למידה שנתפסה באי
     assert.deepEqual(moves, []);
     assert.deepEqual(cancels, [{ id: STUDY_ID }]);
     assert.ok(result.reply.includes('אין שעה פנויה אחרת'));
+  });
+
+  test('כשל בקריאת שעות הלמידה: הלוז נכתב בכל זאת, בלי שינויי למידה ובלי שורות עליהן, והכשל נרשם בלוג', async (t) => {
+    const logged = captureConsole(t);
+    const sql = fakeSql((text) => {
+      if (text.includes('fitness-existing')) return [];
+      if (text.includes('fitness-study-clash')) throw new Error('db');
+      if (text.includes('fitness-write')) return [{ claimed: 1 }];
+      return [];
+    });
+    const result = await processSource({ sql, source: source(), timetable: null, googleDay: freeGoogle });
+    assert.equal(result.status, 'recorded');
+    const call = writeOf(sql);
+    const [creates] = jsonParams(call);
+    assert.equal(creates.length, 2, 'האימון וההתארגנות של שני נכתבים');
+    assert.deepEqual(studyParams(call), [[], [], []]);
+    assert.equal(result.reply, 'נרשמו האימונים: שני 30.11 18:00–20:00 משתלה · רביעי 2.12 מנוחה (אין אימון לבטל)');
+    assert.ok(call.values.includes(result.reply));
+    assert.match(logged.text(), /בדיקת שעות הלמידה נכשלה/);
   });
 
   test('שתי שעות שנתפסו ורזרבה אחת: הראשונה מוזזת, השנייה מבוטלת (אותה רזרבה לא ניתנת פעמיים)', async () => {
