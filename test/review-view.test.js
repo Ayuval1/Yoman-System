@@ -219,6 +219,7 @@ describe('review-view: buildReview, תצוגה וסדר (קריטריון 5)', (
 describe('review-view: result ו-missing (קריטריון 6)', () => {
   const facts = (obj) => new Map(Object.entries(obj));
   test('שישה סוגים: מה שנרשם בצורת formatReply בלי "נרשם", עם יום בשבוע', () => {
+    assert.equal(resultText(facts({ type: 'homework', subject: 'תחומי בחירה', date: '2026-10-21' })), 'שיעורי בית · תחומי בחירה - פודקאסט · רביעי 21.10', 'שם תצוגה');
     assert.equal(resultText(facts({ type: 'exam', subject: 'מתמטיקה', date: '2026-10-20' })), 'מבחן · מתמטיקה · שלישי 20.10');
     assert.equal(resultText(facts({ type: 'homework', subject: 'אנגלית', date: '2026-10-21' })), 'שיעורי בית · אנגלית · רביעי 21.10');
     assert.equal(resultText(facts({ type: 'cancel', subject: 'היסטוריה', date: '2026-10-22' })), 'ביטול · היסטוריה · חמישי 22.10');

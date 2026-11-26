@@ -161,6 +161,8 @@ describe('findSubjects ו-findRooms', () => {
     assert.deepEqual(subjects('שיח אישי וכישורי חיים'), ['שיח אישי', 'כישורי חיים']);
     assert.deepEqual(subjects('בפיזיקה, בכימיה ובגיאומטריה'), ['פיזיקה', 'כימיה', 'גיאומטריה']);
     assert.deepEqual(subjects('חינוך גופני וחינוך פיננסי'), ['חנ"ג', 'חינוך פיננסי']);
+    assert.deepEqual(subjects('תחומי בחירה'), ['תחומי בחירה']);
+    assert.deepEqual(subjects('שמעתי פודקאסט'), [], 'פודקאסט אינו כינוי למקצוע');
   });
   test('"מדעי" לבד אינו מקצוע; "מדעים" כן', () => {
     assert.deepEqual(findSubjects('מדעי הרוח'), []);

@@ -68,7 +68,7 @@ describe('בלוק 4: בניית 74 הסדרות מהמערכת', () => {
   });
 
   test('"תחומי בחירה" בחמישי 3-4: בלי מורה ובלי חדר (null), לא טקסט "לא ידוע"', () => {
-    const elective = SERIES.filter((s) => s.title === 'תחומי בחירה');
+    const elective = SERIES.filter((s) => s.title === 'תחומי בחירה - פודקאסט');
     assert.equal(elective.length, 2);
     for (const e of elective) {
       assert.equal(e.weekday, 5);
@@ -265,7 +265,7 @@ describe('כותרת יום: סדרה של יום שלם לכל יום לימו�
     assert.equal(lines[0], '1 · 08:15–09:00 · תנ"ך · חדר 121');
     assert.equal(lines[8], '9 · 15:05–15:45 · פיזיקה · חדר אשכול ה\'');
     const thursday = HEADERS.find((h) => h.weekday === 5).description.split('\n');
-    assert.equal(thursday[2], '3 · 10:05–10:50 · תחומי בחירה', 'בלי חדר כשאין');
+    assert.equal(thursday[2], '3 · 10:05–10:50 · תחומי בחירה - פודקאסט', 'בלי חדר כשאין');
     const teachers = SERIES.map((s) => s.description).filter(Boolean).flatMap((d) => d.split('\n')).filter((l) => l.startsWith('מורה: ')).map((l) => l.slice(6));
     for (const h of HEADERS) for (const name of teachers) assert.ok(!h.description.includes(name), `${h.key}: ${name}`);
     assert.ok(!monday.description.includes(BREAK_TITLE));

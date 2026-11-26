@@ -225,6 +225,7 @@ describe('formatReply: שיעורים בביטול', () => {
 
 describe('formatReply: נרשם · סוג · מקצוע · יום ותאריך', () => {
   test('הדוגמה שבקובץ החוקים: בוחן במתמטיקה, שלישי 6.10', () => {
+    assert.equal(formatReply({ type: 'homework', subject: 'תחומי בחירה', date: '2026-10-21', weekday: 'רביעי' }), 'נרשם · שיעורי בית · תחומי בחירה - פודקאסט · רביעי 21.10', 'שם תצוגה');
     assert.equal(formatReply({ type: 'exam', subject: 'מתמטיקה', date: '2026-10-06', weekday: 'שלישי' }), 'נרשם · מבחן · מתמטיקה · שלישי 6.10');
   });
   test('כל הסוגים', () => {

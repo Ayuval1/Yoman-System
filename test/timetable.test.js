@@ -5,7 +5,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { parseTimetableMarkdown, timetableLoadSql, loadTimetable, sha256Hex, LESSON_PERIODS } from '../lib/timetable.js';
+import { parseTimetableMarkdown, timetableLoadSql, loadTimetable, sha256Hex, subjectLabel, LESSON_PERIODS } from '../lib/timetable.js';
 import { fakeSql, captureConsole } from './helpers.js';
 
 const TIMETABLE_URL = new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url);
@@ -379,5 +379,14 @@ describe('loadTimetable', () => {
     assert.equal(logs.lines.length, badRows.length + 1);
     assert.equal(logs.text().includes(secretName), false);
     assert.equal(logs.text().includes(good[0].subject), false);
+  });
+});
+
+describe('subjectLabel: שם תצוגה (יובל, 26.11.2026)', () => {
+  test('תחומי בחירה מוצג עם הפודקאסט, וכל שם אחר נשאר כמו שהוא', () => {
+    assert.equal(subjectLabel('תחומי בחירה'), 'תחומי בחירה - פודקאסט');
+    for (const name of ['מתמטיקה', 'חנ"ג', '', 'תחומי בחירה - פודקאסט']) assert.equal(subjectLabel(name), name);
+    assert.equal(subjectLabel(null), null);
+    assert.equal(subjectLabel(undefined), undefined);
   });
 });

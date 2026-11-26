@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { composeBrief, schoolSummary, briefEntityId, briefPushText, briefCardData, BRIEF_PUSH_WAITING, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
+import { pendingLine, composeBrief, schoolSummary, briefEntityId, briefPushText, briefCardData, BRIEF_PUSH_WAITING, BRIEF_FOOTER, FREE_DAY_LINE } from '../lib/brief-view.js';
 import { parseTimetableMarkdown } from '../lib/timetable.js';
 
 const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-timetable-taf-shin-pe-zayin.md', import.meta.url), 'utf8'));
@@ -365,5 +365,12 @@ describe('brief-view: בידוד כיווני של טווח השעות בשור�
     assert.equal(card.schoolEndsAt, '15:45');
     assert.equal(card.schoolLessons, 9);
     assert.equal(card.text.split('\n')[1], school.text);
+  });
+});
+
+describe('שם תצוגה של תחומי בחירה (יובל, 26.11.2026)', () => {
+  test('שאלה ממתינה על תחומי בחירה מוצגת עם הפודקאסט', () => {
+    assert.equal(pendingLine([{ kind: 'homework', subject: 'תחומי בחירה' }]), 'שאלות שממתינות: שיעורי בית בתחומי בחירה - פודקאסט');
+    assert.equal(pendingLine([{ kind: 'homework', subject: 'פיזיקה' }]), 'שאלות שממתינות: שיעורי בית בפיזיקה');
   });
 });
