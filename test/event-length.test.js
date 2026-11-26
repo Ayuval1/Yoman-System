@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { fakeSql } from './helpers.js';
 import { findDuration } from '../lib/intake-questions.js';
 import { readChange, targetFor, decideMatch, updateReply, writeMatched } from '../lib/event-match.js';
-import { buildPrompt } from '../lib/intake-brain.js';
+import { buildPrompt, isValidUnderstanding } from '../lib/intake-brain.js';
 
 const NOW = new Date('2026-11-25T05:36:00.000Z'); // רביעי 25.11
 const TOOTH = { id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee', title: 'תור לשיננית', date: '2026-11-27', time: '12:30', endTime: '13:30', domain: 'personal', sourceId: 's' };
@@ -32,7 +32,7 @@ describe('findDuration: אורך בתוך משפט', () => {
 });
 
 describe('אורך באירוע קיים: ההכרעה', () => {
-  const change = readChange({ type: 'personal_event', facts: [fx('date', '2026-11-27')], text: 'השיננית בשישי זה חצי שעה', receivedAt: NOW, understanding: { date_text: 'בשישי' } });
+  const change = readChange({ type: 'personal_event', facts: [fx('date', '2026-11-27')], text: 'השיננית בשישי זה חצי שעה', receivedAt: NOW, understanding: { date_text: 'בשישי', duration_text: 'חצי שעה' } });
   test('readChange: minutes = 30', () => {
     assert.equal(change.minutes, 30);
   });
@@ -59,8 +59,49 @@ describe('אורך באירוע קיים: ההכרעה', () => {
   });
 });
 
+describe('אורך: המוח מכריע, הקוד ממיר (26.11.2026)', () => {
+  const read = (text, understanding) => readChange({ type: 'personal_event', facts: [], text, receivedAt: NOW, understanding });
+  test('duration_text "חצי שעה" = 30, "45 דקות" = 45, "שעה וחצי" = 90', () => {
+    assert.equal(read('זה חצי שעה', { duration_text: 'חצי שעה' }).minutes, 30);
+    assert.equal(read('זה 45 דקות', { duration_text: '45 דקות' }).minutes, 45);
+    assert.equal(read('שעה וחצי', { duration_text: 'שעה וחצי' }).minutes, 90);
+  });
+  test('duration_text null: "מגיע 15 דקות קודם" לא משנה אורך', () => {
+    assert.equal(read('באימון בחמישי אני מגיע 15 דקות קודם', { duration_text: null }).minutes, undefined);
+  });
+  test('בלי מוח או בלי השדה: האורך לא משתנה', () => {
+    assert.equal(read('זה חצי שעה', null).minutes, undefined);
+    assert.equal(read('זה חצי שעה', { date_text: 'בשישי' }).minutes, undefined);
+  });
+  test('duration_text לא מספרי: אין אורך', () => {
+    assert.equal(read('זה הרבה זמן', { duration_text: 'הרבה זמן' }).minutes, undefined);
+  });
+  test('הפרומפט: עם מועמדים מזכיר duration_text, בלעדיהם לא', () => {
+    assert.match(buildPrompt({ text: 'x', candidates: [{ key: 'e1', label: 'תור' }] }), /duration_text/);
+    assert.doesNotMatch(buildPrompt({ text: 'x' }), /duration_text/);
+  });
+  test('המאמת: duration_text שהומצא נדחה, מילה במילה מתקבל', () => {
+    const base = { kind: 'personal_event', subject: null, topic: null, date_text: null, new_date_text: null, time_text: null, new_room: null, end_date_text: null, uncertain: [], match: 'e1', match_sure: true };
+    assert.equal(isValidUnderstanding({ ...base, duration_text: 'חצי שעה' }, 'זה חצי שעה', ['e1']), true);
+    assert.equal(isValidUnderstanding({ ...base, duration_text: 'שעתיים' }, 'זה חצי שעה', ['e1']), false);
+    assert.equal(isValidUnderstanding({ ...base, duration_text: 5 }, 'זה חצי שעה', ['e1']), false);
+    assert.equal(isValidUnderstanding({ ...base, duration_text: null }, 'זה חצי שעה', ['e1']), true);
+  });
+});
+
 describe('המוח', () => {
   test('הפרומפט: שינוי אורך של אירוע קיים הוא personal_event', () => {
     assert.match(buildPrompt({ text: 'x' }), /personal_event: [^\n]*אורך/);
+  });
+});
+
+describe('normalize של duration_text (דרך understandSource)', () => {
+  test('מתקבל מנורמל; חסר = null', async () => {
+    const { understandSource } = await import('../lib/intake-brain.js');
+    const run = (data) => understandSource({ sql: fakeSql(() => []), source: { raw_content: 'זה חצי שעה' }, apiKey: 'k', candidates: [{ key: 'e1', label: 'תור' }],
+      ask: async () => ({ ok: true, model: 'm', data }) });
+    const base = { kind: 'personal_event', subject: null, topic: null, date_text: null, new_date_text: null, time_text: null, new_room: null, uncertain: [], match: 'e1', match_sure: true };
+    assert.equal((await run({ ...base, duration_text: ' חצי שעה ' })).understanding.duration_text, 'חצי שעה');
+    assert.equal((await run(base)).understanding.duration_text, null);
   });
 });
