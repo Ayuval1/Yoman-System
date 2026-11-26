@@ -22,6 +22,7 @@ const SRC_ID = '11111111-1111-4111-8111-111111111111';
 const OLD_SRC = '99999999-9999-4999-8999-999999999999';
 const RUN_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const PREP_ID = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
+const STRENGTH_ID = 'cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa';
 
 // ---------------------------------------------------------------------------
 // fixtures: לוחות בצורות שונות
@@ -271,6 +272,40 @@ describe('processSource: לוז 4fitness מטופל בקוד, בלי מוח', ()
     assert.ok(call.values.includes(result.reply), 'ההודעה המיידית נכתבת באותה פקודה של הביטול (מנגנון 1)');
     assert.ok(result.fitness.keys.includes(existingRow().match_key));
     assert.ok(result.fitness.keys.includes(existingPrep().match_key));
+  });
+  test('"מנוחה": גם אירוע ":strength" מתוכנן של אותו יום מבוטל, עם changes ומפתח לסנכרון ליומן (כמו הריצה)', async () => {
+    const strength = { id: STRENGTH_ID, title: 'כוח', location: null, description: null, match_key: `${existingRow().match_key}:strength`, start_date: '2026-11-25', start_time: '20:00', end_date: '2026-11-25', end_time: '20:30' };
+    const sql = pipeSql({ existing: [existingRow(), existingPrep(), strength] });
+    const result = await processSource({ sql, source: source('שני משתלה 18:00 ריצה לשדות + כוח\nרביעי מנוחה'), timetable: null });
+    const [, , cancels, changes] = jsonParams(writeOf(sql));
+    assert.deepEqual(cancels.map((c) => c.id), [RUN_ID, PREP_ID, STRENGTH_ID]);
+    assert.deepEqual(changes.filter((c) => c.field === 'status').map((c) => [c.entity_id, c.old_value, c.new_value]), [[RUN_ID, 'planned', 'cancelled'], [PREP_ID, 'planned', 'cancelled'], [STRENGTH_ID, 'planned', 'cancelled']]);
+    assert.ok(result.fitness.keys.includes(strength.match_key), 'הביטול מסונכרן ל-Google');
+    assert.deepEqual(result.fitness.patchKeys, []);
+  });
+  test('כוח קיים ביום שאינו מנוחה: לא נוגעים בו (לא עדכון, לא ביטול)', async () => {
+    const strength = { id: STRENGTH_ID, title: 'כוח', location: null, description: null, match_key: `${existingRow().match_key}:strength`, start_date: '2026-11-25', start_time: '20:00', end_date: '2026-11-25', end_time: '20:30' };
+    const sql = pipeSql({ existing: [existingRow(), existingPrep(), strength] });
+    const result = await processSource({ sql, source: source('רביעי משתלה 18:00 + כוח'), timetable: null });
+    const [creates, updates, cancels, changes] = jsonParams(writeOf(sql));
+    assert.deepEqual([creates, updates, cancels, changes], [[], [], [], []]);
+    assert.deepEqual(result.fitness, { keys: [], patchKeys: [] });
+  });
+  test('"מנוחה" וכוח קיים בלי ריצה: הכוח של אותו יום מבוטל וההודעה אומרת זאת; כוח של יום אחר לא נוגעים', async () => {
+    const strength = { id: STRENGTH_ID, title: 'כוח', location: null, description: null, match_key: `source:${OLD_SRC}:fitness:2026-11-25:run:strength`, start_date: '2026-11-25', start_time: '20:00', end_date: '2026-11-25', end_time: '20:30' };
+    const other = { ...strength, id: PREP_ID, match_key: `source:${OLD_SRC}:fitness:2026-11-23:run:strength`, start_date: '2026-11-23', end_date: '2026-11-23' };
+    const sql = pipeSql({ existing: [strength, other] });
+    const result = await processSource({ sql, source: source('רביעי מנוחה'), timetable: null });
+    const [, , cancels] = jsonParams(writeOf(sql));
+    assert.deepEqual(cancels.map((c) => c.id), [STRENGTH_ID]);
+    assert.deepEqual(result.fitness.keys, [strength.match_key]);
+    assert.equal(result.reply, 'נרשמו האימונים: רביעי 25.11 מנוחה\nבוטל האימון של רביעי 25.11.');
+  });
+  test('שאילתת הקיים כוללת כוח (title כוח, מפתח :strength) מתוכנן ועתידי בלבד', async () => {
+    const sql = pipeSql();
+    await processSource({ sql, source: source(CLASSIC), timetable: null });
+    const [query] = sql.find('fitness-existing');
+    assert.match(query.text, /title = 'כוח' AND match_key LIKE '%:strength' AND ends_at > now\(\)/);
   });
   test('"מנוחה" בלי אימון קיים: לא עושים כלום חוץ מהרישום', async () => {
     const sql = pipeSql();
