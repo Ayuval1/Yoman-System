@@ -63,3 +63,11 @@
 3. Garmin.
 
 </div>
+
+<div dir="rtl">
+
+## המשך 3 (הוספה בלבד)
+- `school-series` `apply` רץ ב-26.11: `updated 74`, `headers_updated 5`, `written true`. הכותרת "פודקאסט" נמצאת עכשיו ב-Google, אבל לא נבדקה בעין.
+- **▶️ הצעד הבא:** מספר במילים לדקות, ואחריו Garmin.
+
+</div>
