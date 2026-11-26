@@ -31,6 +31,7 @@ import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
 import { awayOn, offerAwayCards } from '../../lib/away.js';
 import { offerStudyCleanup } from '../../lib/study-cleanup.js';
+import { ensureExamFeel } from '../../lib/exam-feel.js';
 import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
 import { fitnessReminderLine } from '../../lib/fitness-reminder.js';
 import { askBrain } from '../../lib/brain/ask.js';
@@ -411,6 +412,8 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   await ensureVacationEvening({ sql, dateIso, now: deliveredAt });
   // בלוק 4: "בוצע?" לכל משימה פתוחה (אישית או שיעורי בית) שמועדה עבר עד רגע הסגירה, לפני טעינת השאלות כדי שייספרו בסגירה ובמספר. לא זורק.
   await ensureClosingChecks({ sql, dateIso, targetAt, now: deliveredAt });
+  // "איך היה?" למבחן של היום שיובל אמר עליו "אני מוכן" (lib/exam-feel.js), לפני טעינת השאלות כדי שייספר בסגירה ובמספר. לא זורק.
+  await ensureExamFeel({ sql, dateIso, now: deliveredAt });
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
   let trainings = [];
   let events = [];
