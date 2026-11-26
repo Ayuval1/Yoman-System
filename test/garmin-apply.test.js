@@ -330,6 +330,157 @@ describe('garmin-apply: אירוע הכוח מתרפא בריצה הבאה', () 
   });
 });
 
+// problem-log 2026-11-22: כוח שבוטל אוטומטית כי הריצה ב-Garmin התארכה, חוזר כשהריצה מתקצרת שוב.
+describe('garmin-apply: כוח שבוטל אוטומטית חוזר כשהריצה מתקצרת', () => {
+  const STR_KEY = `${RUN_KEY_MON}:strength`;
+  // מסד בזיכרון שמדמה את פקודת הכתיבה (writeWork): כל התנאים נבדקים מול המצב שלפני הפקודה (כמו CTE ב-Postgres), ואז מוחלים.
+  // auto_cancelled = שורת ה-status האחרונה ב-changes היא ביטול של המערכת בלי מקור (כמו תת-השאילתה ב-applyGarminItems).
+  const makeDb = (events) => ({ events: events.map((e) => ({ ...e })), changes: [], seq: 0 });
+  const loadEvents = (db) => db.events.map((row) => {
+    const last = db.changes.filter((c) => c.entity_id === row.id && c.field === 'status').at(-1);
+    return { ...row, auto_cancelled: row.status === 'cancelled' && Boolean(last) && last.source_id === null && last.changed_by === 'system' && last.new_value === 'cancelled' };
+  });
+  const write = (db, work) => {
+    const before = db.events.map((e) => ({ ...e }));
+    const byId = (id) => db.events.find((e) => e.id === id);
+    const touched = new Set();
+    for (const u of work.updates) {
+      const row = before.find((e) => e.id === u.id);
+      if (row && row.status === 'planned' && row.starts_at === u.old_starts_at && row.ends_at === u.old_ends_at && (row.description ?? '') === (u.old_description ?? '')) {
+        Object.assign(byId(u.id), { starts_at: u.starts_at, ends_at: u.ends_at, description: u.description });
+        touched.add(u.id);
+      }
+    }
+    for (const c of work.creates) {
+      if (before.some((e) => e.match_key === c.match_key)) continue;
+      db.seq += 1;
+      db.events.push({ id: `new-${db.seq}`, title: c.title, starts_at: c.starts_at, ends_at: c.ends_at, location: null, description: null, status: 'planned', match_key: c.match_key, external_id: null });
+    }
+    for (const r of work.restores ?? []) {
+      const old = before.find((e) => e.id === r.old_id);
+      if (!old || old.status !== 'cancelled' || old.match_key !== r.match_key) continue;
+      byId(r.old_id).match_key = r.replaced_key;
+      touched.add(r.old_id);
+      if (before.some((e) => e.match_key === r.match_key && e.id !== r.old_id)) continue;
+      db.seq += 1;
+      db.events.push({ id: `new-${db.seq}`, title: r.title, starts_at: r.starts_at, ends_at: r.ends_at, location: null, description: null, status: 'planned', match_key: r.match_key, external_id: null });
+    }
+    for (const s of work.statuses) {
+      if (before.find((e) => e.id === s.id)?.status !== 'planned') continue;
+      byId(s.id).status = s.status;
+      touched.add(s.id);
+    }
+    for (const x of work.changes) if (touched.has(x.entity_id)) db.changes.push({ ...x, source_id: null, changed_by: 'system' });
+  };
+  // Garmin מחזיר אימון אחד באורך minutes; כל משיכה עם חותמת משלה (fetched_at).
+  let tick = 0;
+  const pull = (db, minutes) => {
+    tick += 1;
+    const fetchedAt = new Date(NOW.getTime() + tick * 1000).toISOString();
+    const work = plan([planned({ duration_sec: minutes * 60, fetched_at: fetchedAt })], loadEvents(db), NOW, fetchedAt);
+    write(db, work);
+    return work;
+  };
+  const strengths = (db) => db.events.filter((e) => e.match_key === STR_KEY);
+  const runRow = (db) => db.events.find((e) => e.id === ID_MON);
+
+  test('הריצה התארכה עד אחרי 20:00 (כוח בוטל) ואז Garmin קיצר ל-60 דק\': הכוח חוזר 19:00-20:00, פעם אחת', () => {
+    const db = makeDb([run()]);
+    pull(db, 50);
+    assert.equal(strengths(db).length, 1);
+    pull(db, 150); // 18:00-20:30: אין מקום לכוח
+    assert.equal(runRow(db).ends_at, `${MON}T18:30:00.000Z`);
+    assert.equal(strengths(db)[0].status, 'cancelled');
+
+    const work = pull(db, 60);
+    assert.equal(runRow(db).ends_at, `${MON}T17:00:00.000Z`);
+    const live = strengths(db);
+    assert.equal(live.length, 1, 'שורה אחת בלבד במפתח הכוח');
+    assert.equal(live[0].status, 'planned');
+    assert.equal(live[0].title, STRENGTH_TITLE);
+    assert.equal(live[0].starts_at, `${MON}T17:00:00.000Z`);
+    assert.equal(live[0].ends_at, `${MON}T18:00:00.000Z`);
+    assert.equal(live[0].external_id, null, 'שורה חדשה: event-sync יוצר אותה ב-Google במזהה חדש');
+    assert.ok(work.keys.includes(STR_KEY), 'המפתח עובר לכתיבה ליומן');
+    assert.ok(!work.patchKeys.includes(STR_KEY));
+    // השורה המבוטלת נשארת מבוטלת, עם מפתח אחר (כדי שהמפתח יהיה פנוי לשורה החדשה), ושורת changes על החלפת המפתח.
+    const old = db.events.find((e) => e.id !== live[0].id && e.title === STRENGTH_TITLE);
+    assert.equal(old.status, 'cancelled');
+    assert.notEqual(old.match_key, STR_KEY);
+    assert.ok(db.changes.some((c) => c.entity_id === old.id && c.field === 'match_key' && c.old_value === STR_KEY && c.new_value === old.match_key));
+
+    // פעמיים ושלוש: אין עוד שורה, אין היפוך.
+    for (let i = 0; i < 2; i += 1) {
+      const again = pull(db, 60);
+      assert.deepEqual(again.restores, []);
+      assert.ok(nothing(again));
+    }
+    assert.equal(db.events.filter((e) => e.title === STRENGTH_TITLE && e.status === 'planned').length, 1);
+  });
+
+  test('סוף מפורש בלוז (19:30) נשמר גם אחרי ביטול והחזרה', () => {
+    const db = makeDb([run({ ends_at: `${MON}T17:30:00.000Z` })]);
+    pull(db, 50);
+    assert.equal(strengths(db)[0].ends_at, `${MON}T17:30:00.000Z`);
+    pull(db, 120); // 18:00-20:00: אחרי 19:30
+    assert.equal(strengths(db)[0].status, 'cancelled');
+    pull(db, 60);
+    const [live] = strengths(db);
+    assert.equal(live.status, 'planned');
+    assert.equal(live.starts_at, `${MON}T17:00:00.000Z`);
+    assert.equal(live.ends_at, `${MON}T17:30:00.000Z`);
+  });
+
+  test('ביטול שלא נעשה אוטומטית כאן (יובל ביטל, או ביטול עם מקור): הכוח לא חוזר', () => {
+    const shortRun = run({ ends_at: `${MON}T18:30:00.000Z`, description: 'ריצה לשדות + כוח · אינטרוולים 6×800' });
+    for (const auto of [false, undefined]) {
+      const work = plan([planned({ duration_sec: 3600 })], [shortRun, strength({ status: 'cancelled', ends_at: `${MON}T18:00:00.000Z`, auto_cancelled: auto })]);
+      assert.deepEqual(work.restores, []);
+      assert.deepEqual(work.creates, []);
+      assert.equal(work.skipped.strength_closed, 1);
+    }
+  });
+
+  test('בוטל אוטומטית אבל הלוז כבר בלי "כוח": לא חוזר', () => {
+    const work = plan([planned({ duration_sec: 3600 })], [
+      run({ ends_at: `${MON}T18:30:00.000Z`, description: 'ריצה לשדות · אינטרוולים 6×800' }),
+      strength({ status: 'cancelled', auto_cancelled: true }),
+    ]);
+    assert.deepEqual(work.restores, []);
+  });
+
+  test('אימון שבוטל (מנוחה): כוח שבוטל אוטומטית לא חוזר', () => {
+    const work = plan([planned({ duration_sec: 3600 })], [run({ status: 'cancelled' }), strength({ status: 'cancelled', auto_cancelled: true })]);
+    assert.deepEqual(work.restores, []);
+    assert.deepEqual(work.creates, []);
+  });
+
+  test('applyGarminItems: השאילתה מביאה auto_cancelled מ-changes, והפקודה מחליפה מפתח ויוצרת שורה חדשה; המפתח נשלח ליומן', async () => {
+    const events = [
+      run({ ends_at: `${MON}T18:30:00.000Z`, description: 'ריצה לשדות + כוח · אינטרוולים 6×800' }),
+      strength({ status: 'cancelled', starts_at: `${MON}T16:50:00.000Z`, ends_at: `${MON}T18:00:00.000Z`, auto_cancelled: true }),
+    ];
+    const sql = fakeSql((text) => {
+      if (text.includes('/* garmin-apply-items */')) return [planned({ duration_sec: 3600 })];
+      if (text.includes('/* garmin-apply-events */')) return events;
+      if (text.includes('/* garmin-apply-write */')) return [{ updated: 1, created: 1 }];
+      return [];
+    });
+    const calls = [];
+    const result = await applyGarminItems({ sql, now: NOW, fetchedAt: FETCHED, syncEvents: async (args) => { calls.push(args); return { created: 1 }; } });
+    assert.equal(result.ok, true);
+    const [read] = sql.find('/* garmin-apply-events */');
+    assert.ok(read.text.includes('FROM changes'));
+    assert.ok(read.text.includes('auto_cancelled'));
+    const [w] = sql.find('/* garmin-apply-write */');
+    assert.ok(w.text.includes('SET match_key = r.replaced_key'));
+    assert.ok(w.text.includes("events.status = 'cancelled'"));
+    const json = w.values.filter((v) => typeof v === 'string' && v.startsWith('[')).map((v) => JSON.parse(v));
+    assert.ok(json.some((list) => list.some((r) => r.old_id === ID_STR && r.match_key === STR_KEY && r.starts_at === `${MON}T17:00:00.000Z` && r.ends_at === `${MON}T18:00:00.000Z`)));
+    assert.ok(calls[0].keys.includes(STR_KEY));
+  });
+});
+
 describe('garmin-apply: דחיפה מיידית אחרי בועה', () => {
   const sqlWrite = (write, items = [planned()], events = [run()]) => fakeSql((text) => {
     if (text.includes('/* garmin-apply-items */')) return items;
