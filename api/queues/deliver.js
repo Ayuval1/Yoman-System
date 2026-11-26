@@ -15,7 +15,7 @@ import { createImmediateCheck, ensureClosingChecks } from '../../lib/personal-ta
 import { sendChatNotification, sendBriefNotification, sendClosingNotification, sendResumeNotification } from '../../lib/chat-notify.js';
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
-import { composeWeekly, weeklyPushText, loadWeekTasks, loadWeekTrainings, loadWeekFresh } from '../../lib/weekly-brief.js';
+import { composeWeekly, weeklyPushText, loadWeekTasks, loadWeekTrainings, loadWeekFresh, isBiweeklySaturday, loadBiweeklyStudy, loadPendingRules } from '../../lib/weekly-brief.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTomorrowEvents, loadGoogleTomorrow } from '../../lib/closing-tomorrow.js';
 import { loadTrainingsForDate } from '../../lib/training-source.js';
@@ -225,7 +225,11 @@ async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt
     const tasks = await loadPart('ההגשות', () => loadWeekTasks(sql, saturdayIso), []);
     const trainings = await loadPart('האימונים', () => loadWeekTrainings(sql, saturdayIso), []);
     const received = await loadPart('החדש', () => loadWeekFresh(sql, parsed.targetAt), []);
-    const weekly = composeWeekly({ saturdayIso, timetable: table, exams, answers, tasks, trainings, received, partial });
+    // שבת דו-שבועית (הכרעת Claude, לילה 26.11): סעיף "שבועיים קדימה". שעות שלא נטענו = null (בלי סיומת שעות); כללים שלא נטענו = 0 (השורה מושמטת).
+    const biweekly = isBiweeklySaturday(saturdayIso);
+    const studyRows = biweekly ? await loadPart('שעות הלמידה', () => loadBiweeklyStudy(sql, saturdayIso), null) : [];
+    const pendingRules = biweekly ? await loadPart('הכללים הממתינים', () => loadPendingRules(sql), 0) : 0;
+    const weekly = composeWeekly({ saturdayIso, timetable: table, exams, answers, tasks, trainings, received, studyRows, pendingRules, partial });
     text = weekly.text;
     counts = weekly.counts;
     const rows = await sql`
