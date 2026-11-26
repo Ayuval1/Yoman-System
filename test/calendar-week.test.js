@@ -53,7 +53,7 @@ describe('תצוגת שבוע: קיצור שם מקצוע (הכרעת יובל 2
     const item = bodyOf('calWeekItem');
     assert.match(item, /top = calShortSubject\(item\.subject \|\| item\.title\)/);
     const aria = item.split('\n').find((line) => line.includes("'aria-label'")) ?? '';
-    assert.ok(aria.includes('${item.subject ?? item.title}') && !aria.includes('calShortSubject'), 'התווית הנגישה עם השם המלא');
+    assert.ok(aria.includes('${item.label ?? item.subject ?? item.title}') && !aria.includes('calShortSubject'), 'התווית הנגישה עם השם המלא (כולל שם התצוגה, 26.11.2026)');
   });
   test('מילה שעדיין לא נכנסת: הגופן יורד עד 9px אחרי ציור השבוע, ותא בלי רוחב לא נוגעים', () => {
     const fit = bodyOf('calFitWeekText');
@@ -65,6 +65,17 @@ describe('תצוגת שבוע: קיצור שם מקצוע (הכרעת יובל 2
     const rule = /\.wk-it \.t \{([^}]*)\}/.exec(css)?.[1] ?? '';
     assert.doesNotMatch(rule, /overflow-wrap: anywhere|word-break: break-all/);
     assert.match(rule, /word-break: keep-all/);
+  });
+});
+
+describe('public/index.html: שם תצוגה למקצוע (label)', () => {
+  test('בלוק שיעור ופירוט מציגים item.label; הצבע נשאר לפי item.subject (צ׳יפ המבחן בלי label)', () => {
+    assert.match(html, /calShortSubject\(item\.label \|\| item\.subject \|\| item\.title\)/);
+    assert.match(html, /detail\.push\(\['מקצוע', item\.label \|\| item\.subject, false\]\)/);
+    assert.match(html, /calSetColors\(b, item\.subject\); top = /);
+  });
+  test('כרטיס שיעורי בית מציג question.label', () => {
+    assert.match(html, /question\.label \|\| question\.subject/);
   });
 });
 

@@ -1685,8 +1685,9 @@ function questionText(question) {
     return `${question.exam_type ?? 'מבחן'} במדעים${label ? ` ב-${label}` : ''}: איזה מקצוע?`;
   }
   if (question.kind !== 'homework') return question.text ?? '';
-  if (question.missed === true) return question.subject ? `פספסת שיעור ${question.subject}, נתנו שיעורי בית?` : 'פספסת שיעור, נתנו שיעורי בית?'; // שלב 8.3-2
-  return question.subject ? `${question.subject}: היו שיעורי בית?` : 'היו שיעורי בית?';
+  const subjectText = question.label || question.subject; // label: שם תצוגה ("תחומי בחירה - פודקאסט", 26.11.2026); subject נשאר המפתח
+  if (question.missed === true) return subjectText ? `פספסת שיעור ${subjectText}, נתנו שיעורי בית?` : 'פספסת שיעור, נתנו שיעורי בית?'; // שלב 8.3-2
+  return subjectText ? `${subjectText}: היו שיעורי בית?` : 'היו שיעורי בית?';
 }
 
 // כפתורי התאריך שהכרטיס מציג: רק due:'next' (כפתור יחיד, הכרעת יובל 16.10.2026).
@@ -1705,7 +1706,7 @@ function homeworkCard(question, { withHead, count }) {
 
   // אין כפתור תאריך (השיעור הבא כבר עבר): טקסט, וכפתור "סגור" שמסתיר את הכרטיס בדף בלבד. השרת פוקע אותו לבד (expires_at). לא שולחים "לא היו".
   if (dates.length === 0) {
-    card.append(el('div', 'ctxt', question.subject ? `${question.subject}: ${HOMEWORK_PASSED_TEXT}` : HOMEWORK_PASSED_TEXT));
+    card.append(el('div', 'ctxt', (question.label || question.subject) ? `${question.label || question.subject}: ${HOMEWORK_PASSED_TEXT}` : HOMEWORK_PASSED_TEXT));
     const opts = el('div', 'opts');
     const dismiss = el('button', 'opt', 'סגור');
     dismiss.type = 'button';
@@ -2535,7 +2536,8 @@ async function sendHomework(messageId, had) {
     // נוצרה משימה (8.6-3): שלב הצירוף, "צילום" ו"דלג". המקצוע נלקח מהשאלה לפני שהיא יורדת מהרשימה.
     if (data.status === 'answered' && data.task_id) {
       const question = state.pending.find((q) => q.id === messageId);
-      state.attach = { taskId: data.task_id, subject: typeof question?.subject === 'string' && question.subject !== '' ? question.subject : null };
+      const shown = question?.label || question?.subject;
+      state.attach = { taskId: data.task_id, subject: typeof shown === 'string' && shown !== '' ? shown : null }; // לתצוגה בלבד (ATTACH_ASK_TEXT)
     }
     state.drafts.delete(messageId);
     state.hwAsk.delete(messageId);
@@ -3598,7 +3600,7 @@ function calItemNode(item, index) {
     // שורות: [תווית, ערך, ערך משמאל לימין?]
     if (from) detail.push(['שעה', to ? `${from}–${to}` : from, true]); else if (item.kind !== 'break') detail.push(['שעה', 'כל היום', false]);
     if (range) detail.push(['תאריכים', range, true]);
-    if (item.subject) detail.push(['מקצוע', item.subject, false]);
+    if (item.subject) detail.push(['מקצוע', item.label || item.subject, false]);
     if (item.room) detail.push(['חדר', item.room, false]);
     if (item.pending) detail.push(['סטטוס', 'ממתין לתשובה שלך בצ\'אט', false]);
     const det = el('div', 'cal-det');
@@ -3861,10 +3863,10 @@ function calWeekItem(item, index, date) {
   const allDay = calIsAllDay(item);
   const from = allDay ? '' : calHm(item.start);
   const to = allDay ? '' : calHm(item.end);
-  b.setAttribute('aria-label', `${from ? (to ? `${from}–${to}` : from) : (calAllDayRange(item) ? `כל היום, ${calAllDayRange(item)}` : 'כל היום')}, ${item.kind === 'lesson' ? `${item.subject ?? item.title}${item.room ? `, חדר ${item.room}` : ''}` : (item.kind === 'exam' ? `${item.quiz ? 'מבדק' : 'מבחן'} ${item.subject || item.title}` : item.title)}${item.pending ? ', ממתין לתשובה' : ''}`);
+  b.setAttribute('aria-label', `${from ? (to ? `${from}–${to}` : from) : (calAllDayRange(item) ? `כל היום, ${calAllDayRange(item)}` : 'כל היום')}, ${item.kind === 'lesson' ? `${item.label ?? item.subject ?? item.title}${item.room ? `, חדר ${item.room}` : ''}` : (item.kind === 'exam' ? `${item.quiz ? 'מבדק' : 'מבחן'} ${item.subject || item.title}` : item.title)}${item.pending ? ', ממתין לתשובה' : ''}`);
   let top = item.title;
   let sub = '';
-  if (item.kind === 'lesson') { b.classList.add('lesson'); calSetColors(b, item.subject); top = calShortSubject(item.subject || item.title); sub = item.room ? String(item.room) : ''; }
+  if (item.kind === 'lesson') { b.classList.add('lesson'); calSetColors(b, item.subject); top = calShortSubject(item.label || item.subject || item.title); sub = item.room ? String(item.room) : ''; }
   else if (item.kind === 'exam') {
     b.classList.add('exam'); // תמיד בצבע המקצוע ועם שם המקצוע (design-rules:382)
     if (item.quiz) b.classList.add('quiz');

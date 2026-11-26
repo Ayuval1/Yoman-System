@@ -42,6 +42,13 @@ describe('calendar-view: שיעורים והפסקות', () => {
     assert.equal(day.items[1].end, day.items[2].start);
     assert.equal(day.items[0].pending, false);
   });
+  test('label: שם תצוגה לשיעור, subject נשאר המפתח', async () => {
+    const timetable = { slots: [{ weekday: 1, period: 1, startsAt: '08:15', endsAt: '09:00', subject: 'תחומי בחירה', teacher: null, room: null }, TIMETABLE.slots[0]] };
+    const day = (await run({ timetable })).days[0];
+    assert.equal(day.items[0].subject, 'תחומי בחירה');
+    assert.equal(day.items[0].label, 'תחומי בחירה - פודקאסט');
+    assert.equal(day.items.find((i) => i.subject === 'מתמטיקה').label, 'מתמטיקה');
+  });
   test('חופשה: בלי שיעורים והפסקות', async () => {
     const out = await run({ vacations: [{ from: '2026-11-20', to: '2026-11-25' }] });
     assert.deepEqual(out.days[0].items, []);

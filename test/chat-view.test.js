@@ -82,6 +82,14 @@ describe('pendingFromRows: השאלות הממתינות', () => {
     const [subject] = pendingFromRows({ questions: [question(1, 0, 'איזה מקצוע?', forwarded)], facts, timetable: TIMETABLE });
     assert.deepEqual(subject, { id: uuid(1), text: 'איזה מקצוע?', at: at(0).toISOString(), buttons: ['היסטוריה', 'מתמטיקה', 'אנגלית', UNKNOWN_BUTTON], allowFreeText: true });
   });
+  test('שאלת שיעורי בית: label לתצוגה, subject נשאר המפתח', () => {
+    const row = { id: uuid(1), entity_type: 'lesson_ask', sent_at: at(0), subject: 'תחומי בחירה', lesson_date: '2026-10-12', period: 3 };
+    const [item] = pendingFromRows({ questions: [row], facts: [], timetable: TIMETABLE, today: '2026-10-12' });
+    assert.equal(item.subject, 'תחומי בחירה');
+    assert.equal(item.label, 'תחומי בחירה - פודקאסט');
+    const [none] = pendingFromRows({ questions: [{ ...row, subject: null }], facts: [], timetable: TIMETABLE, today: '2026-10-12' });
+    assert.equal(none.label, null);
+  });
   test('קריטריון 4: שאלת "מה זה?" של הודעה מוקלדת: כפתורי הסוגים', () => {
     const [kind] = pendingFromRows({ questions: [question(1, 0, 'מה זה?', typed)], facts: [], timetable: TIMETABLE });
     assert.deepEqual(kind.buttons, ['שיעורי בית', 'מבחן', 'ביטול', 'חדר', 'הזזה', 'יום מקוצר', 'יציאה מוקדמת', 'אירוע אישי', UNKNOWN_BUTTON]);

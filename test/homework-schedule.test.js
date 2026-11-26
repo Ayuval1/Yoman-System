@@ -19,7 +19,7 @@ const TIMETABLE = parseTimetableMarkdown(readFileSync(new URL('../data/school-ti
 const slot = (weekday, period, subject, startsAt = '08:00', endsAt = '08:45') => ({ weekday, period, startsAt, endsAt, subject, teacher: null, room: null });
 
 // ---------------------------------------------------------------------------
-// קריטריון 1: בדיוק 26 השאלות והשעות שבטבלה ב-docs/02-rules/03-intake-rules.md (שורות 312-316). המערך מוקלד ידנית.
+// קריטריון 1: בדיוק 25 השאלות והשעות (תחומי בחירה פטור מ-26.11.2026) שבטבלה ב-docs/02-rules/03-intake-rules.md (שורות 312-316). המערך מוקלד ידנית.
 // שבוע 18.10.2026 (ראשון) עד 22.10.2026 (חמישי), לפני מעבר השעון: שעת קיר מקומית. day: 1=ראשון. periods: [שיעור ראשון, אחרון].
 // ---------------------------------------------------------------------------
 const WEEK_START = '2026-10-18';
@@ -51,34 +51,33 @@ const EXPECTED_26 = [
   { day: 4, subject: 'מתמטיקה (תרגול)', periods: [8, 9], time: '15:48' },
   // חמישי: 09:53 · 11:43 · 12:38 · 13:28 · 14:18 · 15:48
   { day: 5, subject: 'גיאומטריה', periods: [1, 2], time: '09:53' },
-  { day: 5, subject: 'תחומי בחירה', periods: [3, 4], time: '11:43' },
   { day: 5, subject: 'חינוך פיננסי', periods: [5, 5], time: '12:38' },
   { day: 5, subject: 'ערבית', periods: [6, 6], time: '13:28' },
   { day: 5, subject: 'מדעי המחשב', periods: [7, 7], time: '14:18' },
   { day: 5, subject: 'כימיה', periods: [8, 9], time: '15:48' },
 ];
 
-describe('homework-schedule: קריטריון 1, 26 השאלות בשבוע', () => {
+describe('homework-schedule: קריטריון 1, 25 השאלות בשבוע', () => {
   const weekly = WEEK_DATES.flatMap((date) => sequencesForDate(TIMETABLE, date));
 
-  test('בדיוק 26 רצפים, והמקצוע, השיעורים והשעה המקומית שווים למערך המוקלד', () => {
-    assert.equal(EXPECTED_26.length, 26);
-    assert.equal(weekly.length, 26);
+  test('בדיוק 25 רצפים, והמקצוע, השיעורים והשעה המקומית שווים למערך המוקלד', () => {
+    assert.equal(EXPECTED_26.length, 25);
+    assert.equal(weekly.length, 25);
     const actual = weekly.map((s) => ({ day: s.weekday, subject: s.subject, periods: [s.startPeriod, s.endPeriod], time: s.askTimeLocal }));
     assert.deepEqual(actual, EXPECTED_26);
   });
 
-  test('לפני הפטורים יש 30 רצפים: ארבעת הפטורים (שיח אישי, כישורי חיים, חנ"ג פעמיים) הם ההפרש', () => {
+  test('לפני הפטורים יש 30 רצפים: חמשת הפטורים (שיח אישי, כישורי חיים, חנ"ג פעמיים, תחומי בחירה) הם ההפרש', () => {
     const raw = [1, 2, 3, 4, 5].flatMap((weekday) => sequencesOfWeekday(TIMETABLE, weekday));
     assert.equal(raw.length, 30);
     const removed = raw.filter((s) => !weekly.some((w) => w.weekday === s.weekday && w.startPeriod === s.startPeriod)).map((s) => `${s.weekday}:${s.subject}`);
-    assert.deepEqual(removed, ['1:שיח אישי', '3:כישורי חיים', '3:חנ"ג', '4:חנ"ג']);
+    assert.deepEqual(removed, ['1:שיח אישי', '3:כישורי חיים', '3:חנ"ג', '4:חנ"ג', '5:תחומי בחירה']);
   });
 
-  test('קובץ הפטורים: בדיוק שלושת הפטורים, ותחומי בחירה אינו פטור', () => {
-    assert.deepEqual([...EXEMPT_SUBJECTS], ['חנ"ג', 'כישורי חיים', 'שיח אישי']);
-    assert.equal(isExempt('תחומי בחירה'), false);
-    assert.ok(weekly.some((s) => s.subject === 'תחומי בחירה'), 'תחומי בחירה נשאל');
+  test('קובץ הפטורים: ארבעה פטורים, ותחומי בחירה פטור (יובל, 26.11.2026)', () => {
+    assert.deepEqual([...EXEMPT_SUBJECTS], ['חנ"ג', 'כישורי חיים', 'שיח אישי', 'תחומי בחירה']);
+    assert.equal(isExempt('תחומי בחירה'), true);
+    assert.ok(!weekly.some((s) => s.subject === 'תחומי בחירה'), 'תחומי בחירה לא נשאל');
     for (const name of ['חנ"ג', 'חנ״ג', 'כישורי חיים', 'שיח אישי', ' שיח אישי ']) assert.equal(isExempt(name), true, name);
     for (const name of ['חינוך פיננסי', 'מתמטיקה', 'גיאומטריה', '']) assert.equal(isExempt(name), false, name);
     assert.ok(weekly.every((s) => !EXEMPT_SUBJECTS.includes(s.subject)));
@@ -92,7 +91,7 @@ describe('homework-schedule: קריטריון 1, 26 השאלות בשבוע', ()
 
   test('מפתחות הרצפים: ASCII בלבד, בלי שם מקצוע, ייחודיים בשבוע', () => {
     const keys = weekly.map((s) => s.slotKey);
-    assert.equal(new Set(keys).size, 26);
+    assert.equal(new Set(keys).size, 25);
     for (const key of keys) assert.match(key, /^homework-2026-10-(18|19|20|21|22)-[1-9]$/);
     assert.equal(slotKeyOf('2026-10-22', 8), 'homework-2026-10-22-8');
   });
@@ -294,7 +293,7 @@ describe('message-slots: משבצת homework', () => {
 
 // ---------------------------------------------------------------------------
 // קריטריון 3 (חלק התזמון): cron-plan מתזמן הודעה מושהית אחת לרצף, ושתי הרצות באותו יום נותנות אותם מפתחות.
-// חמישי 22.10.2026, 04:10 ישראל = 01:10Z. ששת הרצפים וזמני השאלה (שעון ישראל UTC+3): 09:53, 11:43, 12:38, 13:28, 14:18, 15:48.
+// חמישי 22.10.2026, 04:10 ישראל = 01:10Z. חמשת הרצפים וזמני השאלה (שעון ישראל UTC+3): 09:53, 12:38, 13:28, 14:18, 15:48.
 // ---------------------------------------------------------------------------
 describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריון 3)', () => {
   const AUTH = { authorization: `Bearer ${FAKE_CRON}` };
@@ -309,19 +308,18 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
   const homeworkCalls = (send) => send.calls.filter((c) => c[1].kind === 'homework');
   const EXPECTED_THURSDAY = [
     ['homework-2026-10-22-1', '2026-10-22T06:53:00.000Z', 20580],
-    ['homework-2026-10-22-3', '2026-10-22T08:43:00.000Z', 27180],
     ['homework-2026-10-22-5', '2026-10-22T09:38:00.000Z', 30480],
     ['homework-2026-10-22-6', '2026-10-22T10:28:00.000Z', 33480],
     ['homework-2026-10-22-7', '2026-10-22T11:18:00.000Z', 36480],
     ['homework-2026-10-22-8', '2026-10-22T12:48:00.000Z', 41880],
   ];
 
-  test('slot=1 ביום חמישי: בריף אחד ואחריו שש הודעות homework, כל אחת עם idempotencyKey = slotKey, יעד והשהיה', async () => {
+  test('slot=1 ביום חמישי: בריף אחד ואחריו חמש הודעות homework, כל אחת עם idempotencyKey = slotKey, יעד והשהיה', async () => {
     const { res, send } = await run(1, NOW);
     assert.equal(res.status, 200);
     assert.equal(send.calls[0][1].kind, 'brief');
     const calls = homeworkCalls(send);
-    assert.equal(calls.length, 6);
+    assert.equal(calls.length, 5);
     assert.deepEqual(calls.map((c) => [c[1].slotKey, c[1].targetAt, c[2].delaySeconds]), EXPECTED_THURSDAY);
     for (const [topic, message, options] of calls) {
       assert.equal(topic, 'daily-slots');
@@ -337,7 +335,7 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
     const send = makeSend();
     const res = await cronHandle(req('https://x.test/api/cron-plan?slot=1', { headers: AUTH }), { sql: fakeSql(), secret: FAKE_CRON, listenEnabled: false, now: () => new Date(NOW), send, timetable: TIMETABLE });
     assert.equal(res.status, 200);
-    assert.equal(send.calls.filter((c) => c[1].kind === 'homework').length, 6);
+    assert.equal(send.calls.filter((c) => c[1].kind === 'homework').length, 5);
   });
 
   test('מתג כבוי בהזרקה (homeworkEnabled=false): לא נשלחת הודעת homework, אין טעינת מערכת שעות, ו-probe_log בלי תוספת', async () => {
@@ -357,7 +355,7 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
 
   test('שורת ה-probe_log מוסיפה רק מספר ובלי שם מקצוע', async () => {
     const { sql } = await run(1, NOW);
-    assert.match(sql.calls[0].values[1], /; homework_queued=6$/);
+    assert.match(sql.calls[0].values[1], /; homework_queued=5$/);
     for (const subject of ['גיאומטריה', 'כימיה', 'ערבית', 'מדעי']) assert.ok(!sql.calls[0].values[1].includes(subject));
   });
 
@@ -366,7 +364,7 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
     const b = await run(1, '2026-10-22T01:50:00.000Z');
     const keys = (r) => homeworkCalls(r.send).map((c) => c[2].idempotencyKey);
     assert.deepEqual(keys(a), keys(b));
-    assert.equal(keys(a).length, 6);
+    assert.equal(keys(a).length, 5);
   });
 
   test('אחרי מעבר השעון: שני 26.10.2026 מתזמן שש הודעות ביעד UTC+2 (הראשונה 09:03 = 07:03Z)', async () => {
@@ -413,14 +411,14 @@ describe('cron-plan: תזמון שאלות שיעורי הבית (קריטריו
     const send = makeSend();
     const base = send;
     const failing = async (topic, message, options) => {
-      if (message.slotKey === 'homework-2026-10-22-3') throw Object.assign(new Error(`boom ${FAKE_CRON}`), { name: 'QueueError' });
+      if (message.slotKey === 'homework-2026-10-22-5') throw Object.assign(new Error(`boom ${FAKE_CRON}`), { name: 'QueueError' });
       return base(topic, message, options);
     };
     failing.calls = send.calls;
     const { res, sql } = await run(1, NOW, { send: failing });
     assert.equal(res.status, 500);
-    assert.equal(homeworkCalls(send).length, 5);
-    assert.match(sql.calls[0].values[1], /homework_queued=5; homework_failed=1$/);
+    assert.equal(homeworkCalls(send).length, 4);
+    assert.match(sql.calls[0].values[1], /homework_queued=4; homework_failed=1$/);
     assert.equal(sql.calls[0].values[0], false);
     assert.ok(!cap.text().includes(FAKE_CRON));
     assert.match(cap.text(), /QueueError/);
