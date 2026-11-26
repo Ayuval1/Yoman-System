@@ -534,3 +534,48 @@ describe('"כן, אותו דבר": כשל או אירוע שכבר לא מתוכ
     assert.equal(sql.find('UPDATE messages SET awaiting_reply = true').length, 1);
   });
 });
+
+describe('"הגב" על אירוע מחוץ ל-pool: האירוע הוא מועמד (26.11)', () => {
+  const typed = (text) => ({ id: SRC_ID, channel: 'app', raw_content: text, content_hash: 'h', received_at: SUNDAY_MORNING });
+  const FAR = candidate(EV_B, 'תור לספר', '2026-12-30', '17:00', SRC_B);
+  const replyDb = (pool) => fakeSql((text) => {
+    if (text.includes('WITH s AS ( SELECT CASE WHEN')) return [row(FAR)];
+    if (isPoolQuery(text)) return pool.map(row);
+    return [];
+  });
+  const reply = { id: MSG_ID, role: 'system' };
+  const brainSeeing = (seen) => async (extra) => {
+    seen.push(await extra.loadCandidates());
+    return { ok: true, model: 'm', understanding: { kind: 'personal_event', subject: null, topic: null, date_text: null, new_date_text: null, time_text: null, new_room: null, uncertain: [], match: 'e1', match_sure: true, duration_text: 'חצי שעה' } };
+  };
+  test('pool ריק: האירוע המגיב הוא המועמד היחיד, והאורך משתנה', async () => {
+    const sql = replyDb([]);
+    const seen = [];
+    const result = await processSource({ sql, source: typed('זה חצי שעה'), timetable: null, replyTo: reply, understand: brainSeeing(seen) });
+    assert.equal(seen[0].length, 1);
+    assert.equal(seen[0][0].key, 'e1');
+    assert.match(seen[0][0].label, /^תור לספר/);
+    assert.match(result.reply, /^עודכן · תור לספר/);
+    assert.equal(sql.find('UPDATE events SET starts_at = CASE').length, 1);
+  });
+  test('pool לא ריק בלי האירוע: האירוע נוסף בסוף, מפתחות קיימים לא זזים', async () => {
+    const sql = replyDb([BARBER]);
+    const seen = [];
+    await processSource({ sql, source: typed('זה חצי שעה'), timetable: null, replyTo: reply, understand: brainSeeing(seen) });
+    assert.equal(seen[0].length, 2);
+    assert.equal(seen[0][0].label, 'תור לספר · ראשון 22.11 · 17:00');
+    assert.equal(seen[0][1].key, 'e2');
+  });
+  test('האירוע כבר ב-pool: בלי כפילות', async () => {
+    const sql = replyDb([FAR]);
+    const seen = [];
+    await processSource({ sql, source: typed('זה חצי שעה'), timetable: null, replyTo: reply, understand: brainSeeing(seen) });
+    assert.equal(seen[0].length, 1);
+  });
+  test('בלי replyTo: pool ריק נשאר ריק', async () => {
+    const sql = replyDb([]);
+    const seen = [];
+    await processSource({ sql, source: typed('זה חצי שעה'), timetable: null, understand: brainSeeing(seen) });
+    assert.deepEqual(seen[0], []);
+  });
+});
