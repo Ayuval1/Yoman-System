@@ -113,5 +113,6 @@ python .claude/skills/yoman-builder/scripts/check-pointers.py --lines    # גם 
 | GET עם `CRON_SECRET` מה-iPad (למשל `gate-probe?from=0`) | קיצור משוכפל, כותרת `Authorization: Bearer <CRON_SECRET>` | **לא נוסה** |
 | `gate-probe`: ניסיון חוזר ובחירת דגם (8.10.2026) | על 5xx: עד שני ניסיונות חוזרים אחרי 20 ו-40 שניות. `?model=gemini-3.5-flash-lite` מריץ דגם אחר (רשימה סגורה; ברירת מחדל `gemini-3.8-flash`). הריצה ארוכה יותר, עד 300 שניות | **לא נוסה בפרודקשן** |
 | חבילת הבדיקות | `node --test "test/*.test.js"` | 528 עוברות בענף 5ג (8.10.2026) |
+| `brain-duration-check`: המוח האמיתי על אורך אירוע (`duration_text`) | GET `/api/ops?task=brain-duration-check`, כותרת `Authorization: Bearer <CRON_SECRET>`. קריאה בלבד, כ-6 קריאות ממכסת המוח. 6 משפטים קבועים: "מגיע 15 / חמש עשרה דקות קודם", "הנסיעה לוקחת 40 דקות" ו"בעוד שעה" צריכים להחזיר null; "לוקחת חצי שעה" צריך להחזיר "חצי שעה"; "נמשך שעה וחצי" צריך להחזיר "שעה וחצי". הרצה לפני כל שינוי בפרומפט של המוח | **אומת 26.11.2026: `passed 6/6`** (gemini-3.1-flash-lite ×5, gemini-3.5-flash-lite ×1) |
 
 </div>

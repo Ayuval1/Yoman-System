@@ -45,3 +45,21 @@
 המרת מספרים במילים לדקות (`findDuration` / `durationMinutes` ב-`lib/intake-questions.js`), ואחריה הבאגים של Garmin (כוח שבוטל, "מנוחה").
 
 </div>
+
+<div dir="rtl">
+
+## המשך 2: בדיקות שלא נבדקו (הוספה בלבד)
+
+| מה | איך | תוצאה |
+|---|---|---|
+| 🔒 **Gemini על `duration_text`** | `brain-duration-check` חדש (PR 296), יובל הריץ עם `CRON_SECRET` | **`passed 6/6`. נעול**, ראו `05` |
+| פריסת PR 294 ו-295 | `list_deployments` | READY |
+| Google, כותרת "פודקאסט" | `school-series` `mode=dry` | `update 74`, `header 5`, לא נכתב. **אין Cron**, ולכן צריך `apply` ידני |
+| אייפון | — | לא נבדק (רק יובל) |
+
+## ▶️ הצעד הבא
+1. `school-series` `mode=apply` (POST, `CRON_SECRET`), כדי שהכותרת תגיע ל-Google.
+2. מספר במילים לדקות.
+3. Garmin.
+
+</div>
