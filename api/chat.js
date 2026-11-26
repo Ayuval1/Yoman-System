@@ -465,7 +465,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const syncSource = matched.matched?.sourceId ?? (matched.replayed?.status === 'recorded' ? matched.replayed.sourceId : null);
         if (syncSource) {
           try {
-            await sourceSync({ sql, sourceId: String(syncSource), now: now(), allowPatch: Boolean(matched.matched) });
+            await sourceSync({ sql, sourceId: String(syncSource), now: now(), allowPatch: Boolean(matched.matched), ...(matched.matched?.toTimed ? { toTimed: true } : {}) });
           } catch (error) {
             console.error('chat: כתיבה ליומן נכשלה:', error?.name);
           }
