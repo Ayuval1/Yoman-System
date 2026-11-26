@@ -10,6 +10,7 @@ import schoolSeries from '../lib/ops/school-series.js';
 import runSeries from '../lib/ops/run-series.js';
 import lessonBackfill from '../lib/ops/lesson-backfill.js';
 import brainStatus from '../lib/ops/brain-status.js';
+import brainDurationCheck from '../lib/ops/brain-duration-check.js';
 import { connectTask as garminConnect, statusTask as garminStatus, syncTask as garminSync } from '../lib/ops/garmin-sync.js';
 import { shapeTask as garminShape } from '../lib/ops/garmin-shape.js';
 
@@ -34,6 +35,8 @@ export const TASKS = {
   'lesson-backfill': lessonBackfill,
   // המוח: איפה הוא עומד (קריאה בלבד; lib/ops/brain-status.js).
   'brain-status': brainStatus,
+  // בדיקת duration_text על המוח האמיתי, קריאה בלבד, כ-6 קריאות ממכסת החינם (lib/ops/brain-duration-check.js).
+  'brain-duration-check': brainDurationCheck,
 };
 
 export function pickTask(request) {
