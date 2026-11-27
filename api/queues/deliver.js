@@ -16,6 +16,7 @@ import { sendChatNotification, sendBriefNotification, sendClosingNotification, s
 import { composeBrief, briefEntityId, briefPushText } from '../../lib/brief-view.js';
 import { closingWindow, closingDates, loadReceived, loadDone, composeClosing, closingPushText } from '../../lib/closing-view.js';
 import { composeWeekly, weeklyPushText, loadWeekTasks, loadWeekTrainings, loadWeekFresh, isBiweeklySaturday, loadBiweeklyStudy, loadPendingRules } from '../../lib/weekly-brief.js';
+import { MONTHLY_ENTITY, composeMonthly, monthlyPushText, loadMonthTrainings, loadMonthStudyMinutes, loadMonthTasksDone, loadMonthAway, ensureMonthlyReview, prevMonthKey } from '../../lib/monthly-brief.js';
 import { loadPending } from '../../lib/chat-pending.js';
 import { loadTomorrowEvents, loadGoogleTomorrow } from '../../lib/closing-tomorrow.js';
 import { loadTrainingsForDate } from '../../lib/training-source.js';
@@ -82,6 +83,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
   if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
   if (parsed.kind === 'weekly') return deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
+  if (parsed.kind === 'monthly') return deliverMonthly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleDay, ask });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
   if (parsed.kind === 'taskcheck') return deliverTaskCheck({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret });
@@ -268,6 +270,77 @@ async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt
     console.error('queue-deliver: רישום התראת הבריף השבועי נכשל:', error?.name);
   }
   return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, push: { sent: outcome.sent, reason: outcome.reason ?? null } };
+}
+
+// הבריף החודשי (אפיון-מורחב 15; lib/monthly-brief.js). אותו מסלול כמו deliverWeekly: הודעה אחת לחודש (entity_type='monthly_brief', entity_id דטרמיניסטי, WHERE NOT EXISTS),
+// read_at מלא (לא נספרת באייקון), ודחיפה עם מספרים בלבד (dedupe_key = המשבצת). כשל טעינה נזרק לניסיון חוזר, ובניסיון האחרון החלק מושמט (partial, בלי "אין כלום").
+// אחרי ההודעה: כרטיס "מה לשמר מהחודש, ומה לשפר?" (ensureMonthlyReview, לא זורק, אידמפוטנטי), לפני הדחיפה כדי שייספר במספר שעל האייקון.
+// God Mode לא מופעל מכאן (הנימוק בראש lib/monthly-brief.js).
+async function deliverMonthly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret }) {
+  const monthKey = parsed.slotKey.slice('monthly-'.length);
+  const pastKey = prevMonthKey(monthKey);
+  const entityId = briefEntityId(parsed.slotKey);
+  const existing = await sql`SELECT 1 AS found FROM messages WHERE entity_type = 'monthly_brief' AND entity_id = ${entityId}::uuid LIMIT 1`;
+  const exists = Array.isArray(existing) && existing.length > 0;
+  const lastAttempt = deliveryCount !== null && deliveryCount >= MAX_DELIVERIES;
+  let created = false;
+  let counts = { exams: 0, denseWeeks: 0, vacations: 0 };
+  if (!exists) {
+    let partial = false;
+    const loadPart = async (label, load, fallback) => {
+      try {
+        return await load();
+      } catch (error) {
+        if (!lastAttempt) throw error;
+        console.error(`queue-deliver: הבריף החודשי נשלח בלי ${label}:`, error?.name);
+        partial = true;
+        return fallback;
+      }
+    };
+    const answers = await loadExamAnswers(sql); // לא זורק
+    const exams = applyExamChanges(undefined, await loadExamChanges(sql)); // לא זורק
+    const trainings = await loadPart('האימונים', () => loadMonthTrainings(sql, pastKey), null);
+    const studyMinutes = await loadPart('שעות הלמידה', () => loadMonthStudyMinutes(sql, pastKey), null);
+    const tasksDone = await loadPart('המשימות שבוצעו', () => loadMonthTasksDone(sql, pastKey), null);
+    const away = await loadPart('הימים מחוץ לבית', () => loadMonthAway(sql, monthKey), []);
+    const monthly = composeMonthly({ monthKey, exams, answers, trainings, studyMinutes, tasksDone, away, partial });
+    counts = monthly.counts;
+    const rows = await sql`
+      INSERT INTO messages (direction, body, kind, sent_at, awaiting_reply, reply_source_id, expires_at, entity_type, entity_id, attempt, read_at)
+      SELECT 'out', ${monthly.text}::text, 'update', ${parsed.targetAt}::timestamptz, false, NULL::uuid, NULL::timestamptz, ${MONTHLY_ENTITY}::text, ${entityId}::uuid, NULL::integer, ${parsed.targetAt}::timestamptz
+      WHERE NOT EXISTS (SELECT 1 FROM messages WHERE entity_type = 'monthly_brief' AND entity_id = ${entityId}::uuid)
+      RETURNING id
+    `;
+    created = Array.isArray(rows) && rows.length > 0;
+  }
+  const review = await ensureMonthlyReview({ sql, monthKey, targetAt: parsed.targetAt }); // לא זורק
+
+  let outcome;
+  if (!created) {
+    outcome = { sent: false, reason: 'exists', badge: null };
+  } else {
+    try {
+      outcome = await sendBriefNotification({ sql, slotKey: parsed.slotKey, pushHandle, secret, body: monthlyPushText(counts), now: deliveredAt });
+    } catch (error) {
+      if (!lastAttempt) throw error;
+      console.error('queue-deliver: התראת הבריף החודשי נכשלה:', error?.name);
+      outcome = { sent: false, reason: 'error', badge: null };
+    }
+    const transient = outcome.reason === 'push-error' || (outcome.reason === 'push-status' && outcome.status >= 500);
+    if (transient && !lastAttempt) throw new Error(`queue-deliver: התראת הבריף החודשי נכשלה זמנית (${outcome.reason})`);
+  }
+  const sentOk = outcome.sent || outcome.reason === 'exists';
+  const notifyDetail = `${detail}; created=${created}; exams=${counts.exams}; dense=${counts.denseWeeks}; vacations=${counts.vacations}; review=${review.created}; sent=${outcome.sent}${outcome.sent ? '' : `; reason=${outcome.reason}${outcome.status ? `; push_status=${outcome.status}` : ''}`}`;
+  try {
+    await sql`
+      INSERT INTO probe_log (probe, ok, detail)
+      SELECT 'chat-notify', ${ok && sentOk}, ${notifyDetail}
+      WHERE NOT EXISTS (SELECT 1 FROM probe_log WHERE probe = 'chat-notify' AND detail LIKE ${`slot=${parsed.slotKey};%`})
+    `;
+  } catch (error) {
+    console.error('queue-deliver: רישום התראת הבריף החודשי נכשל:', error?.name);
+  }
+  return { stored: true, slotKey: parsed.slotKey, lateSeconds, ok: ok && sentOk, created, review: review.created, push: { sent: outcome.sent, reason: outcome.reason ?? null } };
 }
 
 // שאלת שיעורי בית (מפרט 60 סעיפים 3-5). השם והתאריך מחושבים ממערכת השעות ומהמפתח, לא מגוף ההודעה.
