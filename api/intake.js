@@ -22,6 +22,7 @@ import { syncEventForSource, syncEventsByMatchKeys } from '../lib/event-sync.js'
 import { understandSource, parseReplyTo } from '../lib/intake-brain.js';
 import { googleDayFromEnv } from '../lib/free-check.js';
 import { queueTaskCheck } from '../lib/personal-task.js';
+import { godModeAfterChange } from '../lib/god-mode-trigger.js';
 
 // נטען בעצלות, כמו ב-lib/ops/cron-plan.js: בדיקות ובקשות שנדחות לא יוצרות חיבור לתור.
 const realSend = async (...args) => (await import('@vercel/queue')).send(...args);
@@ -106,6 +107,8 @@ export async function handle(request, {
   understand = understandSource,
   // בלוק 3ב-2: אירועי Google של יום ("אני פנוי?", התנגשות ב"לא זמין"). בלי הגדרות Google: undefined, ו-Google לא נבדק.
   googleDay = googleDayFromEnv({ sql }),
+  // God Mode מיד אחרי שינוי במבחן (lib/god-mode-trigger.js), לבדיקות.
+  godMode = godModeAfterChange,
 }) {
   const startedAt = Date.now();
 
@@ -218,6 +221,15 @@ export async function handle(request, {
       `;
     } catch (error) {
       console.error('intake: רישום התוצאה נכשל:', error?.name);
+    }
+  }
+  // God Mode (אפיון-מורחב ה-14, "רץ כשקורה משהו חריג"): הודעה שנקשרה למבחן מהלוח (result.exam, lib/intake-process.js). מבחן שהוקדם, או שבוע שנהיה עמוס,
+  // מקבלים כרטיס עכשיו ולא בבריף של מחר (אותם מפתחות, ולכן הבריף לא חוזר עליו). לפני השליחה לתור, כדי שהכרטיס ייכלל בהתראה המאוגדת. לא זורק ולא משנה את התשובה.
+  if (result?.status === 'recorded' && result.exam === true) {
+    try {
+      await godMode({ sql, now: now() });
+    } catch (error) {
+      console.error('intake: God Mode נכשל:', error?.name);
     }
   }
   // התראה מאוגדת: רק הודעה שהועברה שנכתבה לה בועת "נרשם". מפתח אידמפוטנטיות לפי החלון: שלוש הודעות באותו חלון = הודעת תור אחת.

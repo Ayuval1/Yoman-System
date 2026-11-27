@@ -70,6 +70,7 @@ import { answerExamFeel } from '../lib/exam-feel.js';
 import { answerMonthlyReview } from '../lib/monthly-brief.js';
 import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
 import { answerStudyCleanup } from '../lib/study-cleanup.js';
+import { godModeAfterChange } from '../lib/god-mode-trigger.js';
 import { localDateIso } from '../lib/intake-dates.js';
 import { MAX_ATTACH_BODY_CHARS, IMAGES_OFF_TEXT, UPLOAD_FAILED_TEXT, attachImage, blobUploader, decodeJpeg, stripJpegMetadata } from '../lib/media-attach.js';
 
@@ -282,7 +283,7 @@ async function loadGoogleConnected(sql) {
 // sendQueue (בלוק 4, אופציונלי, לבדיקות): השליחה לתור של "בוצע?" אחרי תשובה ל"עד מתי?" עם שעה ברורה.
 // blobToken, upload (שלב 8.6-3, אופציונלי, לבדיקות): הטוקן של Vercel Blob וההעלאה עצמה. בדיקות מזריקות upload ולא נוגעות ברשת.
 // keysSync (בלוק 5, אופציונלי, לבדיקות): הכתיבה ליומן לפי match_key אחרי תשובה לשאלת ריצה (lib/event-sync.js, syncEventsByMatchKeys).
-export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, keysSync = syncEventsByMatchKeys, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload, readBlob } = {}) {
+export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAME], timetable, now = () => new Date(), eventSync = syncEventAfterAnswer, googleDay = googleDayFromEnv({ sql }), sendQueue = realSend, sourceSync = syncEventForSource, keysSync = syncEventsByMatchKeys, blobToken = process.env[BLOB_TOKEN_ENV_NAME], upload, readBlob, godMode = godModeAfterChange } = {}) {
   if (request.method !== 'GET' && request.method !== 'POST') return reply(405, 'Method Not Allowed');
   if (!secret) {
     console.error(`${SECRET_ENV_NAME} לא מוגדר בשרת`);
@@ -457,10 +458,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         return json({ status: task.status, items, pending, badge });
       }
       // בלוק 4: שאלת זיהוי. "לא, חדש" = הקליטה הרגילה, בלי זיהוי, עם ההבנה השמורה (בלי קריאה נוספת למוח).
-      const replay = ({ source, understanding }) => processSource({
-        sql, source, timetable, googleDay, matchDisabled: true,
-        understand: understanding ? async () => ({ ok: true, model: 'replay', understanding, replay: true }) : undefined,
-      });
+      let replayExam = false; // "לא, חדש" על הזזה שנקשרה למבחן מהלוח: God Mode מיד (lib/intake-process.js, הסימון exam)
+      const replay = async ({ source, understanding }) => {
+        const out = await processSource({
+          sql, source, timetable, googleDay, matchDisabled: true,
+          understand: understanding ? async () => ({ ok: true, model: 'replay', understanding, replay: true }) : undefined,
+        });
+        if (out?.status === 'recorded' && out.exam === true) replayExam = true;
+        return out;
+      };
       const matched = await answerEventMatch({ sql, messageId: action.messageId, answer: action.answer, now: now(), replay });
       if (matched.status !== 'closed') {
         // כתיבה ליומן Google: האירוע הקיים אחרי "כן" (PATCH או מחיקה), או האירוע החדש אחרי "לא, חדש". כשל נתפס ולא משנה את התשובה.
@@ -473,6 +479,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
           }
         }
         if (matched.status === 'answered') await offerAwayCards({ sql, now: now() }); // אירוע של כמה ימים שהוזז: כרטיס "בזמן החופשה" (lib/away.js). לא זורק
+        if (replayExam) await runGodModeQuietly(godMode, sql, now());
         const items = matched.status === 'answered' ? await loadCreatedItems(sql, matched.created) : [];
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
@@ -537,6 +544,8 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       const away = await answerAway({ sql, messageId: action.messageId, answer: action.answer, now: now() });
       if (away.status !== 'closed') {
         if (away.keys.length > 0) await syncKeysQuietly({ sql, keys: away.keys, keysSync, now: now() });
+        // "כן" מעביר מבחנים למועד ב' (lib/away.js), ומועד חדש עלול להפוך שבוע לעמוס. "לא" לא משנה מבחן, והבדיקה לא תמצא ממצא חדש.
+        if (away.status === 'answered') await runGodModeQuietly(godMode, sql, now());
         const items = away.status === 'answered' ? await loadCreatedItems(sql, away.created) : [];
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
@@ -586,6 +595,7 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
       }
     }
     if (result.status === 'answered') await offerAwayCards({ sql, now: now() }); // אירוע של כמה ימים נרשם או תוקן: כרטיס "בזמן החופשה" (lib/away.js). לא זורק
+    if (result.status === 'answered' && result.exam === true) await runGodModeQuietly(godMode, sql, now()); // למשל "מה המועד החדש?" של מבחן מהלוח
     const items = result.status === 'answered' ? await loadCreatedItems(sql, result.created ?? {}) : [];
     const pending = await loadPending(sql, timetable, now());
     const badge = await loadBadge(sql, now());
@@ -594,6 +604,15 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
     // רק שם השגיאה: לא message (עלול לכלול ערכים מהמסד) ולא טקסט הודעה.
     console.error('chat: פעולה נכשלה:', error?.name);
     return reply(500, ERROR_TEXT);
+  }
+}
+
+// God Mode מיד אחרי תשובה שמשנה מבחן מהלוח (lib/god-mode-trigger.js; אפיון-מורחב ה-14). לפני טעינת הממתינים והמספר, כדי שהכרטיס ייכלל בהם. לא זורק.
+async function runGodModeQuietly(godMode, sql, now) {
+  try {
+    await godMode({ sql, now });
+  } catch (error) {
+    console.error('chat: God Mode נכשל:', error?.name);
   }
 }
 

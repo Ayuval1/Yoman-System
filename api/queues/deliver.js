@@ -30,6 +30,7 @@ import { createExamAsks, loadExamAnswers, loadExamChanges } from '../../lib/exam
 import { ensureVacationMorning, ensureVacationEvening } from '../../lib/vacation-ask.js';
 import { offerStudyPlans } from '../../lib/study-plan.js';
 import { runGodMode } from '../../lib/god-mode.js';
+import { godModeBiweekly as runBiweeklyGodMode } from '../../lib/god-mode-trigger.js';
 import { awayOn, offerAwayCards } from '../../lib/away.js';
 import { offerStudyCleanup } from '../../lib/study-cleanup.js';
 import { ensureExamFeel } from '../../lib/exam-feel.js';
@@ -45,7 +46,7 @@ const MAX_DELIVERIES = 5; // כמו maxDeliveries ב-vercel.json; בניסיון
 // שלב 8.2א-3: הודעת notify (התראה מאוגדת של הצ'אט) בודקת מצב ושולחת דחיפה (lib/chat-notify.js). pushHandle ו-secret מוזרקים לבדיקות;
 // ברירת המחדל: handle של api/push-send.js ו-CRON_SECRET. brief (B-1): אחרי הרישום הקיים, כותב את הודעת הבוקר ל-messages. close (C-1, docs/08-chapter8/90): אחרי הרישום הקיים, הודעת הסגירה והתראה בכל ערב.
 // homework (שלב 8.6-1, docs/08-chapter8/60 סעיפים 3-5): אחרי הרישום הקיים, יוצר את שאלת שיעורי הבית של הרצף ושולח התראה כללית אחת. timetable (אופציונלי, לבדיקות): במקום טעינה מהמסד.
-export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable, googleConfig, googleFetch, loadTrainings, googleDay = googleDayFromEnv({ sql }), ask = askBrain }) {
+export async function handleDelivery(message, metadata, { sql, now = () => new Date(), pushHandle, secret = process.env.CRON_SECRET, timetable, googleConfig, googleFetch, loadTrainings, googleDay = googleDayFromEnv({ sql }), ask = askBrain, godModeBiweekly = runBiweeklyGodMode }) {
   const parsed = parseSlotMessage(message);
   if (!parsed.ok) {
     // הודעה פגומה לא תתתקן בניסיון חוזר: רושמים ומאשרים (לא זורקים), כדי שלא תיכנס ללולאת ניסיונות.
@@ -82,7 +83,7 @@ export async function handleDelivery(message, metadata, { sql, now = () => new D
   // C-1 (docs/08-chapter8/90 E9, E10): במשבצת close, אחרי שנכתבה שורת message-slot (למעלה, ללא שינוי), הודעת הסגירה בצ'אט והתראה אחת בכל ערב (deliverClose למטה).
   // היא מחליפה את התראת הסיכום של M.2, ונוסחה כולל את "סיכום היום מחכה לסימון" כל עוד יש הודעות לסימון.
   if (parsed.kind === 'close') return deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleConfig, googleFetch, loadTrainings });
-  if (parsed.kind === 'weekly') return deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable });
+  if (parsed.kind === 'weekly') return deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, ask, godModeBiweekly });
   if (parsed.kind === 'monthly') return deliverMonthly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret });
   if (parsed.kind === 'brief') return deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, googleDay, ask });
   if (parsed.kind === 'homework') return deliverHomework({ sql, parsed, detail, ok, lateSeconds, deliveredAt, pushHandle, secret, timetable });
@@ -201,7 +202,7 @@ async function deliverBrief({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
 
 // הבריף השבועי (בלוק 8, אפיון-מורחב 15; lib/weekly-brief.js). מסר נפרד בשבת 20:00, באותו מסלול של הבריף: הודעה אחת למשבצת (entity_type='weekly_brief', entity_id דטרמיניסטי, WHERE NOT EXISTS), read_at מלא (לא נספרת באייקון), ודחיפה עם מספרים בלבד (dedupe_key = המשבצת).
 // כשל טעינה נזרק לניסיון חוזר של התור, ובניסיון האחרון החלק מושמט וההודעה לא טוענת "אין כלום" (partial). הודעה שכבר קיימת: לא נכתבת שוב ולא נטענת מחדש; הדחיפה נוסחה מ-0 ולכן נשלחת רק כשההודעה נוצרה עכשיו (ניסיון חוזר אחרי הצלחה נעצר ב-dedupe_key).
-async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable }) {
+async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt, deliveryCount, pushHandle, secret, timetable, ask, godModeBiweekly }) {
   const saturdayIso = parsed.slotKey.slice('weekly-'.length);
   const entityId = briefEntityId(parsed.slotKey);
   const existing = await sql`SELECT 1 AS found FROM messages WHERE entity_type = 'weekly_brief' AND entity_id = ${entityId}::uuid LIMIT 1`;
@@ -232,6 +233,15 @@ async function deliverWeekly({ sql, parsed, detail, ok, lateSeconds, deliveredAt
     const biweekly = isBiweeklySaturday(saturdayIso);
     const studyRows = biweekly ? await loadPart('שעות הלמידה', () => loadBiweeklyStudy(sql, saturdayIso), null) : [];
     const pendingRules = biweekly ? await loadPart('הכללים הממתינים', () => loadPendingRules(sql), 0) : 0;
+    // God Mode, הסקירה היזומה פעם בשבועיים (אפיון-מורחב ה-14; lib/god-mode-trigger.js): טווח 28 יום, כרטיס רק כשיש ממצא חדש. לפני הבריף, כדי שהכרטיס
+    // (הודעת עדכון שלא נקראה) ייספר במספר של התראת הבריף השבועי. אותם מפתחות כמו בבריף היומי. לא זורק.
+    if (biweekly && typeof godModeBiweekly === 'function') {
+      try {
+        await godModeBiweekly({ sql, todayIso: saturdayIso, now: deliveredAt, ask });
+      } catch (error) {
+        console.error('queue-deliver: הסקירה הדו-שבועית נכשלה:', error?.name);
+      }
+    }
     const weekly = composeWeekly({ saturdayIso, timetable: table, exams, answers, tasks, trainings, received, studyRows, pendingRules, partial });
     text = weekly.text;
     counts = weekly.counts;
