@@ -67,6 +67,7 @@ import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/t
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
 import { answerExamFeel } from '../lib/exam-feel.js';
+import { answerMonthlyReview } from '../lib/monthly-brief.js';
 import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
 import { answerStudyCleanup } from '../lib/study-cleanup.js';
 import { localDateIso } from '../lib/intake-dates.js';
@@ -565,6 +566,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: feel.status, items, pending, badge });
+      }
+      // "מה לשמר מהחודש, ומה לשפר?" אחרי הבריף החודשי (lib/monthly-brief.js): כתיבה חופשית. פקודה אחת (או כלום), בלי יומן.
+      const monthly = await answerMonthlyReview({ sql, messageId: action.messageId, answer: action.answer, now: now() });
+      if (monthly.status !== 'closed') {
+        const items = monthly.status === 'answered' ? await loadCreatedItems(sql, monthly.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: monthly.status, items, pending, badge });
       }
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
