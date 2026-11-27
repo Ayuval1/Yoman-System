@@ -166,8 +166,9 @@ describe('weekly-brief: טוענים דו-שבועיים', () => {
     const call = sql.calls[0];
     assert.match(call.text, /FROM candidate_rules c JOIN messages m ON m\.entity_id = c\.id/);
     assert.match(call.text, /c\.status = 'candidate'/);
-    assert.match(call.text, /m\.awaiting_reply = true AND m\.entity_type = \?::text/);
+    assert.match(call.text, /m\.awaiting_reply = true AND m\.entity_type IN \(\?::text, \?::text\)/);
     assert.ok(call.values.includes('correction_rule'));
+    assert.ok(call.values.includes('behavior_rule'), 'גם כללים שנלמדו ממה שיובל עשה (lib/behavior-rules.js)');
   });
 });
 

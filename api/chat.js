@@ -63,6 +63,7 @@ import { answerTaskQuestion, closeQuestionsForTask, queueTaskCheck } from '../li
 import { answerSubtaskLink, closeSubtaskQuestions, countOpenSubtasks, linkSubtask, unlinkSubtask } from '../lib/subtask.js';
 import { answerWeeklyRun } from '../lib/weekly-runs.js';
 import { answerCorrectionRule } from '../lib/correction-rules.js';
+import { answerBehaviorRule } from '../lib/behavior-rules.js';
 import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/time-suggest.js';
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
@@ -508,6 +509,14 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const pending = await loadPending(sql, timetable, now());
         const badge = await loadBadge(sql, now());
         return json({ status: correction.status, items, pending, badge });
+      }
+      // כלל שנלמד ממה שיובל עשה (lib/behavior-rules.js, כן / לא). פקודת כתיבה אחת (או כלום). בלי כתיבה ליומן Google.
+      const behavior = await answerBehaviorRule({ sql, messageId: action.messageId, answer: action.answer });
+      if (behavior.status !== 'closed') {
+        const items = behavior.status === 'answered' ? await loadCreatedItems(sql, behavior.created) : [];
+        const pending = await loadPending(sql, timetable, now());
+        const badge = await loadBadge(sql, now());
+        return json({ status: behavior.status, items, pending, badge });
       }
       // בלוק 7: הצעת שעה למשימה אישית ("כן" / "שעה אחרת" / "לא"). פקודת כתיבה אחת (או כלום), ואז כתיבה ליומן "אישי" לפי המפתח אחרי "כן". כשל ביומן נתפס ולא משנה את התשובה.
       const suggested = await answerTimeSuggest({ sql, messageId: action.messageId, answer: action.answer, now: now(), timetable, googleDay });

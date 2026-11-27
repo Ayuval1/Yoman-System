@@ -33,6 +33,7 @@ import { runGodMode } from '../../lib/god-mode.js';
 import { awayOn, offerAwayCards } from '../../lib/away.js';
 import { offerStudyCleanup } from '../../lib/study-cleanup.js';
 import { ensureExamFeel } from '../../lib/exam-feel.js';
+import { proposeBehaviorRules } from '../../lib/behavior-rules.js';
 import { loadListening, pickForDay, briefLine as listenBriefLine, createListenSuggestion } from '../../lib/listening.js';
 import { fitnessReminderLine } from '../../lib/fitness-reminder.js';
 import { askBrain } from '../../lib/brain/ask.js';
@@ -487,6 +488,8 @@ async function deliverClose({ sql, parsed, detail, ok, lateSeconds, deliveredAt,
   await ensureClosingChecks({ sql, dateIso, targetAt, now: deliveredAt });
   // "איך היה?" למבחן של היום שיובל אמר עליו "אני מוכן" (lib/exam-feel.js), לפני טעינת השאלות כדי שייספר בסגירה ובמספר. לא זורק.
   await ensureExamFeel({ sql, dateIso, now: deliveredAt });
+  // כרטיס הסקירה (03-app-channel-rules.md, חריג פעולה 18): בשבת דו-שבועית בלבד, כללים שנלמדו ממה שיובל עשה (lib/behavior-rules.js). לא זורק.
+  await proposeBehaviorRules({ sql, dateIso, now: deliveredAt });
   const pending = await loadPart('השאלות', () => loadPending(sql, table, deliveredAt));
   let trainings = [];
   let events = [];
