@@ -67,6 +67,7 @@ import { answerTimeSuggest, suggestTimeForTask, cancelTaskEvent } from '../lib/t
 import { answerStudyPlan } from '../lib/study-plan.js';
 import { answerListen } from '../lib/listening.js';
 import { answerExamFeel } from '../lib/exam-feel.js';
+import { answerGoogleUnclear } from '../lib/google-sync.js';
 import { answerMonthlyReview } from '../lib/monthly-brief.js';
 import { answerAway, awayOn, offerAwayCards } from '../lib/away.js';
 import { answerStudyCleanup } from '../lib/study-cleanup.js';
@@ -575,6 +576,19 @@ export async function handle(request, { sql, secret = process.env[SECRET_ENV_NAM
         const badge = await loadBadge(sql, now());
         return json({ status: monthly.status, items, pending, badge });
       }
+    }
+    // "מה זה?" על אירוע מיומן Google (lib/google-sync.js): פקודה אחת (או כלום). itemId = הפריט ברשימה (אם יש).
+    // כשל כאן לא משנה את התשובה ליובל (כמו שאר הכתיבות ליומן): נתפס ונרשם בקוד בלבד.
+    let googleUnclear = { status: 'closed' };
+    try {
+      googleUnclear = await answerGoogleUnclear({ sql, messageId: action.messageId, itemId: action.itemId, answer: action.answer, now: now() });
+    } catch (error) {
+      console.error('chat: תשובה לשאלה ליומן Google נכשלה', error?.name);
+    }
+    if (googleUnclear.status !== 'closed') {
+      const pending = await loadPending(sql, timetable, now());
+      const badge = await loadBadge(sql, now());
+      return json({ status: googleUnclear.status, items: [], pending, badge });
     }
     // כתיבה ליומן Google (שלב 8.3-4): רק כשהתשובה נכתבה למסד, ולאירוע של המקור של השאלה הזו בלבד (יצירה, עדכון אחרי תיקון, או מחיקה אחרי "לא קורה").
     // כל כשל נתפס ולא משנה את התשובה.

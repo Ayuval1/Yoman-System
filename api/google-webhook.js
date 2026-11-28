@@ -4,7 +4,8 @@
 // ערוץ לא מוכר - 404; token שגוי או חסר - 401; בלי פירוט בתשובה. לא קוראים אירועים ולא פונים ל-Google מכאן.
 // כותבים רק מונים ומצב בשורת הערוץ, ושורה קצרה ב-probe_log (בלי מזהי יומן).
 import { neon } from '@neondatabase/serverless';
-import { cleanEnv, parseEncKey, verifyChannelToken } from '../lib/google.js';
+import { cleanEnv, googleConfigFromEnv, parseEncKey, verifyChannelToken } from '../lib/google.js';
+import { syncAndLog } from '../lib/google-sync.js';
 
 const MAX_CHANNEL_ID = 200;
 const KNOWN_STATES = ['sync', 'exists', 'not_exists'];
@@ -13,7 +14,8 @@ function reply(status, body) {
   return new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
 }
 
-export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TOKEN_ENC_KEY) }) {
+// googleSync: סנכרון Google -> האפליקציה (lib/google-sync.js), אחרי הספירה. כשל שלו לא משנה את התשובה: תמיד 200 אחרי אימות.
+export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TOKEN_ENC_KEY), googleSync = defaultGoogleSync }) {
   if (request.method !== 'POST') return reply(405, 'Method Not Allowed');
 
   let key;
@@ -30,7 +32,7 @@ export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TO
   let row;
   try {
     const rows = await sql`
-      SELECT id, last_resource_state, last_message_number FROM google_watch_channels WHERE channel_id = ${channelId} AND stopped_at IS NULL
+      SELECT id, calendar_id, last_resource_state, last_message_number FROM google_watch_channels WHERE channel_id = ${channelId} AND stopped_at IS NULL
     `;
     row = rows[0];
   } catch (error) {
@@ -71,7 +73,20 @@ export async function handle(request, { sql, encKeyRaw = cleanEnv(process.env.TO
     }
   }
 
+  // סנכרון רק בהודעת שינוי (exists). כשל נתפס: התשובה נשארת 200, ו-Google לא ישלח שוב בגלל סנכרון שנכשל.
+  if (state === 'exists') {
+    try {
+      await googleSync({ sql, calendarId: row.calendar_id });
+    } catch (error) {
+      console.error('google-webhook: סנכרון נכשל', error?.name);
+    }
+  }
+
   return reply(200, 'OK');
+}
+
+function defaultGoogleSync(args) {
+  return syncAndLog({ ...args, config: googleConfigFromEnv() });
 }
 
 // הנחה, לא אומת: פורמט "export default { fetch }" - ראו הערה ב-api/intake.js.
