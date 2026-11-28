@@ -231,7 +231,7 @@ describe('לולאה וכפילויות', () => {
     const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
     assert.equal(insertedEvents(sql).length, 0);
     assert.equal(r.imported, 0);
-    assert.equal(r.blocked, 0);
+    assert.equal(r.updated, 0);
   });
 
   test('מחיקה של אירוע שהועבר בעצמנו (gcal-moved) לא נספרת ולא נכתבת', async () => {
@@ -240,7 +240,8 @@ describe('לולאה וכפילויות', () => {
     const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ status: 'cancelled' })], nextSyncToken: 'tok-6' } }] });
     const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
     assert.equal(r.ok, true);
-    assert.equal(r.blocked, 0);
+    assert.equal(r.updated, 0);
+    assert.equal(r.cancelled, 0);
     assert.equal(r.imported, 0);
     assert.equal(sql.find('UPDATE events').length, 0);
   });
@@ -256,23 +257,54 @@ describe('לולאה וכפילויות', () => {
     assert.equal(eventWrites(fetchFn).length, 0);
   });
 
-  test('שינוי של אירוע שכבר מוכר (ממתין לסיווג) נספר כחסום ולא נכתב', async () => {
+  test('שינוי שעה או כותרת של אירוע שממתין לסיווג: מעודכן בשקט, בלי כרטיס ובלי כתיבה ליומן Google', async () => {
     const known = [{ id: importedEventId(G1), external_id: G1, match_key: `gcal-pending:${G1}`, domain: null, status: 'planned', title: 'x', starts_at: FUTURE, ends_at: FUTURE }];
     const sql = db({ known });
-    const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ summary: 'שונה' })], nextSyncToken: 'tok-8' } }] });
+    const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ summary: 'שונה', start: { dateTime: '2026-12-01T12:00:00+02:00' }, end: { dateTime: '2026-12-01T13:00:00+02:00' } })], nextSyncToken: 'tok-8' } }] });
     const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
-    assert.equal(r.blocked, 1);
-    assert.equal(sql.find('UPDATE events').length, 0);
+    assert.equal(r.updated, 1);
+    assert.equal(r.cancelled, 0);
+    const upd = sql.find('UPDATE events SET title');
+    assert.equal(upd.length, 1);
+    assert.ok(upd[0].values.includes('שונה'));
     assert.equal(insertedEvents(sql).length, 0);
+    // עדיין לא ברור: הכרטיס נשאר (הוא שאלה על האירוע, לא הודעה על השינוי). בלי כתיבה ליומן Google.
+    assert.equal(cards(sql).length, 1);
+    assert.equal(eventWrites(fetchFn).length, 0);
   });
 
-  test('מחיקה של אירוע מוכר שעוד לא הועבר נספרת כחסומה ולא נכתבת', async () => {
+  test('שינוי של אירוע שנשאר ביומן הראשי (gcal-kept): מעודכן בשקט', async () => {
+    const known = [{ id: importedEventId(G1), external_id: G1, match_key: `gcal-kept:${G1}`, domain: null, status: 'planned', title: 'x', starts_at: FUTURE, ends_at: FUTURE }];
+    const sql = db({ known });
+    const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ summary: 'חדש' })], nextSyncToken: 'tok-8b' } }] });
+    const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
+    assert.equal(r.updated, 1);
+  });
+
+  test('מחיקה של אירוע שממתין לסיווג: status cancelled בשקט, ולא נכתב ליומן Google', async () => {
     const known = [{ id: importedEventId(G1), external_id: G1, match_key: `gcal-pending:${G1}`, domain: null, status: 'planned', title: 'x', starts_at: FUTURE, ends_at: FUTURE }];
     const sql = db({ known });
     const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ status: 'cancelled' })], nextSyncToken: 'tok-9' } }] });
     const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
-    assert.equal(r.blocked, 1);
-    assert.equal(sql.find('UPDATE events').length, 0);
+    assert.equal(r.cancelled, 1);
+    assert.equal(r.updated, 0);
+    const upd = sql.find('UPDATE events SET status');
+    assert.equal(upd.length, 1);
+    assert.ok(upd[0].values.includes(`gcal-cancelled:${G1}`));
+    assert.equal(eventWrites(fetchFn).length, 0);
+    assert.equal(cards(sql).length, 0);
+  });
+
+  test('מחיקה שאנחנו ביצענו בזמן העברה (gcal-moving): מתעלמים, בלי ביטול', async () => {
+    const known = [{ id: importedEventId(G1), external_id: OWN_HEX, match_key: `gcal-moving:${G1}`, domain: 'personal', status: 'planned', title: 'x', starts_at: FUTURE, ends_at: FUTURE }];
+    const sql = db({ known });
+    const fetchFn = googleFetch({ listQueue: [{ body: { items: [item({ status: 'cancelled' })], nextSyncToken: 'tok-9b' } }] });
+    const r = await syncPrimaryCalendar({ sql, config: CONFIG, fetchFn, nowMs: NOW, classify: classifyAs('personal') });
+    assert.equal(r.cancelled, 0);
+    assert.equal(sql.find('UPDATE events SET status').length, 0);
+    // ההעברה שלנו מסתיימת כרגיל: מחיקה מהראשי (של G) וסימון gcal-moved, בלי ביטול.
+    const del = eventWrites(fetchFn).find((c) => c.options.method === 'DELETE');
+    assert.ok(del && del.url.endsWith(`/events/${G1}`));
   });
 });
 
